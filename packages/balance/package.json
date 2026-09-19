@@ -1,0 +1,8 @@
+{
+  "name": "@idlesuits/balance",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@idlesuits/sim": "*"
+  }
+}
