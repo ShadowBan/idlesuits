@@ -65,9 +65,10 @@ export class Game {
   private resolveWait: ((slot: number) => void) | null = null;
   /** Set by "Flip all": the rest of this hand's cards reveal on their own. */
   private flipRest = false;
+  private disposed = false;
 
   start() {
-    if (this.started) return;
+    if (this.started || this.disposed) return;
     this.started = true;
     void this.loop();
   }
@@ -119,6 +120,17 @@ export class Game {
     resolve?.(value);
   }
 
+  /**
+   * Stops the loop for good. Without this, a hot reload (or anything that
+   * remounts the app) leaves the old game playing sounds with no table.
+   */
+  dispose() {
+    this.disposed = true;
+    this.started = false;
+    this.answer(-1);
+    this.clock.reset();
+  }
+
   restart() {
     this.answer(-1);
     this.clock.reset();
@@ -145,7 +157,7 @@ export class Game {
   }
 
   private async loop() {
-    while (this.started && !this.gameOver) {
+    while (this.started && !this.gameOver && !this.disposed) {
       if (!(await this.playRound())) return;
       if (this.gameOver) return;
       const ok = this.autoPlay ? await this.clock.wait(BETWEEN_ROUNDS_MS) : (await this.waitFor('deal')) >= 0;
@@ -206,23 +218,28 @@ export class Game {
     return true;
   }
 
-  private playSound({ event, drama }: Beat) {
+  /** Called right after the event is shown, so each sound lands with what it describes. */
+  private playSound({ event }: Beat) {
     switch (event.type) {
       case 'CardRevealed': {
+        sfx.flip();
+        if (this.speed === '5x') break;
         const hand = event.hand === 'dealer' ? this.view.dealer : this.view.player;
-        const best = hand.eval?.suitCounts[event.card.suit] ?? 1;
-        const isBest = hand.eval?.suit === event.card.suit && best >= 3;
-        sfx.flip(best);
-        if (isBest && this.speed !== '5x') sfx.suitUp(best);
+        const grew = hand.eval?.suit === event.card.suit && hand.eval.size >= 3;
+        if (grew) (event.hand === 'dealer' ? sfx.dealerSuit : sfx.playerSuit)(hand.eval!.size);
         break;
       }
       case 'RaiseDecided':
         if (event.raise > 0) sfx.chip();
         break;
+      case 'SideBetResolved':
+        if (event.net > 0) sfx.chip();
+        else if (event.owner === 'dealer' && event.net < 0) sfx.lose();
+        break;
       case 'RoundSettled':
         if (event.net >= 10) sfx.bigWin();
-        else if (event.net > 0 && drama !== 'routine') sfx.win();
-        else if (event.net <= -3) sfx.lose();
+        else if (event.net > 0) sfx.win();
+        else if (event.net < 0) sfx.lose();
         break;
     }
   }

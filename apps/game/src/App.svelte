@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onDestroy } from 'svelte';
   import { SUIT_SYMBOL } from '@idlesuits/sim';
   import Breakdown from './components/Breakdown.svelte';
   import HandRow from './components/HandRow.svelte';
@@ -10,6 +11,7 @@
 
   const game = new Game();
   const view = game.view;
+  onDestroy(() => game.dispose());
   const SPEEDS: SpeedMode[] = ['smart', '1x', '2x', '5x'];
   const FLIP_MS: Record<SpeedMode, number> = { smart: 280, '1x': 320, '2x': 200, '5x': 90 };
 
