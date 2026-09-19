@@ -46,6 +46,7 @@ Pay tables beyond 7 cards extrapolate at ×10 per extra card, so any size has a 
 
 ## Card Effects
 
+- **Abilities live on specific special cards only.** A standard card is just a suit and a rank. No suit (or rank) has built-in powers. An effect happens only because that special card is in the shoe and gets dealt, so building a deck means adding and removing those cards.
 - Asymmetric and 8+ card flushes (e.g. Golden Heart counts as two Hearts) are allowed.
 - Effects that choose a card take a configurable **target mode**: `best`, `worst`, `random`, `firstRevealed`, `lastRevealed`, etc.
 - All randomness uses seeded, stream-separated RNG so hands replay exactly.

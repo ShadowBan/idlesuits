@@ -4,6 +4,7 @@
   import BetPanel from './components/BetPanel.svelte';
   import Breakdown from './components/Breakdown.svelte';
   import HandRow from './components/HandRow.svelte';
+  import RulesDialog from './components/RulesDialog.svelte';
   import SideBetTile from './components/SideBetTile.svelte';
   import type { SpeedMode } from './lib/director';
   import { Game } from './lib/game.svelte';
@@ -17,6 +18,7 @@
   const FLIP_MS: Record<SpeedMode, number> = { smart: 280, '1x': 320, '2x': 200, '5x': 90 };
 
   let muted = $state(false);
+  let rulesDialog: RulesDialog;
   $effect(() => setMuted(muted));
 
   const flipMs = $derived(game.speed === 'smart' && view.drama === 'tense' ? 520 : FLIP_MS[game.speed]);
@@ -48,7 +50,7 @@
 
   function onKey(e: KeyboardEvent) {
     const target = e.target as HTMLElement;
-    if (target.closest('input, select, textarea')) return;
+    if (target.closest('input, select, textarea, dialog')) return;
     if (game.awaiting === 'bet') {
       const key = e.key.toLowerCase();
       if (key === 'f' || key === '0') return game.chooseRaise(0);
@@ -62,6 +64,8 @@
 </script>
 
 <svelte:window onkeydown={onKey} />
+
+<RulesDialog bind:this={rulesDialog} rules={game.rules} />
 
 <div class="app">
   <header class="bar">
@@ -79,6 +83,7 @@
     </div>
 
     <div class="actions">
+      <button type="button" onclick={() => rulesDialog.open()}>How to play</button>
       <button type="button" class="auto" aria-pressed={game.autoPlay} onclick={() => game.setAutoPlay(!game.autoPlay)}>
         Auto {game.autoPlay ? 'on' : 'off'}
       </button>
@@ -174,8 +179,9 @@
 
     {#if !game.started}
       <div class="overlay">
-        <p>A standard deck, one dealer, and the house rules of I Luv Suits.</p>
+        <p>Build the biggest flush you can, then see if it beats the dealer's.</p>
         <button type="button" class="primary" onclick={begin}>Take a seat</button>
+        <button type="button" onclick={() => rulesDialog.open()}>How to play</button>
       </div>
     {:else if game.gameOver}
       <div class="overlay">

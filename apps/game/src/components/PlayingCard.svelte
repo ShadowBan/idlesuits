@@ -14,13 +14,8 @@
 
   let { card, highlight = false, dim = false, focus = false, flipMs = 260 }: Props = $props();
 
-  // Keep the last face so the card doesn't blank out while flipping back down.
-  let shown = $state<Card | null>(null);
-  $effect(() => {
-    if (card) shown = card;
-  });
-
-  const red = $derived(shown?.suit === 'H' || shown?.suit === 'D');
+  const SUIT_NAME = { S: 'spades', H: 'hearts', D: 'diamonds', C: 'clubs' } as const;
+  const red = $derived(card?.suit === 'H' || card?.suit === 'D');
 </script>
 
 <div
@@ -33,11 +28,12 @@
 >
   <div class="inner">
     <div class="face back" aria-hidden="true"></div>
-    <div class="face front" class:red aria-label={shown ? `${rankLabel(shown.rank)} of ${shown.suit}` : ''}>
-      {#if shown}
-        <span class="corner">{rankLabel(shown.rank)}<br />{SUIT_SYMBOL[shown.suit]}</span>
-        <span class="pip">{SUIT_SYMBOL[shown.suit]}</span>
-        <span class="corner flip">{rankLabel(shown.rank)}<br />{SUIT_SYMBOL[shown.suit]}</span>
+    <!-- The front is empty while face down, so no old face can ever show through. -->
+    <div class="face front" class:red aria-label={card ? `${rankLabel(card.rank)} of ${SUIT_NAME[card.suit]}` : undefined}>
+      {#if card}
+        <span class="corner">{rankLabel(card.rank)}<br />{SUIT_SYMBOL[card.suit]}</span>
+        <span class="pip">{SUIT_SYMBOL[card.suit]}</span>
+        <span class="corner flip">{rankLabel(card.rank)}<br />{SUIT_SYMBOL[card.suit]}</span>
       {/if}
     </div>
   </div>
@@ -50,7 +46,6 @@
     perspective: 700px;
     transition:
       transform 220ms ease,
-      opacity 220ms ease,
       filter 220ms ease;
     flex: none;
   }
@@ -60,10 +55,11 @@
     height: 100%;
     transform-style: preserve-3d;
     transform: rotateY(180deg);
-    transition: transform var(--flip) cubic-bezier(0.3, 0.7, 0.3, 1);
   }
+  /* Only turning face up animates; a new hand snaps face down instantly. */
   .up .inner {
     transform: rotateY(0deg);
+    transition: transform var(--flip) cubic-bezier(0.3, 0.7, 0.3, 1);
   }
   .face {
     position: absolute;
@@ -113,9 +109,12 @@
     transform: translateY(-8px);
     filter: drop-shadow(0 0 8px var(--glow));
   }
+  /* Darkened, never transparent: cards pass over each other when a hand is arranged. */
   .dim {
-    opacity: 0.5;
     transform: scale(0.94);
+  }
+  .dim .front {
+    filter: saturate(0.35) brightness(0.62);
   }
   .focus {
     transform: translateY(-14px) scale(1.08);

@@ -85,7 +85,7 @@ export class Game {
   history = $state<HistoryEntry[]>([]);
 
   /** Off: the player deals each hand and flips their own cards. */
-  autoPlay = $state(true);
+  autoPlay = $state(false);
   /** What the game is waiting on the player for, if anything. */
   awaiting = $state<'flip' | 'bet' | 'deal' | null>(null);
   /** While awaiting 'bet': the most the player may raise, and what their plan would do. */
