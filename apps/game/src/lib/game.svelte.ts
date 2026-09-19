@@ -1,10 +1,13 @@
+import type { BatchStats } from '@idlesuits/balance';
 import {
   buildShoe,
   DEFAULT_RULES,
-  OPTIMAL_BASE_POLICY,
+  maxRaise,
   simulateRound,
   standardDeck,
   type Card,
+  type RaisePolicy,
+  type SeatConfig,
   type Suit,
   type TableRules,
 } from '@idlesuits/sim';
@@ -16,6 +19,27 @@ import { TableView } from './table.svelte';
 
 const STARTING_BANK = 500;
 const STARTING_ANTE = 5;
+const ESTIMATE_HANDS = 40_000;
+
+/** Flush sizes the raise plan has a row for; the last row covers that size and up. */
+export const PLAN_SIZES = [2, 3, 4, 5, 6] as const;
+
+export interface RaisePlan {
+  /** Flush size → raise in antes (0 = fold). */
+  raises: Record<number, number>;
+  /** 3-card flushes fold unless 10-8-6 or better. */
+  threeCardMinimum: boolean;
+}
+
+/** Matches optimal play for the base game. */
+const DEFAULT_PLAN: RaisePlan = { raises: { 2: 0, 3: 1, 4: 1, 5: 2, 6: 3 }, threeCardMinimum: true };
+
+export interface Estimate {
+  /** Expected result per hand, in dollars at the current bets. */
+  perHand: Decimal;
+  /** As a fraction of everything wagered per hand on average. */
+  perWagered: number;
+}
 
 export interface HistoryEntry {
   round: number;
@@ -47,7 +71,10 @@ export class Game {
   paused = $state(false);
   gameOver = $state(false);
   speed = $state<SpeedMode>('smart');
-  claims = $state<Record<string, boolean>>({ flushRush: true, superFlushRush: false });
+  /** Dollar stake per side bet; zero means not claimed. Independent of the ante. */
+  sideStakes = $state<Record<string, Decimal>>({ flushRush: new Decimal(STARTING_ANTE), superFlushRush: new Decimal(0) });
+  raisePlan = $state<RaisePlan>(structuredClone(DEFAULT_PLAN));
+  estimate = $state<Estimate | null>(null);
   /** Dev toggle: the dealer takes any side bet the player leaves open. */
   dealerClaims = $state(false);
 
@@ -60,11 +87,16 @@ export class Game {
   /** Off: the player deals each hand and flips their own cards. */
   autoPlay = $state(true);
   /** What the game is waiting on the player for, if anything. */
-  awaiting = $state<'flip' | 'deal' | null>(null);
+  awaiting = $state<'flip' | 'bet' | 'deal' | null>(null);
+  /** While awaiting 'bet': the most the player may raise, and what their plan would do. */
+  betChoice = $state<{ cap: number; suggested: number } | null>(null);
   private resolveWait: ((slot: number) => void) | null = null;
   /** Set by "Flip all": the rest of this hand's cards reveal on their own. */
   private flipRest = false;
   private disposed = false;
+  private estimator: Worker | null = null;
+  private estimateId = 0;
+  private pendingEstimate: { id: number; ante: Decimal } | null = null;
 
   start() {
     if (this.started || this.disposed) return;
@@ -79,7 +111,15 @@ export class Game {
 
   setAutoPlay(on: boolean) {
     this.autoPlay = on;
-    if (on) this.answer(this.awaiting === 'flip' ? this.nextFaceDown() : 0);
+    if (!on) return;
+    if (this.awaiting === 'flip') this.answer(this.nextFaceDown());
+    else if (this.awaiting === 'bet') this.answer(this.betChoice!.suggested);
+    else this.answer(0);
+  }
+
+  /** Player's own raise decision in manual play; 0 folds. */
+  chooseRaise(raise: number) {
+    if (this.awaiting === 'bet' && raise >= 0 && raise <= this.betChoice!.cap) this.answer(raise);
   }
 
   /** Player clicked a face-down card of theirs. */
@@ -97,9 +137,10 @@ export class Game {
     if (this.awaiting === 'deal') this.answer(0);
   }
 
-  /** Space/Enter: flip the next card, or deal. */
+  /** Space/Enter: flip the next card, take the plan's bet, or deal. */
   advance() {
     if (this.awaiting === 'flip') this.flip(this.nextFaceDown());
+    else if (this.awaiting === 'bet') this.chooseRaise(this.betChoice!.suggested);
     else this.deal();
   }
 
@@ -107,7 +148,7 @@ export class Game {
     return this.view.player.cards.findIndex((c) => c === null);
   }
 
-  private waitFor(kind: 'flip' | 'deal'): Promise<number> {
+  private waitFor(kind: 'flip' | 'bet' | 'deal'): Promise<number> {
     this.awaiting = kind;
     return new Promise((resolve) => (this.resolveWait = resolve));
   }
@@ -125,6 +166,7 @@ export class Game {
    */
   dispose() {
     this.disposed = true;
+    this.estimator?.terminate();
     this.started = false;
     this.answer(-1);
     this.clock.reset();
@@ -137,6 +179,7 @@ export class Game {
     this.round = 0;
     this.bank = new Decimal(STARTING_BANK);
     this.ante = new Decimal(STARTING_ANTE);
+    this.sideStakes = { flushRush: new Decimal(STARTING_ANTE), superFlushRush: new Decimal(0) };
     this.hands = 0;
     this.sessionNet = new Decimal(0);
     this.biggestWin = new Decimal(0);
@@ -155,6 +198,82 @@ export class Game {
     this.ante = next.gt(this.bank) ? this.bank.floor().max(1) : next;
   }
 
+  /** Halve or double a side bet. Below $1 turns it off; raising from off starts at the ante. */
+  changeSideStake(id: string, factor: number) {
+    const current = this.sideStakes[id] ?? new Decimal(0);
+    let next = current.eq(0) ? (factor > 1 ? this.ante : current) : current.mul(factor).floor();
+    if (next.lt(1)) next = new Decimal(0);
+    this.sideStakes[id] = next.gt(this.bank) ? this.bank.floor() : next;
+  }
+
+  setPlanRaise(size: number, raise: number) {
+    this.raisePlan.raises[size] = raise;
+  }
+
+  /** The most a single hand can cost from the main bet and your own side bets. */
+  get maxAtRisk(): Decimal {
+    // In manual play the player may raise to the table maximum whatever the plan says.
+    const topRaise = this.autoPlay ? Math.max(...Object.values(this.raisePlan.raises)) : 3;
+    return Object.values(this.sideStakes).reduce((sum, s) => sum.add(s), this.ante.mul(1 + topRaise));
+  }
+
+  planPolicy(): RaisePolicy {
+    return {
+      kind: 'bySize',
+      raises: { ...this.raisePlan.raises },
+      minRanks: this.raisePlan.threeCardMinimum ? [10, 8, 6] : undefined,
+    };
+  }
+
+  private tableRules(): TableRules {
+    return { ...this.rules, unclaimedOwner: this.dealerClaims ? 'dealer' : 'none' };
+  }
+
+  /** The seat as the simulator sees it: side-bet stakes are expressed in antes. */
+  private seat(raisePolicy: RaisePolicy, ante: Decimal): SeatConfig {
+    const sideBets: Record<string, number> = {};
+    for (const [id, stake] of Object.entries(this.sideStakes)) {
+      if (stake.gt(0)) sideBets[id] = stake.div(ante).toNumber();
+    }
+    return { raisePolicy, sideBets };
+  }
+
+  /**
+   * Simulates the current bets on many hands (in a worker) to show what they
+   * are worth. A fixed seed means two settings are compared on the same hands.
+   */
+  refreshEstimate() {
+    if (this.disposed) return;
+    this.estimator ??= this.createEstimator();
+    const ante = this.ante;
+    const id = ++this.estimateId;
+    const input = {
+      shoe: this.shoe,
+      seat: this.seat(this.planPolicy(), ante),
+      rules: this.tableRules(),
+      runSeed: 'estimate',
+      dealerId: 'standard',
+      hands: ESTIMATE_HANDS,
+    };
+    this.pendingEstimate = { id, ante };
+    this.estimator.postMessage({ id, input: $state.snapshot(input) });
+  }
+
+  private createEstimator(): Worker {
+    const worker = new Worker(new URL('./estimate.worker.ts', import.meta.url), { type: 'module' });
+    worker.addEventListener('message', (e: MessageEvent<{ id: number; stats: BatchStats }>) => {
+      const pending = this.pendingEstimate;
+      if (!pending || e.data.id !== pending.id) return; // a newer request is on its way
+      const { stats } = e.data;
+      const sideStaked = Object.values(stats.sideBets).reduce((sum, b) => sum + (b.owner === 'player' ? b.staked : 0), 0);
+      this.estimate = {
+        perHand: pending.ante.mul(stats.net / stats.hands),
+        perWagered: stats.net / (stats.mainWagered + sideStaked),
+      };
+    });
+    return worker;
+  }
+
   private async loop() {
     while (this.started && !this.gameOver && !this.disposed) {
       const drama = await this.playRound();
@@ -166,22 +285,42 @@ export class Game {
 
   /** Plays one round; returns how dramatic its result was, or null if the game was reset mid-round. */
   private async playRound(): Promise<Drama | null> {
-    const rules = { ...this.rules, unclaimedOwner: this.dealerClaims ? ('dealer' as const) : ('none' as const) };
-    const sideBets = Object.fromEntries(Object.entries(this.claims).filter(([, on]) => on).map(([id]) => [id, 1]));
-    const result = simulateRound({
-      shoe: this.shoe,
-      seats: [{ raisePolicy: OPTIMAL_BASE_POLICY, sideBets }],
-      rules,
-      seed: { run: this.runSeed, dealerId: 'standard', round: this.round },
-      recordEvents: true,
-    });
+    const rules = this.tableRules();
     const ante = this.ante;
+    // Bets are fixed when the hand is dealt; later edits apply to the next hand.
+    const seatConfig = this.seat(this.planPolicy(), ante);
+    const simulate = (raisePolicy: RaisePolicy) =>
+      simulateRound({
+        shoe: this.shoe,
+        seats: [{ ...seatConfig, raisePolicy }],
+        rules,
+        seed: { run: this.runSeed, dealerId: 'standard', round: this.round },
+        recordEvents: true,
+      });
+    let result = simulate(seatConfig.raisePolicy);
     this.roundAnte = ante;
     this.flipRest = false;
 
-    const beats = direct(result);
-    for (const beat of beats) {
+    let beats = direct(result);
+    for (let i = 0; i < beats.length; i++) {
+      const beat = beats[i]!;
       const { event, drama } = beat;
+
+      if (event.type === 'RaiseDecided' && event.seat === 0 && !this.autoPlay) {
+        this.betChoice = { cap: maxRaise(rules.raiseCaps, this.view.player.eval!.size), suggested: event.raise };
+        const raise = await this.waitFor('bet');
+        this.betChoice = null;
+        if (raise < 0) return null;
+        if (raise !== event.raise) {
+          // Same seed, so the same cards; everything up to this beat is unchanged.
+          result = simulate({ kind: 'fixed', raise });
+          beats = direct(result);
+        }
+        this.view.apply(beats[i]!.event);
+        this.playSound(beats[i]!);
+        continue;
+      }
+
       const byHand = event.type === 'CardRevealed' && event.hand === 0 && !this.autoPlay && !this.flipRest;
 
       if (byHand) {

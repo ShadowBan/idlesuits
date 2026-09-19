@@ -1,12 +1,13 @@
 <script lang="ts">
   import { onDestroy } from 'svelte';
   import { SUIT_SYMBOL } from '@idlesuits/sim';
+  import BetPanel from './components/BetPanel.svelte';
   import Breakdown from './components/Breakdown.svelte';
   import HandRow from './components/HandRow.svelte';
   import SideBetTile from './components/SideBetTile.svelte';
   import type { SpeedMode } from './lib/director';
   import { Game } from './lib/game.svelte';
-  import { formatMoney } from './lib/money';
+  import { Decimal, formatMoney } from './lib/money';
   import { setMuted, unlockAudio } from './lib/sound';
 
   const game = new Game();
@@ -33,10 +34,28 @@
     game.start();
   }
 
+  // Re-estimate whenever a bet changes; debounced so clicking through steps stays cheap.
+  $effect(() => {
+    const key = JSON.stringify([
+      game.ante.toString(),
+      Object.entries(game.sideStakes).map(([id, s]) => [id, s.toString()]),
+      game.raisePlan,
+      game.dealerClaims,
+    ]);
+    const timer = setTimeout(() => key && game.refreshEstimate(), 250);
+    return () => clearTimeout(timer);
+  });
+
   function onKey(e: KeyboardEvent) {
-    if (e.key !== ' ' && e.key !== 'Enter') return;
     const target = e.target as HTMLElement;
-    if (target.closest('button, input, select, textarea, a')) return;
+    if (target.closest('input, select, textarea')) return;
+    if (game.awaiting === 'bet') {
+      const key = e.key.toLowerCase();
+      if (key === 'f' || key === '0') return game.chooseRaise(0);
+      if (/^[1-9]$/.test(key)) return game.chooseRaise(Number(key));
+    }
+    if (e.key !== ' ' && e.key !== 'Enter') return;
+    if (target.closest('button, a')) return;
     e.preventDefault();
     game.advance();
   }
@@ -51,15 +70,6 @@
     <div class="stat bank">
       <span class="k">Bank</span>
       <span class="v">{formatMoney(game.bank)}</span>
-    </div>
-
-    <div class="stat">
-      <span class="k">Ante</span>
-      <span class="ante">
-        <button type="button" onclick={() => game.changeAnte(0.5)} aria-label="Halve ante">−</button>
-        <span class="v">{formatMoney(game.ante)}</span>
-        <button type="button" onclick={() => game.changeAnte(2)} aria-label="Double ante">+</button>
-      </span>
     </div>
 
     <div class="speed" role="group" aria-label="Reveal speed">
@@ -101,10 +111,9 @@
           <SideBetTile
             {def}
             view={view.sideBets.find((b) => b.def.id === def.id)}
-            claimed={game.claims[def.id] ?? false}
+            nextStake={game.sideStakes[def.id] ?? new Decimal(0)}
             dealerClaims={game.dealerClaims}
             ante={game.roundAnte}
-            onToggle={() => (game.claims[def.id] = !game.claims[def.id])}
           />
         {/each}
       </div>
@@ -139,7 +148,22 @@
     />
 
     <div class="prompt">
-      {#if game.awaiting === 'flip'}
+      {#if game.awaiting === 'bet' && game.betChoice}
+        {@const choice = game.betChoice}
+        <span class="hint">Your bet</span>
+        <div class="bet-choice" role="group" aria-label="Fold or raise">
+          {#each Array.from({ length: choice.cap + 1 }, (_, i) => i) as raise (raise)}
+            <button
+              type="button"
+              class:suggested={raise === choice.suggested}
+              onclick={() => game.chooseRaise(raise)}
+            >
+              {#if raise === 0}Fold <kbd>F</kbd>{:else}Raise {raise}× {formatMoney(game.roundAnte.mul(raise))} <kbd>{raise}</kbd>{/if}
+            </button>
+          {/each}
+        </div>
+        <span class="hint">Plan says {choice.suggested === 0 ? 'fold' : `${choice.suggested}×`} <kbd>Space</kbd></span>
+      {:else if game.awaiting === 'flip'}
         <span class="hint">Click your cards to turn them over <kbd>Space</kbd></span>
         <button type="button" onclick={() => game.flipAll()}>Flip all</button>
       {:else if game.awaiting === 'deal'}
@@ -163,6 +187,8 @@
   </main>
 
   <aside class="side">
+    <BetPanel {game} />
+
     <section>
       <h2>Last hand</h2>
       <Breakdown lines={view.last?.lines ?? []} net={view.last?.net ?? null} ante={game.lastAnte} />
@@ -259,16 +285,6 @@
   .bank .v {
     color: var(--gold);
     font-size: 22px;
-  }
-  .ante {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-  }
-  .ante button {
-    width: 24px;
-    height: 24px;
-    padding: 0;
   }
   .speed {
     display: flex;
@@ -373,6 +389,22 @@
     justify-content: center;
     gap: 12px;
     min-height: 50px;
+  }
+  .bet-choice {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  .bet-choice button {
+    font: 600 15px/1 var(--font-display);
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    padding: 10px 14px;
+  }
+  .bet-choice button.suggested {
+    border-color: var(--gold);
+    box-shadow: 0 0 0 1px var(--gold);
   }
   .hint {
     color: var(--muted);

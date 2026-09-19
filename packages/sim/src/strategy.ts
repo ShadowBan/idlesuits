@@ -5,8 +5,14 @@ import { compareFlush, type HandEval } from './evaluate';
 export type RaisePolicy =
   /** Max raise with `minSize`+ flushes; at exactly `threshold.length` cards, max raise if at least `threshold`. */
   | { kind: 'threshold'; minSize: number; threshold: Rank[] }
-  /** Fixed multiplier per flush size (clamped to the cap); missing sizes fold. */
-  | { kind: 'bySize'; raises: Record<number, number> }
+  /**
+   * Raise per flush size (clamped to the cap). A size with no entry uses the
+   * largest listed size below it, so `6` also covers 7+. Hands of exactly
+   * `minRanks.length` cards fold unless they reach `minRanks`.
+   */
+  | { kind: 'bySize'; raises: Record<number, number>; minRanks?: Rank[] }
+  /** A decision already made, e.g. by the player clicking a button. */
+  | { kind: 'fixed'; raise: number }
   | { kind: 'alwaysMax' };
 
 /**
@@ -20,8 +26,15 @@ export function decideRaise(policy: RaisePolicy, hand: HandEval, cap: number): n
   switch (policy.kind) {
     case 'alwaysMax':
       return cap;
-    case 'bySize':
-      return Math.min(cap, policy.raises[hand.size] ?? 0);
+    case 'fixed':
+      return Math.max(0, Math.min(cap, policy.raise));
+    case 'bySize': {
+      const { minRanks } = policy;
+      if (minRanks && hand.size === minRanks.length && compareFlush(hand, { size: hand.size, ranks: minRanks }) < 0) return 0;
+      const sizes = Object.keys(policy.raises).map(Number).filter((n) => n <= hand.size);
+      if (sizes.length === 0) return 0;
+      return Math.min(cap, policy.raises[Math.max(...sizes)]!);
+    }
     case 'threshold': {
       if (hand.size >= policy.minSize) return cap;
       if (hand.size !== policy.threshold.length) return 0;

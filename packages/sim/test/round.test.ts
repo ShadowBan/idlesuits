@@ -11,6 +11,7 @@ import {
   standardDeck,
   FLUSH_RUSH,
   DEFAULT_RAISE_CAPS,
+  decideRaise,
   type RoundInput,
 } from '../src';
 
@@ -79,5 +80,33 @@ describe('scale tables', () => {
     expect(lookupScale(FLUSH_RUSH.pays, 9)).toBe(30000);
     expect(maxRaise(DEFAULT_RAISE_CAPS, 5)).toBe(2);
     expect(maxRaise(DEFAULT_RAISE_CAPS, 9)).toBe(5);
+  });
+});
+
+describe('raise policies', () => {
+  const plan = { kind: 'bySize' as const, raises: { 2: 0, 3: 1, 4: 1, 5: 2, 6: 3 }, minRanks: [10, 8, 6] };
+
+  it('the default bySize plan makes the same decisions as the optimal policy', () => {
+    for (let round = 0; round < 3000; round++) {
+      const a = simulateRound(input(round, { seats: [{ raisePolicy: plan, sideBets: {} }] }));
+      const b = simulateRound(input(round, { seats: [{ raisePolicy: OPTIMAL_BASE_POLICY, sideBets: {} }] }));
+      expect(a.seats[0]!.raise).toBe(b.seats[0]!.raise);
+    }
+  });
+
+  it('uses the largest listed size for bigger flushes and clamps to the cap', () => {
+    const hand = (size: number) => ({ suit: 'H' as const, size, ranks: Array(size).fill(14), suitCounts: { S: 0, H: size, D: 0, C: 0 }, straightFlush: 1 });
+    expect(decideRaise(plan, hand(7), 3)).toBe(3);
+    expect(decideRaise({ kind: 'bySize', raises: { 4: 3 } }, hand(4), 1)).toBe(1);
+    expect(decideRaise({ kind: 'bySize', raises: { 4: 1 } }, hand(3), 1)).toBe(0);
+  });
+
+  it('a fixed decision replays the same cards with a different bet', () => {
+    const folded = simulateRound(input(9, { seats: [{ raisePolicy: { kind: 'fixed', raise: 0 }, sideBets: {} }] }));
+    const raised = simulateRound(input(9, { seats: [{ raisePolicy: { kind: 'fixed', raise: 1 }, sideBets: {} }] }));
+    expect(raised.seats[0]!.cards).toEqual(folded.seats[0]!.cards);
+    expect(raised.dealerCards).toEqual(folded.dealerCards);
+    expect(folded.seats[0]!.outcome).toBe('fold');
+    expect(raised.seats[0]!.raise).toBe(1);
   });
 });

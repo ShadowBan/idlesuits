@@ -6,16 +6,16 @@
   interface Props {
     def: SideBetDef;
     view: SideBetView | undefined;
-    claimed: boolean;
+    /** Stake set for the next hand; zero leaves the bet unclaimed. */
+    nextStake: Decimal;
     dealerClaims: boolean;
     ante: Decimal;
-    onToggle: () => void;
   }
 
-  let { def, view, claimed, dealerClaims, ante, onToggle }: Props = $props();
+  let { def, view, nextStake, dealerClaims, ante }: Props = $props();
 
+  const claimed = $derived(nextStake.gt(0));
   const owner = $derived(view?.owner ?? (claimed ? 'player' : dealerClaims ? 'dealer' : 'none'));
-  const nextOwner = $derived(claimed ? 'player' : dealerClaims ? 'dealer' : 'none');
   const pct = $derived(view ? Math.min(1, view.progress / view.target) : 0);
   const hot = $derived(view && view.owner !== 'none' && view.net === null && view.progress >= view.target - 1);
   const paysSummary = $derived(
@@ -28,7 +28,9 @@
 <article class="tile {owner}" class:hot class:hit={view?.livePays && view.owner !== 'none'}>
   <header>
     <h3>{def.name}</h3>
-    <span class="owner">{owner === 'none' ? 'Open' : owner}</span>
+    <span class="owner">
+      {owner === 'none' ? 'Open' : owner}{#if view && view.owner !== 'none'}&nbsp;· {formatMoney(ante.mul(view.stake))}{/if}
+    </span>
   </header>
 
   {#if view && view.owner !== 'none'}
@@ -49,10 +51,10 @@
     </p>
   {/if}
 
-  <button type="button" onclick={onToggle} aria-pressed={claimed}>
-    {claimed ? 'Claimed' : 'Claim'} next hand
-    <span class="muted">({nextOwner === 'player' ? 'you' : nextOwner === 'dealer' ? 'dealer' : 'nobody'})</span>
-  </button>
+  <p class="next muted">
+    Next hand:
+    {#if claimed}<b>{formatMoney(nextStake)}</b> yours{:else if dealerClaims}dealer claims it{:else}open{/if}
+  </p>
 </article>
 
 <style>
@@ -127,18 +129,10 @@
   .loss {
     color: var(--loss);
   }
-  button {
-    justify-self: start;
-    font: 500 12px/1 var(--font-ui);
-    padding: 6px 8px;
-    border-radius: 6px;
-    border: 1px solid var(--line);
-    background: transparent;
-    color: var(--ink);
-    cursor: pointer;
+  .next {
+    font-size: 12px;
   }
-  button[aria-pressed='true'] {
-    background: color-mix(in srgb, var(--player) 25%, transparent);
-    border-color: var(--player);
+  .next b {
+    color: var(--player);
   }
 </style>
