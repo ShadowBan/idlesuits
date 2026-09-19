@@ -58,6 +58,14 @@ export class Game {
   flushCounts = $state<Record<number, number>>({});
   history = $state<HistoryEntry[]>([]);
 
+  /** Off: the player deals each hand and flips their own cards. */
+  autoPlay = $state(true);
+  /** What the game is waiting on the player for, if anything. */
+  awaiting = $state<'flip' | 'deal' | null>(null);
+  private resolveWait: ((slot: number) => void) | null = null;
+  /** Set by "Flip all": the rest of this hand's cards reveal on their own. */
+  private flipRest = false;
+
   start() {
     if (this.started) return;
     this.started = true;
@@ -69,7 +77,50 @@ export class Game {
     this.clock.paused = this.paused;
   }
 
+  setAutoPlay(on: boolean) {
+    this.autoPlay = on;
+    if (on) this.answer(this.awaiting === 'flip' ? this.nextFaceDown() : 0);
+  }
+
+  /** Player clicked a face-down card of theirs. */
+  flip(slot: number) {
+    if (this.awaiting === 'flip' && this.view.player.cards[slot] === null) this.answer(slot);
+  }
+
+  flipAll() {
+    if (this.awaiting !== 'flip') return;
+    this.flipRest = true;
+    this.answer(this.nextFaceDown());
+  }
+
+  deal() {
+    if (this.awaiting === 'deal') this.answer(0);
+  }
+
+  /** Space/Enter: flip the next card, or deal. */
+  advance() {
+    if (this.awaiting === 'flip') this.flip(this.nextFaceDown());
+    else this.deal();
+  }
+
+  private nextFaceDown(): number {
+    return this.view.player.cards.findIndex((c) => c === null);
+  }
+
+  private waitFor(kind: 'flip' | 'deal'): Promise<number> {
+    this.awaiting = kind;
+    return new Promise((resolve) => (this.resolveWait = resolve));
+  }
+
+  private answer(value: number) {
+    const resolve = this.resolveWait;
+    this.resolveWait = null;
+    this.awaiting = null;
+    resolve?.(value);
+  }
+
   restart() {
+    this.answer(-1);
     this.clock.reset();
     this.runSeed = newSeed();
     this.round = 0;
@@ -96,7 +147,9 @@ export class Game {
   private async loop() {
     while (this.started && !this.gameOver) {
       if (!(await this.playRound())) return;
-      if (!(await this.clock.wait(BETWEEN_ROUNDS_MS))) return;
+      if (this.gameOver) return;
+      const ok = this.autoPlay ? await this.clock.wait(BETWEEN_ROUNDS_MS) : (await this.waitFor('deal')) >= 0;
+      if (!ok) return;
     }
   }
 
@@ -113,12 +166,26 @@ export class Game {
     });
     const ante = this.ante;
     this.roundAnte = ante;
+    this.flipRest = false;
 
     for (const beat of direct(result)) {
-      this.view.anticipate(beat.event, beat.drama);
-      if (beat.drama === 'tense' && beat.event.type === 'CardRevealed' && this.speed === 'smart') sfx.tension();
-      if (!(await this.clock.wait(beatDelay(beat, this.speed)))) return false;
-      this.view.apply(beat.event);
+      const { event, drama } = beat;
+      const byHand = event.type === 'CardRevealed' && event.hand === 0 && !this.autoPlay && !this.flipRest;
+
+      if (byHand) {
+        // The player picks the slot; the card is still the next one in deal order,
+        // so reveal order (and any future reveal effects) never depends on clicks.
+        this.view.player.eager = drama === 'tense';
+        if (drama === 'tense') sfx.tension();
+        const slot = await this.waitFor('flip');
+        if (slot < 0) return false;
+        this.view.apply(event, slot);
+      } else {
+        this.view.anticipate(event, drama);
+        if (drama === 'tense' && event.type === 'CardRevealed' && this.speed === 'smart') sfx.tension();
+        if (!(await this.clock.wait(beatDelay(beat, this.speed)))) return false;
+        this.view.apply(event);
+      }
       this.playSound(beat);
     }
 

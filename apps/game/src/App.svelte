@@ -30,7 +30,17 @@
     unlockAudio();
     game.start();
   }
+
+  function onKey(e: KeyboardEvent) {
+    if (e.key !== ' ' && e.key !== 'Enter') return;
+    const target = e.target as HTMLElement;
+    if (target.closest('button, input, select, textarea, a')) return;
+    e.preventDefault();
+    game.advance();
+  }
 </script>
+
+<svelte:window onkeydown={onKey} />
 
 <div class="app">
   <header class="bar">
@@ -57,6 +67,9 @@
     </div>
 
     <div class="actions">
+      <button type="button" class="auto" aria-pressed={game.autoPlay} onclick={() => game.setAutoPlay(!game.autoPlay)}>
+        Auto {game.autoPlay ? 'on' : 'off'}
+      </button>
       <button type="button" onclick={() => game.togglePause()} disabled={!game.started}>
         {game.paused ? 'Resume' : 'Pause'}
       </button>
@@ -103,7 +116,23 @@
       </div>
     </div>
 
-    <HandRow title="You" hand={view.player} side="player" {flipMs} />
+    <HandRow
+      title="You"
+      hand={view.player}
+      side="player"
+      {flipMs}
+      onFlip={game.awaiting === 'flip' ? (slot) => game.flip(slot) : undefined}
+    />
+
+    <div class="prompt">
+      {#if game.awaiting === 'flip'}
+        <span class="hint">Click your cards to turn them over <kbd>Space</kbd></span>
+        <button type="button" onclick={() => game.flipAll()}>Flip all</button>
+      {:else if game.awaiting === 'deal'}
+        <button type="button" class="primary" onclick={() => game.deal()}>Deal</button>
+        <span class="hint"><kbd>Space</kbd></span>
+      {/if}
+    </div>
 
     {#if !game.started}
       <div class="overlay">
@@ -323,6 +352,29 @@
       transform: scale(0.6);
       opacity: 0;
     }
+  }
+  .prompt {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    min-height: 50px;
+  }
+  .hint {
+    color: var(--muted);
+    font-size: 13px;
+  }
+  kbd {
+    font: 600 11px/1 var(--font-ui);
+    padding: 3px 6px;
+    margin-left: 4px;
+    border: 1px solid var(--line);
+    border-bottom-width: 2px;
+    border-radius: 4px;
+  }
+  .auto[aria-pressed='true'] {
+    border-color: var(--gold);
+    color: var(--gold);
   }
   .badge {
     font: 700 11px/1 var(--font-ui);

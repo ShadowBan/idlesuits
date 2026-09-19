@@ -10,14 +10,15 @@
     side: 'player' | 'dealer';
     flipMs: number;
     badge?: Snippet;
+    /** Set when the player may turn over their own face-down cards. */
+    onFlip?: (slot: number) => void;
   }
 
-  let { title, hand, side, flipMs, badge }: Props = $props();
+  let { title, hand, side, flipMs, badge, onFlip }: Props = $props();
 
-  const revealed = $derived(hand.cards.filter((c) => c !== null).length);
   const lead = $derived(hand.eval && hand.eval.size >= 3 ? hand.eval.suit : null);
   const label = $derived.by(() => {
-    if (!hand.eval || revealed === 0) return '';
+    if (!hand.eval || hand.eval.size < 2) return '';
     const { size, suit, ranks } = hand.eval;
     return `${size}-card ${SUIT_SYMBOL[suit]} flush · ${ranks.map(rankLabel).join('-')}`;
   });
@@ -32,13 +33,30 @@
 
   <div class="cards">
     {#each hand.cards as card, i (i)}
-      <PlayingCard
-        {card}
-        {flipMs}
-        highlight={lead !== null && card?.suit === lead}
-        dim={lead !== null && card?.suit !== lead}
-        focus={hand.focus === i}
-      />
+      {@const clickable = onFlip !== undefined && card === null}
+      {#snippet face()}
+        <PlayingCard
+          {card}
+          {flipMs}
+          highlight={lead !== null && card?.suit === lead}
+          dim={lead !== null && card?.suit !== lead}
+          focus={hand.focus === i || (hand.eager && card === null)}
+        />
+      {/snippet}
+      {#if side === 'player'}
+        <button
+          type="button"
+          class="slot"
+          class:clickable
+          disabled={!clickable}
+          aria-label={clickable ? `Reveal card ${i + 1}` : undefined}
+          onclick={() => onFlip?.(i)}
+        >
+          {@render face()}
+        </button>
+      {:else}
+        <div class="slot">{@render face()}</div>
+      {/if}
     {/each}
   </div>
 
@@ -94,6 +112,22 @@
     display: flex;
     gap: var(--card-gap);
     padding-top: 14px;
+  }
+  .slot {
+    all: unset;
+    display: block;
+    border-radius: calc(var(--card-w) * 0.1);
+  }
+  .slot.clickable {
+    cursor: pointer;
+    transition: transform 150ms ease;
+  }
+  .slot.clickable:hover {
+    transform: translateY(-6px);
+  }
+  .slot:focus-visible {
+    outline: 2px solid var(--gold);
+    outline-offset: 3px;
   }
   .counters {
     display: flex;

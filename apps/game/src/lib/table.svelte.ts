@@ -35,16 +35,20 @@ export class HandView {
   eval = $state<HandEval | null>(null);
   /** Index of the face-down card the director is building tension on. */
   focus = $state<number | null>(null);
+  /** Manual play: every face-down card pulses because the next flip could matter. */
+  eager = $state(false);
 
   reset(size: number) {
     this.cards = Array(size).fill(null);
     this.eval = null;
     this.focus = null;
+    this.eager = false;
   }
 
   reveal(index: number, card: Card) {
     this.cards[index] = card;
     this.focus = null;
+    this.eager = false;
     this.eval = evaluateHand(this.cards.filter((c): c is Card => c !== null));
   }
 }
@@ -99,7 +103,8 @@ export class TableView {
     }
   }
 
-  apply(event: GameEvent) {
+  /** `slot` places a player's card where they clicked instead of at its deal index. */
+  apply(event: GameEvent, slot?: number) {
     switch (event.type) {
       case 'RoundStarted':
         this.player.reset(7);
@@ -120,7 +125,7 @@ export class TableView {
       }
       case 'CardRevealed':
         if (event.hand === 'dealer') this.dealer.reveal(event.index, event.card);
-        else if (event.hand === this.seat) this.player.reveal(event.index, event.card);
+        else if (event.hand === this.seat) this.player.reveal(slot ?? event.index, event.card);
         this.refreshSideBets();
         break;
       case 'RaiseDecided':
