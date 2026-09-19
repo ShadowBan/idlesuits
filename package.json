@@ -3,12 +3,15 @@
   "private": true,
   "type": "module",
   "workspaces": [
-    "packages/*"
+    "packages/*",
+    "apps/*"
   ],
   "scripts": {
     "test": "vitest run",
-    "typecheck": "tsc -p packages/sim && tsc -p packages/balance",
-    "balance": "tsx packages/balance/src/cli.ts"
+    "typecheck": "tsc -p packages/sim && tsc -p packages/balance && npm run check -w @idlesuits/game",
+    "balance": "tsx packages/balance/src/cli.ts",
+    "dev": "npm run dev -w @idlesuits/game",
+    "build": "npm run build -w @idlesuits/game"
   },
   "devDependencies": {
     "@types/node": "^26.6.2",

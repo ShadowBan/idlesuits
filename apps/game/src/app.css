@@ -1,0 +1,91 @@
+@import url('https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap');
+
+:root {
+  --font-display: 'Oswald', 'Arial Narrow', sans-serif;
+  --font-ui: 'Inter', system-ui, sans-serif;
+
+  --felt: #15543f;
+  --felt-deep: #0b2c22;
+  --rail: #1a1512;
+  --ink: #f3efe6;
+  --muted: #9db3a8;
+  --line: #3d4a44;
+  --chip-bg: rgb(0 0 0 / 0.3);
+  --gold: #e8b64c;
+  --glow: rgb(232 182 76 / 0.75);
+
+  --player: #5cc8ff;
+  --dealer: #ff7a66;
+  --win: #6be08f;
+  --loss: #ff6b6b;
+
+  --card-face: #faf6ec;
+  --card-back: #8c2330;
+  --card-red: #c62f3a;
+  --card-black: #1d1d22;
+  --suit-red-soft: #f08a91;
+
+  --card-w: clamp(40px, 9vw, 84px);
+  --card-gap: clamp(4px, 1vw, 10px);
+
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: #0d0b0a;
+  color: var(--ink);
+  font-family: var(--font-ui);
+}
+
+button {
+  font: 500 13px/1 var(--font-ui);
+  padding: 7px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: rgb(255 255 255 / 0.04);
+  color: var(--ink);
+  cursor: pointer;
+}
+
+button:hover:not(:disabled) {
+  background: rgb(255 255 255 / 0.1);
+}
+
+button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+button:focus-visible,
+input:focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: 2px;
+}
+
+button.primary {
+  font: 700 18px/1 var(--font-display);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 14px 28px;
+  background: var(--gold);
+  color: var(--felt-deep);
+  border: 0;
+}
+
+button.primary:hover {
+  background: #f3c865;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 1ms !important;
+    transition-duration: 1ms !important;
+  }
+}
