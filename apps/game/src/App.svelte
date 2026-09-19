@@ -80,7 +80,14 @@
   </header>
 
   <main class="felt" data-drama={view.drama}>
-    <HandRow title="Dealer" hand={view.dealer} side="dealer" {flipMs}>
+    <HandRow
+      title="Dealer"
+      hand={view.dealer}
+      side="dealer"
+      {flipMs}
+      winner={view.net !== null && view.outcome === 'lose'}
+      decider={view.outcome === 'lose' ? view.decider : null}
+    >
       {#snippet badge()}
         {#if view.qualified !== null}
           <span class="badge" class:bad={!view.qualified}>{view.qualified ? 'Qualified' : 'Not qualified'}</span>
@@ -116,6 +123,9 @@
           </p>
         {/if}
       </div>
+      <div class="verdict">
+        {#if view.net !== null && view.verdict}<p>{view.verdict}</p>{/if}
+      </div>
     </div>
 
     <HandRow
@@ -123,6 +133,8 @@
       hand={view.player}
       side="player"
       {flipMs}
+      winner={view.net !== null && (view.outcome === 'win' || view.outcome === 'dealerNoQualify')}
+      decider={view.outcome === 'win' ? view.decider : null}
       onFlip={game.awaiting === 'flip' ? (slot) => game.flip(slot) : undefined}
     />
 
@@ -377,6 +389,16 @@
   .auto[aria-pressed='true'] {
     border-color: var(--gold);
     color: var(--gold);
+  }
+  .verdict {
+    min-height: 20px;
+    text-align: center;
+  }
+  .verdict p {
+    margin: 0;
+    font: 500 14px/1.4 var(--font-ui);
+    color: var(--ink);
+    animation: pop 300ms ease-out;
   }
   .badge {
     font: 700 11px/1 var(--font-ui);

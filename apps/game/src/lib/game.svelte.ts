@@ -9,14 +9,13 @@ import {
   type TableRules,
 } from '@idlesuits/sim';
 import { Clock } from './clock';
-import { beatDelay, direct, type Beat, type SpeedMode } from './director';
+import { beatDelay, direct, resultHold, type Beat, type Drama, type SpeedMode } from './director';
 import { Decimal } from './money';
 import { sfx } from './sound';
 import { TableView } from './table.svelte';
 
 const STARTING_BANK = 500;
 const STARTING_ANTE = 5;
-const BETWEEN_ROUNDS_MS = 350;
 
 export interface HistoryEntry {
   round: number;
@@ -158,15 +157,15 @@ export class Game {
 
   private async loop() {
     while (this.started && !this.gameOver && !this.disposed) {
-      if (!(await this.playRound())) return;
-      if (this.gameOver) return;
-      const ok = this.autoPlay ? await this.clock.wait(BETWEEN_ROUNDS_MS) : (await this.waitFor('deal')) >= 0;
+      const drama = await this.playRound();
+      if (drama === null || this.gameOver) return;
+      const ok = this.autoPlay ? await this.clock.wait(resultHold(drama, this.speed)) : (await this.waitFor('deal')) >= 0;
       if (!ok) return;
     }
   }
 
-  /** Plays one round; returns false if the game was reset mid-round. */
-  private async playRound(): Promise<boolean> {
+  /** Plays one round; returns how dramatic its result was, or null if the game was reset mid-round. */
+  private async playRound(): Promise<Drama | null> {
     const rules = { ...this.rules, unclaimedOwner: this.dealerClaims ? ('dealer' as const) : ('none' as const) };
     const sideBets = Object.fromEntries(Object.entries(this.claims).filter(([, on]) => on).map(([id]) => [id, 1]));
     const result = simulateRound({
@@ -180,7 +179,8 @@ export class Game {
     this.roundAnte = ante;
     this.flipRest = false;
 
-    for (const beat of direct(result)) {
+    const beats = direct(result);
+    for (const beat of beats) {
       const { event, drama } = beat;
       const byHand = event.type === 'CardRevealed' && event.hand === 0 && !this.autoPlay && !this.flipRest;
 
@@ -190,12 +190,12 @@ export class Game {
         this.view.player.eager = drama === 'tense';
         if (drama === 'tense') sfx.tension();
         const slot = await this.waitFor('flip');
-        if (slot < 0) return false;
+        if (slot < 0) return null;
         this.view.apply(event, slot);
       } else {
         this.view.anticipate(event, drama);
         if (drama === 'tense' && event.type === 'CardRevealed' && this.speed === 'smart') sfx.tension();
-        if (!(await this.clock.wait(beatDelay(beat, this.speed)))) return false;
+        if (!(await this.clock.wait(beatDelay(beat, this.speed)))) return null;
         this.view.apply(event);
       }
       this.playSound(beat);
@@ -215,7 +215,7 @@ export class Game {
 
     if (this.bank.lte(0)) this.gameOver = true;
     else if (this.ante.gt(this.bank)) this.ante = this.bank.floor().max(1);
-    return true;
+    return beats.at(-1)!.drama;
   }
 
   /** Called right after the event is shown, so each sound lands with what it describes. */

@@ -10,6 +10,7 @@ import {
   type SideBetOwner,
 } from '@idlesuits/sim';
 import type { Drama } from './director';
+import { explain } from './verdict';
 
 export interface SideBetView {
   def: SideBetDef;
@@ -37,19 +38,24 @@ export class HandView {
   focus = $state<number | null>(null);
   /** Manual play: every face-down card pulses because the next flip could matter. */
   eager = $state(false);
+  /** All cards are up: show the flush first, high to low, and set the rest apart. */
+  arranged = $state(false);
 
   reset(size: number) {
     this.cards = Array(size).fill(null);
     this.eval = null;
     this.focus = null;
     this.eager = false;
+    this.arranged = false;
   }
 
   reveal(index: number, card: Card) {
     this.cards[index] = card;
     this.focus = null;
     this.eager = false;
-    this.eval = evaluateHand(this.cards.filter((c): c is Card => c !== null));
+    const up = this.cards.filter((c): c is Card => c !== null);
+    this.eval = evaluateHand(up);
+    this.arranged = up.length === this.cards.length;
   }
 }
 
@@ -78,6 +84,10 @@ export class TableView {
   outcome = $state<MainOutcome | null>(null);
   breakdown = $state<BreakdownLine[]>([]);
   net = $state<number | null>(null);
+  /** Plain-language reason for the main-bet result. */
+  verdict = $state<string | null>(null);
+  /** Position within the flush of the card that broke a same-size tie. */
+  decider = $state<number | null>(null);
   /** The most recently finished round, kept visible while the next one plays. */
   last = $state<{ lines: BreakdownLine[]; net: number } | null>(null);
   drama = $state<Drama>('routine');
@@ -115,6 +125,8 @@ export class TableView {
         this.outcome = null;
         this.breakdown = [];
         this.net = null;
+        this.verdict = null;
+        this.decider = null;
         break;
       case 'SideBetOwnership': {
         if (event.seat !== this.seat) break;
@@ -138,6 +150,7 @@ export class TableView {
         if (event.seat !== this.seat) break;
         this.outcome = event.outcome;
         this.breakdown.push(...mainLines(event.outcome, this.raise ?? 0));
+        [this.verdict, this.decider] = explain(event.outcome, this.player.eval!, this.dealer.eval!);
         break;
       case 'SideBetResolved': {
         if (event.seat !== this.seat) break;

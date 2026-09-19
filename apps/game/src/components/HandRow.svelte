@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { Snippet } from 'svelte';
-  import { rankLabel, SUIT_SYMBOL, SUITS } from '@idlesuits/sim';
+  import { flip } from 'svelte/animate';
+  import { rankLabel, SUIT_SYMBOL, SUITS, type Card } from '@idlesuits/sim';
   import type { HandView } from '../lib/table.svelte';
   import PlayingCard from './PlayingCard.svelte';
 
@@ -12,11 +13,28 @@
     badge?: Snippet;
     /** Set when the player may turn over their own face-down cards. */
     onFlip?: (slot: number) => void;
+    /** This hand won the main bet. */
+    winner?: boolean;
+    /** Position within the flush of the card that broke a tie. */
+    decider?: number | null;
   }
 
-  let { title, hand, side, flipMs, badge, onFlip }: Props = $props();
+  let { title, hand, side, flipMs, badge, onFlip, winner = false, decider = null }: Props = $props();
 
-  const lead = $derived(hand.eval && hand.eval.size >= 3 ? hand.eval.suit : null);
+  const lead = $derived(hand.eval && (hand.eval.size >= 3 || hand.arranged) ? hand.eval.suit : null);
+
+  /** Slot indices in display order: deal order, or flush-first once the hand is complete. */
+  const order = $derived.by(() => {
+    const slots = hand.cards.map((_, i) => i);
+    if (!hand.arranged || !lead) return slots;
+    return slots.sort((a, b) => {
+      const ca = hand.cards[a]!;
+      const cb = hand.cards[b]!;
+      return Number(ca.suit !== lead) - Number(cb.suit !== lead) || cb.rank - ca.rank || ca.suit.localeCompare(cb.suit);
+    });
+  });
+  /** First card after the flush, which gets a gap before it. */
+  const firstOff = $derived(hand.arranged ? order.find((i) => hand.cards[i]?.suit !== lead) : undefined);
   const label = $derived.by(() => {
     if (!hand.eval || hand.eval.size < 2) return '';
     const { size, suit, ranks } = hand.eval;
@@ -27,36 +45,46 @@
 <section class="hand {side}">
   <header>
     <h2>{title}</h2>
+    {#if winner}<span class="wins">Wins</span>{/if}
     {#if label}<span class="label" class:big={(hand.eval?.size ?? 0) >= 5}>{label}</span>{/if}
     {@render badge?.()}
   </header>
 
+  {#snippet face(card: Card | null, i: number)}
+    <PlayingCard
+      {card}
+      {flipMs}
+      highlight={lead !== null && card?.suit === lead}
+      dim={lead !== null && card?.suit !== lead}
+      focus={hand.focus === i || (hand.eager && card === null)}
+    />
+  {/snippet}
+
   <div class="cards">
-    {#each hand.cards as card, i (i)}
+    {#each order as i, pos (i)}
+      {@const card = hand.cards[i] ?? null}
       {@const clickable = onFlip !== undefined && card === null}
-      {#snippet face()}
-        <PlayingCard
-          {card}
-          {flipMs}
-          highlight={lead !== null && card?.suit === lead}
-          dim={lead !== null && card?.suit !== lead}
-          focus={hand.focus === i || (hand.eager && card === null)}
-        />
-      {/snippet}
-      {#if side === 'player'}
-        <button
-          type="button"
-          class="slot"
-          class:clickable
-          disabled={!clickable}
-          aria-label={clickable ? `Reveal card ${i + 1}` : undefined}
-          onclick={() => onFlip?.(i)}
-        >
-          {@render face()}
-        </button>
-      {:else}
-        <div class="slot">{@render face()}</div>
-      {/if}
+      <div
+        class="place"
+        class:split={i === firstOff}
+        class:decider={hand.arranged && decider !== null && pos === decider}
+        animate:flip={{ duration: hand.arranged ? 450 : 0 }}
+      >
+        {#if side === 'player'}
+          <button
+            type="button"
+            class="slot"
+            class:clickable
+            disabled={!clickable}
+            aria-label={clickable ? `Reveal card ${i + 1}` : undefined}
+            onclick={() => onFlip?.(i)}
+          >
+            {@render face(card, i)}
+          </button>
+        {:else}
+          <div class="slot">{@render face(card, i)}</div>
+        {/if}
+      </div>
     {/each}
   </div>
 
@@ -112,6 +140,39 @@
     display: flex;
     gap: var(--card-gap);
     padding-top: 14px;
+  }
+  .place {
+    position: relative;
+    transition: margin 300ms ease;
+  }
+  .place.split {
+    margin-left: calc(var(--card-w) * 0.3);
+  }
+  .place.decider::after {
+    content: '';
+    position: absolute;
+    inset: -5px;
+    top: -13px;
+    border: 3px solid var(--gold);
+    border-radius: calc(var(--card-w) * 0.14);
+    pointer-events: none;
+    animation: ring 500ms ease-out;
+  }
+  @keyframes ring {
+    from {
+      transform: scale(1.3);
+      opacity: 0;
+    }
+  }
+  .wins {
+    font: 700 11px/1 var(--font-ui);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    padding: 4px 8px;
+    border-radius: 999px;
+    background: var(--gold);
+    color: var(--felt-deep);
+    animation: ring 400ms ease-out;
   }
   .slot {
     all: unset;

@@ -33,6 +33,14 @@ const BASE_MS: Record<GameEvent['type'], number> = {
 const SMART_SCALE: Record<Drama, number> = { routine: 0.22, interesting: 1, tense: 2.4 };
 const FIXED_SPEED: Record<Exclude<SpeedMode, 'smart'>, number> = { '1x': 1, '2x': 2, '5x': 5 };
 
+/** How long the finished hand stays on the table, so the player can read the result. */
+const RESULT_HOLD_MS: Record<Drama, number> = { routine: 1400, interesting: 2200, tense: 3500 };
+
+export function resultHold(drama: Drama, mode: SpeedMode): number {
+  if (mode === 'smart') return RESULT_HOLD_MS[drama];
+  return 2000 / FIXED_SPEED[mode];
+}
+
 export function beatDelay(beat: Beat, mode: SpeedMode): number {
   const base = BASE_MS[beat.event.type];
   if (mode !== 'smart') return base / FIXED_SPEED[mode];

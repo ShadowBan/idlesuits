@@ -8,7 +8,7 @@ import {
   type Card,
   type RoundResult,
 } from '@idlesuits/sim';
-import { beatDelay, direct } from './director';
+import { beatDelay, direct, resultHold } from './director';
 
 const shoe = buildShoe(standardDeck('player'));
 const play = (round: number): RoundResult =>
@@ -54,5 +54,13 @@ describe('direct', () => {
     expect(routine).toBeLessThan(beatDelay({ event, drama: 'routine' }, '1x'));
     expect(tense).toBeGreaterThan(beatDelay({ event, drama: 'tense' }, '1x'));
     expect(beatDelay({ event, drama: 'tense' }, '5x')).toBe(beatDelay({ event, drama: 'routine' }, '5x'));
+  });
+});
+
+describe('resultHold', () => {
+  it('holds the result long enough to read, longer for bigger moments', () => {
+    expect(resultHold('routine', 'smart')).toBeGreaterThanOrEqual(1200);
+    expect(resultHold('tense', 'smart')).toBeGreaterThan(resultHold('routine', 'smart'));
+    expect(resultHold('routine', '1x')).toBeGreaterThan(resultHold('routine', '5x'));
   });
 });
