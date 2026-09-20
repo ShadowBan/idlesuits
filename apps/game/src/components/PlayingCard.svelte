@@ -47,7 +47,8 @@
     transition:
       transform 220ms ease,
       filter 220ms ease;
-    flex: none;
+    flex: 0 1 auto;
+    min-width: 0;
   }
   .inner {
     position: relative;

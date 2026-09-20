@@ -140,9 +140,12 @@
     display: flex;
     gap: var(--card-gap);
     padding-top: 14px;
+    max-width: 100%;
   }
   .place {
     position: relative;
+    min-width: 0;
+    display: flex;
     transition: margin 300ms ease;
   }
   .place.split {
@@ -182,6 +185,8 @@
   .slot.clickable {
     cursor: pointer;
     transition: transform 150ms ease;
+    padding: 4px;
+    margin: -4px;
   }
   .slot.clickable:hover {
     transform: translateY(-6px);
@@ -226,6 +231,40 @@
   @keyframes bump {
     from {
       transform: scale(1.6);
+    }
+  }
+
+  /* Phones: trim the space around each hand so both fit one screen. */
+  @media (max-width: 899px) {
+    .hand {
+      gap: 6px;
+    }
+    header {
+      min-height: 22px;
+      gap: 8px;
+    }
+    .label {
+      font-size: 14px;
+    }
+    .cards {
+      padding-top: 8px;
+    }
+    .counters li {
+      padding: 2px 8px;
+      font-size: 13px;
+    }
+  }
+
+  /* Landscape phones are shorter still; the flush label covers what the counters say. */
+  @media (orientation: landscape) and (max-height: 520px) {
+    .hand {
+      gap: 2px;
+    }
+    .cards {
+      padding-top: 4px;
+    }
+    .counters {
+      display: none;
     }
   }
 </style>

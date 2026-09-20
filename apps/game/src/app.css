@@ -25,8 +25,13 @@
   --card-black: #1d1d22;
   --suit-red-soft: #f08a91;
 
-  --card-w: clamp(40px, 9vw, 84px);
-  --card-gap: clamp(4px, 1vw, 10px);
+  /*
+   * Sized from both axes so a hand always fits, however short or narrow the
+   * screen. The width term budgets for 7 cards, their gaps, the gap that opens
+   * when a hand is arranged, and the page/table padding beside them.
+   */
+  --card-w: clamp(30px, min(8.4dvh, calc((100vw - 440px) / 7.3)), 84px);
+  --card-gap: clamp(3px, 1vw, 10px);
 
   color-scheme: dark;
 }
@@ -61,6 +66,14 @@ button:disabled {
   cursor: default;
 }
 
+button {
+  touch-action: manipulation;
+}
+
+button:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
 button:focus-visible,
 input:focus-visible {
   outline: 2px solid var(--gold);
@@ -79,6 +92,75 @@ button.primary {
 
 button.primary:hover {
   background: #f3c865;
+}
+
+/* Touch devices: everything tappable is at least 44px. */
+@media (pointer: coarse) {
+  button {
+    min-height: 44px;
+    min-width: 44px;
+  }
+}
+
+/* A checkbox row you can hit with a thumb. */
+.switch {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  font: 13px/1.4 var(--font-ui);
+  cursor: pointer;
+}
+
+.switch input {
+  appearance: none;
+  flex: none;
+  width: 40px;
+  height: 24px;
+  border-radius: 999px;
+  background: var(--chip-bg);
+  border: 1px solid var(--line);
+  position: relative;
+  cursor: pointer;
+  transition: background 150ms;
+}
+
+.switch input::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--muted);
+  transition:
+    transform 150ms,
+    background 150ms;
+}
+
+.switch input:checked {
+  background: color-mix(in srgb, var(--gold) 40%, transparent);
+  border-color: var(--gold);
+}
+
+.switch input:checked::after {
+  transform: translateX(16px);
+  background: var(--gold);
+}
+
+/* No sidebar below this width, so cards get the whole screen. */
+@media (max-width: 899px) {
+  :root {
+    --card-w: clamp(30px, min(8.4dvh, calc((100vw - 84px) / 7.3)), 84px);
+  }
+}
+
+/* Landscape phones: height is scarce and the action bar takes a column. */
+@media (orientation: landscape) and (max-height: 520px) {
+  :root {
+    --card-w: clamp(30px, min(13dvh, calc((100vw - 290px) / 7.3)), 84px);
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

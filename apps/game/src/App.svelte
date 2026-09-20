@@ -1,11 +1,14 @@
 <script lang="ts">
   import { onDestroy } from 'svelte';
-  import { SUIT_SYMBOL } from '@idlesuits/sim';
+  import { MediaQuery } from 'svelte/reactivity';
+  import ActionBar from './components/ActionBar.svelte';
   import BetPanel from './components/BetPanel.svelte';
-  import Breakdown from './components/Breakdown.svelte';
   import HandRow from './components/HandRow.svelte';
+  import PanelSheet from './components/PanelSheet.svelte';
   import RulesDialog from './components/RulesDialog.svelte';
+  import SideBetStrip from './components/SideBetStrip.svelte';
   import SideBetTile from './components/SideBetTile.svelte';
+  import StatsPanels from './components/StatsPanels.svelte';
   import type { SpeedMode } from './lib/director';
   import { Game } from './lib/game.svelte';
   import { Decimal, formatMoney } from './lib/money';
@@ -14,11 +17,15 @@
   const game = new Game();
   const view = game.view;
   onDestroy(() => game.dispose());
+
+  /** Below this the table is laid out to fit one screen, with panels in a sheet. */
+  const compact = new MediaQuery('(max-width: 899px)');
   const SPEEDS: SpeedMode[] = ['smart', '1x', '2x', '5x'];
   const FLIP_MS: Record<SpeedMode, number> = { smart: 280, '1x': 320, '2x': 200, '5x': 90 };
 
   let muted = $state(false);
-  let rulesDialog: RulesDialog;
+  let rulesDialog = $state<RulesDialog>();
+  let sheet = $state<PanelSheet>();
   $effect(() => setMuted(muted));
 
   const flipMs = $derived(game.speed === 'smart' && view.drama === 'tense' ? 520 : FLIP_MS[game.speed]);
@@ -31,11 +38,6 @@
     dealerNoQualify: 'Dealer does not qualify',
   };
 
-  function begin() {
-    unlockAudio();
-    game.start();
-  }
-
   // Re-estimate whenever a bet changes; debounced so clicking through steps stays cheap.
   $effect(() => {
     const key = JSON.stringify([
@@ -47,6 +49,17 @@
     const timer = setTimeout(() => key && game.refreshEstimate(), 250);
     return () => clearTimeout(timer);
   });
+
+  function begin() {
+    unlockAudio();
+    game.start();
+  }
+
+  /** Tapping the felt flips the next card or deals: a big target for thumbs. */
+  function tapFelt(e: MouseEvent) {
+    if ((e.target as HTMLElement).closest('button, a, input, dialog')) return;
+    if (game.awaiting === 'flip' || game.awaiting === 'deal') game.advance();
+  }
 
   function onKey(e: KeyboardEvent) {
     const target = e.target as HTMLElement;
@@ -66,8 +79,11 @@
 <svelte:window onkeydown={onKey} />
 
 <RulesDialog bind:this={rulesDialog} rules={game.rules} />
+{#if compact.current}
+  <PanelSheet bind:this={sheet} {game} {muted} onMuteChange={(m) => (muted = m)} />
+{/if}
 
-<div class="app">
+<div class="app" class:compact={compact.current}>
   <header class="bar">
     <h1>Idle <span>Suits</span></h1>
 
@@ -76,25 +92,32 @@
       <span class="v">{formatMoney(game.bank)}</span>
     </div>
 
-    <div class="speed" role="group" aria-label="Reveal speed">
-      {#each SPEEDS as s (s)}
-        <button type="button" aria-pressed={game.speed === s} onclick={() => (game.speed = s)}>{s}</button>
-      {/each}
-    </div>
+    {#if !compact.current}
+      <div class="speed" role="group" aria-label="Reveal speed">
+        {#each SPEEDS as s (s)}
+          <button type="button" aria-pressed={game.speed === s} onclick={() => (game.speed = s)}>{s}</button>
+        {/each}
+      </div>
+    {/if}
 
     <div class="actions">
-      <button type="button" onclick={() => rulesDialog.open()}>How to play</button>
       <button type="button" class="auto" aria-pressed={game.autoPlay} onclick={() => game.setAutoPlay(!game.autoPlay)}>
         Auto {game.autoPlay ? 'on' : 'off'}
       </button>
-      <button type="button" onclick={() => game.togglePause()} disabled={!game.started}>
-        {game.paused ? 'Resume' : 'Pause'}
-      </button>
-      <button type="button" onclick={() => (muted = !muted)} aria-pressed={muted}>{muted ? 'Unmute' : 'Mute'}</button>
+      {#if compact.current}
+        <button type="button" onclick={() => sheet?.open('bets')}>Bets</button>
+        <button type="button" onclick={() => sheet?.open('stats')} aria-label="Session and table settings">⋯</button>
+        <button type="button" onclick={() => rulesDialog?.open()} aria-label="How to play">?</button>
+      {:else}
+        <button type="button" onclick={() => (muted = !muted)} aria-pressed={muted}>{muted ? 'Unmute' : 'Mute'}</button>
+        <button type="button" onclick={() => rulesDialog?.open()}>How to play</button>
+      {/if}
     </div>
   </header>
 
-  <main class="felt" data-drama={view.drama}>
+  <!-- Tapping the felt is a shortcut for Space; every action also has its own button. -->
+  <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_noninteractive_element_interactions -->
+  <main class="felt" data-drama={view.drama} onclick={tapFelt}>
     <HandRow
       title="Dealer"
       hand={view.dealer}
@@ -111,20 +134,31 @@
     </HandRow>
 
     <div class="middle">
-      <div class="bets">
-        {#each game.rules.sideBets as def (def.id)}
-          <SideBetTile
-            {def}
-            view={view.sideBets.find((b) => b.def.id === def.id)}
-            nextStake={game.sideStakes[def.id] ?? new Decimal(0)}
-            dealerClaims={game.dealerClaims}
-            ante={game.roundAnte}
-          />
-        {/each}
-      </div>
+      {#if compact.current}
+        <SideBetStrip
+          defs={game.rules.sideBets}
+          views={view.sideBets}
+          stakes={game.sideStakes}
+          dealerClaims={game.dealerClaims}
+          ante={game.roundAnte}
+          onEdit={() => sheet?.open('bets')}
+        />
+      {:else}
+        <div class="bets">
+          {#each game.rules.sideBets as def (def.id)}
+            <SideBetTile
+              {def}
+              view={view.sideBets.find((b) => b.def.id === def.id)}
+              nextStake={game.sideStakes[def.id] ?? new Decimal(0)}
+              dealerClaims={game.dealerClaims}
+              ante={game.roundAnte}
+            />
+          {/each}
+        </div>
+      {/if}
 
       <div class="main-bet">
-        <span class="chip">Ante</span>
+        <span class="chip">Ante {formatMoney(game.roundAnte)}</span>
         {#if view.raise === 0}
           <span class="chip fold">Fold</span>
         {:else if view.raise !== null}
@@ -137,6 +171,7 @@
           </p>
         {/if}
       </div>
+
       <div class="verdict">
         {#if view.net !== null && view.verdict}<p>{view.verdict}</p>{/if}
       </div>
@@ -152,36 +187,11 @@
       onFlip={game.awaiting === 'flip' ? (slot) => game.flip(slot) : undefined}
     />
 
-    <div class="prompt">
-      {#if game.awaiting === 'bet' && game.betChoice}
-        {@const choice = game.betChoice}
-        <span class="hint">Your bet</span>
-        <div class="bet-choice" role="group" aria-label="Fold or raise">
-          {#each Array.from({ length: choice.cap + 1 }, (_, i) => i) as raise (raise)}
-            <button
-              type="button"
-              class:suggested={raise === choice.suggested}
-              onclick={() => game.chooseRaise(raise)}
-            >
-              {#if raise === 0}Fold <kbd>F</kbd>{:else}Raise {raise}× {formatMoney(game.roundAnte.mul(raise))} <kbd>{raise}</kbd>{/if}
-            </button>
-          {/each}
-        </div>
-        <span class="hint">Plan says {choice.suggested === 0 ? 'fold' : `${choice.suggested}×`} <kbd>Space</kbd></span>
-      {:else if game.awaiting === 'flip'}
-        <span class="hint">Click your cards to turn them over <kbd>Space</kbd></span>
-        <button type="button" onclick={() => game.flipAll()}>Flip all</button>
-      {:else if game.awaiting === 'deal'}
-        <button type="button" class="primary" onclick={() => game.deal()}>Deal</button>
-        <span class="hint"><kbd>Space</kbd></span>
-      {/if}
-    </div>
-
     {#if !game.started}
       <div class="overlay">
         <p>Build the biggest flush you can, then see if it beats the dealer's.</p>
         <button type="button" class="primary" onclick={begin}>Take a seat</button>
-        <button type="button" onclick={() => rulesDialog.open()}>How to play</button>
+        <button type="button" onclick={() => rulesDialog?.open()}>How to play</button>
       </div>
     {:else if game.gameOver}
       <div class="overlay">
@@ -192,78 +202,55 @@
     {/if}
   </main>
 
-  <aside class="side">
-    <BetPanel {game} />
+  <div class="act"><ActionBar {game} /></div>
 
-    <section>
-      <h2>Last hand</h2>
-      <Breakdown lines={view.last?.lines ?? []} net={view.last?.net ?? null} ante={game.lastAnte} />
-    </section>
-
-    <section>
-      <h2>Session</h2>
-      <dl>
-        <dt>Hands</dt>
-        <dd>{game.hands}</dd>
-        <dt>Net</dt>
-        <dd class:win={game.sessionNet.gt(0)} class:loss={game.sessionNet.lt(0)}>{formatMoney(game.sessionNet, true)}</dd>
-        <dt>Biggest win</dt>
-        <dd>{formatMoney(game.biggestWin)}</dd>
-        {#each Object.entries(game.flushCounts).filter(([size]) => Number(size) >= 5) as [size, count] (size)}
-          <dt>{size}-card flushes</dt>
-          <dd>{count}</dd>
-        {/each}
-      </dl>
-    </section>
-
-    <section>
-      <h2>Recent</h2>
-      <ol class="history">
-        {#each game.history as h (h.round)}
-          <li>
-            <span class="muted">#{h.round}</span>
-            <span>{h.size}{SUIT_SYMBOL[h.suit]}</span>
-            <span class="muted">{h.outcome === 'dealerNoQualify' ? 'no qual' : h.outcome}</span>
-            <span class:win={h.net.gt(0)} class:loss={h.net.lt(0)}>{formatMoney(h.net, true)}</span>
-          </li>
-        {/each}
-      </ol>
-    </section>
-
-    <section>
-      <h2>Dev</h2>
-      <label class="toggle">
-        <input type="checkbox" bind:checked={game.dealerClaims} />
-        Dealer claims open side bets
-      </label>
-      <p class="muted small">Seed {game.runSeed} · hand {game.round}</p>
-      <button type="button" onclick={() => game.restart()}>Restart</button>
-    </section>
-  </aside>
+  {#if !compact.current}
+    <aside class="side">
+      <BetPanel {game} />
+      <StatsPanels {game} {muted} onMuteChange={(m) => (muted = m)} />
+    </aside>
+  {/if}
 </div>
 
 <style>
   .app {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) 280px;
-    grid-template-rows: auto 1fr;
+    grid-template-columns: minmax(0, 1fr) 300px;
+    grid-template-rows: auto minmax(0, 1fr) auto;
     grid-template-areas:
       'bar bar'
-      'felt side';
+      'felt side'
+      'act side';
     gap: 12px;
-    min-height: 100dvh;
+    height: 100dvh;
     padding: 12px;
-    box-sizing: border-box;
+    overflow: hidden;
   }
+  /* Phones: the table fills exactly one screen, panels live in a sheet. */
+  .app.compact {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: 'bar' 'felt' 'act';
+    height: 100dvh;
+    min-height: 0;
+    gap: 8px;
+    padding: 8px 8px 0;
+    overflow: hidden;
+  }
+
   .bar {
     grid-area: bar;
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: 12px 20px;
+    gap: 10px 18px;
     padding: 8px 14px;
     background: var(--rail);
     border-radius: 12px;
+  }
+  .compact .bar {
+    flex-wrap: nowrap;
+    gap: 8px;
+    padding: 6px 10px;
   }
   h1 {
     margin: 0 auto 0 0;
@@ -274,9 +261,15 @@
   h1 span {
     color: var(--gold);
   }
+  .compact h1 {
+    display: none;
+  }
   .stat {
     display: grid;
     gap: 2px;
+  }
+  .compact .bank {
+    margin-right: auto;
   }
   .k {
     font: 600 10px/1 var(--font-ui);
@@ -291,6 +284,9 @@
   .bank .v {
     color: var(--gold);
     font-size: 22px;
+  }
+  .compact .bank .v {
+    font-size: 18px;
   }
   .speed {
     display: flex;
@@ -311,18 +307,33 @@
     display: flex;
     gap: 6px;
   }
+  .auto[aria-pressed='true'] {
+    border-color: var(--gold);
+    color: var(--gold);
+  }
 
   .felt {
     grid-area: felt;
     position: relative;
     display: grid;
+    grid-template-rows: auto minmax(0, 1fr) auto;
     align-content: space-evenly;
-    gap: 16px;
-    padding: 20px 12px;
+    gap: 12px;
+    padding: 18px 12px;
     border-radius: 24px;
     background: radial-gradient(ellipse at center, var(--felt) 0%, var(--felt-deep) 100%);
-    box-shadow: inset 0 0 0 10px var(--rail), inset 0 0 60px rgb(0 0 0 / 0.5);
+    box-shadow:
+      inset 0 0 0 10px var(--rail),
+      inset 0 0 60px rgb(0 0 0 / 0.5);
     overflow: hidden;
+  }
+  .compact .felt {
+    gap: 4px;
+    padding: 10px 6px;
+    border-radius: 18px;
+    box-shadow:
+      inset 0 0 0 5px var(--rail),
+      inset 0 0 40px rgb(0 0 0 / 0.5);
   }
   .felt::after {
     content: '';
@@ -338,8 +349,12 @@
   }
   .middle {
     display: grid;
-    gap: 12px;
+    gap: 10px;
+    align-content: center;
     justify-items: center;
+  }
+  .compact .middle {
+    gap: 6px;
   }
   .bets {
     display: grid;
@@ -354,7 +369,6 @@
     align-items: center;
     justify-content: center;
     gap: 8px;
-    min-height: 40px;
   }
   .chip {
     padding: 6px 12px;
@@ -389,45 +403,6 @@
       opacity: 0;
     }
   }
-  .prompt {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 12px;
-    min-height: 50px;
-  }
-  .bet-choice {
-    display: flex;
-    gap: 8px;
-    flex-wrap: wrap;
-    justify-content: center;
-  }
-  .bet-choice button {
-    font: 600 15px/1 var(--font-display);
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
-    padding: 10px 14px;
-  }
-  .bet-choice button.suggested {
-    border-color: var(--gold);
-    box-shadow: 0 0 0 1px var(--gold);
-  }
-  .hint {
-    color: var(--muted);
-    font-size: 13px;
-  }
-  kbd {
-    font: 600 11px/1 var(--font-ui);
-    padding: 3px 6px;
-    margin-left: 4px;
-    border: 1px solid var(--line);
-    border-bottom-width: 2px;
-    border-radius: 4px;
-  }
-  .auto[aria-pressed='true'] {
-    border-color: var(--gold);
-    color: var(--gold);
-  }
   .verdict {
     min-height: 20px;
     text-align: center;
@@ -437,6 +412,9 @@
     font: 500 14px/1.4 var(--font-ui);
     color: var(--ink);
     animation: pop 300ms ease-out;
+  }
+  .compact .verdict p {
+    font-size: 13px;
   }
   .badge {
     font: 700 11px/1 var(--font-ui);
@@ -449,6 +427,7 @@
   .badge.bad {
     color: var(--win);
   }
+
   .overlay {
     position: absolute;
     inset: 0;
@@ -472,79 +451,42 @@
     color: var(--muted);
   }
 
+  .act {
+    grid-area: act;
+  }
+  .compact .act {
+    background: var(--rail);
+    border-radius: 14px 14px 0 0;
+  }
+
   .side {
     grid-area: side;
     display: grid;
     align-content: start;
     gap: 12px;
-  }
-  .side section {
-    padding: 12px 14px;
-    border-radius: 12px;
-    background: var(--rail);
-  }
-  .side h2 {
-    margin: 0 0 8px;
-    font: 600 11px/1 var(--font-ui);
-    letter-spacing: 0.14em;
-    text-transform: uppercase;
-    color: var(--muted);
-  }
-  dl {
-    display: grid;
-    grid-template-columns: 1fr auto;
-    gap: 4px 12px;
-    margin: 0;
-    font: 13px/1.4 var(--font-ui);
-  }
-  dd {
-    margin: 0;
-    text-align: right;
-    font-variant-numeric: tabular-nums;
-  }
-  .history {
-    list-style: none;
-    margin: 0;
-    padding: 0;
-    display: grid;
-    gap: 3px;
-    font: 13px/1.4 var(--font-ui);
-  }
-  .history li {
-    display: grid;
-    grid-template-columns: 44px 32px 1fr auto;
-    gap: 6px;
-    font-variant-numeric: tabular-nums;
-  }
-  .toggle {
-    display: flex;
-    gap: 8px;
-    align-items: center;
-    font: 13px/1.4 var(--font-ui);
-    margin-bottom: 8px;
-  }
-  .small {
-    font-size: 12px;
-    margin: 0 0 8px;
-  }
-  .muted {
-    color: var(--muted);
-  }
-  .win {
-    color: var(--win);
-  }
-  .loss {
-    color: var(--loss);
+    overflow-y: auto;
   }
 
-  @media (max-width: 900px) {
-    .app {
-      grid-template-columns: minmax(0, 1fr);
-      grid-template-areas: 'bar' 'felt' 'side';
-      padding: 8px;
+  /* Landscape phones: height is scarce, so the action bar moves beside the table. */
+  @media (max-height: 520px) and (orientation: landscape) {
+    /* The result banner already names the winner; the explanation needs room we don't have. */
+    .verdict {
+      display: none;
     }
-    h1 {
-      flex-basis: 100%;
+    .compact .middle {
+      gap: 10px;
+    }
+    .app.compact {
+      grid-template-columns: minmax(0, 1fr) 190px;
+      grid-template-areas:
+        'bar bar'
+        'felt act';
+      padding-bottom: 8px;
+    }
+    .compact .act {
+      display: grid;
+      align-content: center;
+      border-radius: 14px;
     }
   }
 </style>

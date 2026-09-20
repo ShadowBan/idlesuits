@@ -56,7 +56,7 @@
       {/each}
     </tbody>
   </table>
-  <label class="check">
+  <label class="switch">
     <input type="checkbox" bind:checked={game.raisePlan.threeCardMinimum} />
     3-card flushes: only 10-8-6 or better
   </label>
@@ -119,9 +119,10 @@
     gap: 6px;
   }
   .stepper button {
-    width: 26px;
-    height: 26px;
+    width: 36px;
+    height: 36px;
     padding: 0;
+    font-size: 16px;
   }
   .stepper b {
     min-width: 56px;
@@ -165,13 +166,6 @@
   .seg button[aria-pressed='true'] {
     background: var(--gold);
     color: var(--felt-deep);
-  }
-  .check {
-    display: flex;
-    gap: 8px;
-    align-items: center;
-    font: 12px/1.3 var(--font-ui);
-    color: var(--muted);
   }
   dl {
     display: grid;
