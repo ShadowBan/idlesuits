@@ -9,3 +9,4 @@ export * from './strategy';
 export * from './blackjack';
 export * from './poker';
 export * from './uth';
+export * from './stud';

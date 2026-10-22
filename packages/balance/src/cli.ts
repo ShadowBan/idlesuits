@@ -2,6 +2,7 @@ import { parseArgs } from 'node:util';
 import { buildShoe, DEFAULT_RULES, OPTIMAL_BASE_POLICY, standardDeck, type RaisePolicy } from '@idlesuits/sim';
 import { elementOfRisk, mainEdge, runBatch, sideBetEdge, type BatchStats } from './batch';
 import { runBlackjack } from './blackjack-cli';
+import { runStudCli, studSlice } from './stud-cli';
 import { runUthCli, sliceSums } from './uth-cli';
 
 const POLICIES: Record<string, RaisePolicy> = {
@@ -27,6 +28,16 @@ const hands = Number(values.hands);
 
 if (values.game === 'blackjack') {
   await runBlackjack(hands, values.seed);
+  process.exit(0);
+}
+
+if (values.game === 'stud') {
+  if (values.slice) {
+    const [start, count] = values.slice.split(',').map(Number);
+    console.log(JSON.stringify(studSlice(start!, count!, values.seed)));
+  } else {
+    await runStudCli(hands, values.seed, Number(values.workers));
+  }
   process.exit(0);
 }
 

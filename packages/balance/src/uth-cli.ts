@@ -1,5 +1,4 @@
-import { spawn } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
+import { runSlices } from './parallel';
 import { runUthBatch, uthEdgePerAnte, type UthStats } from './uth';
 
 /**
@@ -62,20 +61,7 @@ function merge(into: Sums, from: Sums): Sums {
 }
 
 async function runParallel(hands: number, seed: string, workers: number): Promise<Sums> {
-  const per = Math.ceil(hands / workers);
-  const cli = fileURLToPath(new URL('./cli.ts', import.meta.url));
-  const slices = Array.from({ length: workers }, (_, w) => {
-    const start = w * per;
-    const count = Math.max(0, Math.min(per, hands - start));
-    return new Promise<Sums>((resolve, reject) => {
-      const child = spawn('npx', ['tsx', cli, '--game', 'uth', '--seed', seed, '--slice', `${start},${count}`]);
-      let text = '';
-      child.stdout.on('data', (d) => (text += d));
-      child.stderr.on('data', (d) => process.stderr.write(d));
-      child.on('close', (code) => (code === 0 ? resolve(JSON.parse(text)) : reject(new Error(`slice ${w} exited ${code}`))));
-    });
-  });
-  const results = await Promise.all(slices);
+  const results = await runSlices<Sums>('uth', hands, seed, workers);
   return results.reduce(merge, { ...runUthBatch({ runSeed: seed, hands: 0 }), sq: 0 });
 }
 
