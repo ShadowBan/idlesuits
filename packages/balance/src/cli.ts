@@ -1,6 +1,7 @@
 import { parseArgs } from 'node:util';
 import { buildShoe, DEFAULT_RULES, OPTIMAL_BASE_POLICY, standardDeck, type RaisePolicy } from '@idlesuits/sim';
 import { elementOfRisk, mainEdge, runBatch, sideBetEdge, type BatchStats } from './batch';
+import { runBlackjack } from './blackjack-cli';
 
 const POLICIES: Record<string, RaisePolicy> = {
   optimal: OPTIMAL_BASE_POLICY,
@@ -10,6 +11,7 @@ const POLICIES: Record<string, RaisePolicy> = {
 
 const { values } = parseArgs({
   options: {
+    game: { type: 'string', default: 'suits' },
     hands: { type: 'string', default: '1000000' },
     seed: { type: 'string', default: 'balance' },
     policy: { type: 'string', default: 'optimal' },
@@ -18,6 +20,11 @@ const { values } = parseArgs({
 });
 
 const hands = Number(values.hands);
+
+if (values.game === 'blackjack') {
+  await runBlackjack(hands, values.seed);
+  process.exit(0);
+}
 const policy = POLICIES[values.policy];
 if (!policy) throw new Error(`Unknown policy "${values.policy}". Options: ${Object.keys(POLICIES).join(', ')}`);
 

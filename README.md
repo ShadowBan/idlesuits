@@ -1,7 +1,10 @@
 # Idle Suits
 
-An idle deckbuilding card game built on high-card-flush casino rules. Each hand deals seven cards to
-you and the dealer from a shared shoe; the biggest flush wins. See
+An idle casino. Pick a table from the floor and the same bankroll follows you from game to game:
+
+- **Idle Suits** — seven cards each, biggest flush wins, with side bets that pay on your hand alone.
+- **Free Bet Blackjack** — the house pays for your doubles on 9/10/11 and every split but tens; in
+  exchange a dealer 22 pushes. See
 [docs/idle_suits_game_concept_v0_2.md](docs/idle_suits_game_concept_v0_2.md) for the design concept and
 [docs/decisions_v0_3.md](docs/decisions_v0_3.md) for the rules and decisions the build follows.
 
@@ -18,11 +21,14 @@ Other commands:
 npm test           # simulator, director, and verdict tests
 npm run typecheck  # TypeScript + svelte-check
 npm run build      # production build into apps/game/dist
-npm run balance -- --hands 1000000   # simulate hands and print the odds
+npm run balance -- --hands 1000000                    # Idle Suits odds
+npm run balance -- --game blackjack --hands 1000000   # Free Bet Blackjack odds
 ```
 
-The balance tool reproduces the published figures for the casino game it is based on: a 2.64% house
-edge under optimal play, 7.53% on Flush Rush and 13.11% on Super Flush Rush.
+The balance tool reproduces the published figures for both games: Idle Suits at a 2.64% house edge
+under optimal play (7.53% on Flush Rush, 13.11% on Super Flush Rush), and Free Bet Blackjack at
+1.04% — measured at 1.040% over eight million rounds, with its strategy solved from the rules rather
+than hard-coded.
 
 ## Layout
 

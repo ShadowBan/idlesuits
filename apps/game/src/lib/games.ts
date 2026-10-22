@@ -39,13 +39,15 @@ export const GAMES: GameEntry[] = [
     load: () => import('../games/suits/SuitsGame.svelte'),
   },
   {
-    id: 'twentyone',
-    name: 'Twenty-One',
-    tagline: 'Hit, stand, and try not to bust.',
-    blurb: 'The classic race to 21 against the dealer, with an idle strategy table instead of split-second decisions.',
-    facts: ['Card counting', 'Splits & doubles'],
+    id: 'blackjack',
+    name: 'Free Bet Blackjack',
+    tagline: 'The house pays for your doubles and splits.',
+    blurb:
+      'Blackjack where doubles on 9, 10 and 11 and every split but tens ride on the house. In exchange, a dealer 22 pushes.',
+    facts: ['Free doubles', 'Free splits', 'Dealer 22 pushes'],
     motif: ['A', '♠', '10'],
     accent: '#6be08f',
+    load: () => import('../games/blackjack/BlackjackGame.svelte'),
   },
   {
     id: 'draw',
