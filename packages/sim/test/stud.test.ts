@@ -55,6 +55,13 @@ describe('decideStud follows the published strategy', () => {
     expect(decide('3C 3D', '9S')).toBe('1x'); // low pair
     expect(decide('2C 7D', '9S')).toBe('fold');
   });
+  it('an ace playing low in a wheel draw is not a high card', () => {
+    // A-3-4 and A-2-4 suited are one-gap straight flush draws with no high card: 1x, not 3x.
+    expect(decide('AH 4H', '3H')).toBe('1x');
+    expect(decide('AH 2H', '4H')).toBe('1x');
+    // Playing high, it counts: A-Q-J suited is a royal draw, A-K-T suited has two high cards over a gap.
+    expect(decide('AS QS', 'JS')).toBe('3x');
+  });
   it('four cards: 3x four to a flush or an open straight, 8-high or better', () => {
     expect(decide('2H 9H', '5H KH')).toBe('3x');
     expect(decide('5C 6D', '7H 8S')).toBe('3x');

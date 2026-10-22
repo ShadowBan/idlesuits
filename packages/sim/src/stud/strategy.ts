@@ -7,7 +7,6 @@ import type { StudChoice, StudDecision } from './round';
  */
 
 const points = (card: Card) => (card.rank >= 11 ? 2 : card.rank >= 6 ? 1 : 0);
-const isHigh = (card: Card) => card.rank >= 11;
 const isMid = (card: Card) => card.rank >= 6 && card.rank <= 10;
 
 /** Rank counts, highest pair first. */
@@ -38,26 +37,27 @@ const suited = (cards: readonly Card[]) => cards.every((c) => c.suit === cards[0
 
 /**
  * How far a set of distinct ranks is from a straight: gaps inside the run, or
- * null if they cannot share one. Aces play high or low, whichever is tighter.
+ * null if they cannot share one. Aces play high or low, whichever is tighter;
+ * an ace playing low is a low card, not a high one.
  */
-function straightGaps(cards: readonly Card[]): { gaps: number; high: number } | null {
+function straightGaps(cards: readonly Card[]): { gaps: number; high: number; highs: number } | null {
   const ranks = [...new Set(cards.map((c) => c.rank))];
   if (ranks.length !== cards.length) return null;
-  let best: { gaps: number; high: number } | null = null;
+  let best: { gaps: number; high: number; highs: number } | null = null;
   for (const aceLow of [false, true]) {
     if (aceLow && !ranks.includes(14)) continue;
     const values = ranks.map((r) => (aceLow && r === 14 ? 1 : r)).sort((a, b) => a - b);
     const span = values[values.length - 1]! - values[0]!;
     if (span > 4) continue;
     const gaps = span - (values.length - 1);
-    if (!best || gaps < best.gaps) best = { gaps, high: values[values.length - 1]! };
+    const highs = values.filter((v) => v >= 11).length;
+    if (!best || gaps < best.gaps) best = { gaps, high: values[values.length - 1]!, highs };
   }
   return best;
 }
 
 function threeCards(cards: readonly Card[]): StudChoice {
   const total = cards.reduce((sum, c) => sum + points(c), 0);
-  const highs = cards.filter(isHigh).length;
   const draw = straightGaps(cards);
   const flushy = suited(cards);
 
@@ -65,8 +65,8 @@ function threeCards(cards: readonly Card[]): StudChoice {
   if (flushy && cards.every((c) => c.rank >= 10)) return { move: 'bet', size: 3 }; // royal flush draw
   if (flushy && draw) {
     if (draw.gaps === 0 && draw.high >= 7) return { move: 'bet', size: 3 };
-    if (draw.gaps === 1 && highs >= 1) return { move: 'bet', size: 3 };
-    if (draw.gaps === 2 && highs >= 2) return { move: 'bet', size: 3 };
+    if (draw.gaps === 1 && draw.highs >= 1) return { move: 'bet', size: 3 };
+    if (draw.gaps === 2 && draw.highs >= 2) return { move: 'bet', size: 3 };
   }
   if (flushy) return { move: 'bet', size: 1 };
   if (lowPair(cards)) return { move: 'bet', size: 1 };

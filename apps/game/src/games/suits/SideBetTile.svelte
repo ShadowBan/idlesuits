@@ -42,7 +42,9 @@
       {#if view.livePays > 0}<b>pays {view.livePays}:1</b>{/if}
     </p>
   {:else}
-    <p class="progress muted">{def.metric === 'flushSize' ? 'Flush size' : 'Straight flush'} · {paysSummary}</p>
+    <p class="progress muted">
+      {def.metric === 'flushSize' ? 'Flush size' : 'Straight flush'} · {paysSummary} · edge {(def.edge * 100).toFixed(2)}%
+    </p>
   {/if}
 
   {#if view?.net != null && view.owner !== 'none'}

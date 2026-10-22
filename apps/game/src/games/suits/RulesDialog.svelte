@@ -86,7 +86,9 @@
         </table>
         {#each rules.sideBets as bet (bet.id)}
           <table>
-            <caption>{bet.name}{bet.metric === 'straightFlush' ? ' (suited run)' : ''}</caption>
+            <caption>
+              {bet.name}{bet.metric === 'straightFlush' ? ' (suited run)' : ''} · edge {(bet.edge * 100).toFixed(2)}%
+            </caption>
             <tbody>
               {#each Object.entries(bet.pays.values) as [n, pays] (n)}
                 <tr><td>{n} {bet.metric === 'flushSize' ? 'suited' : 'in a row'}</td><td>{pays.toLocaleString('en-US')}:1</td></tr>

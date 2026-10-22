@@ -27,13 +27,13 @@ Reference: optimal play (raise max with any 4+ flush and 3-card flushes about 10
 
 | Flush Rush (flush size) | Pays | Super Flush Rush (straight flush length) | Pays |
 |---|---|---|---|
-| 4 | 1:1 | 3 | 7:1 |
-| 5 | 10:1 | 4 | 60:1 |
-| 6 | 100:1 | 5 | 100:1 |
+| 4 | 2:1 | 3 | 7:1 |
+| 5 | 5:1 | 4 | 60:1 |
+| 6 | 75:1 | 5 | 100:1 |
 | 7 | 300:1 | 6 | 1,000:1 |
 | | | 7 | 8,000:1 |
 
-Reference house edges: Flush Rush 7.53%, Super Flush Rush 13.11%.
+Reference house edges (Wizard of Odds, I Luv Suits): Flush Rush 7.53%, Super Flush Rush 13.11%. An earlier draft paid Flush Rush 1/10/100/300, which mixed two published tables and ran at 7.81%.
 
 Pay tables beyond 7 cards extrapolate at ×10 per extra card, so any size has a predictable payout.
 
