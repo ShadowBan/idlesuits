@@ -50,6 +50,28 @@ export const GAMES: GameEntry[] = [
     load: () => import('../games/blackjack/BlackjackGame.svelte'),
   },
   {
+    id: 'uth',
+    name: "Ultimate Texas Hold'em",
+    tagline: 'Bet big early, or pay less to see more.',
+    blurb:
+      'Two cards each and five on the board. Raise 4× before the flop on a strong hand, 2× on the flop, or 1× at the end.',
+    facts: ['Ante + Blind', 'Trips side bet', 'River odds'],
+    motif: ['K', '♥', 'K'],
+    accent: '#ff7a66',
+    load: () => import('../games/uth/UthTable.svelte'),
+  },
+  {
+    id: 'stud',
+    name: 'Mississippi Stud',
+    tagline: 'No dealer. Just you and the pay table.',
+    blurb:
+      'Two cards of your own and three shared. Raise 1× or 3× as each card lands, and every bet pays at the same odds.',
+    facts: ['Up to 10× ante', 'Royal pays 500:1', 'No dealer'],
+    motif: ['J', '♦', 'J'],
+    accent: '#c792ea',
+    load: () => import('../games/stud/StudTable.svelte'),
+  },
+  {
     id: 'draw',
     name: 'Draw Poker',
     tagline: 'Keep what you like, redraw the rest.',

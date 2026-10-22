@@ -10,3 +10,4 @@ export * from './blackjack';
 export * from './poker';
 export * from './uth';
 export * from './stud';
+export * from './step';
