@@ -9,8 +9,11 @@ import {
   type SideBetDef,
   type SideBetOwner,
 } from '@idlesuits/sim';
+import type { BreakdownLine } from '../../lib/breakdown';
 import type { Drama } from './director';
 import { explain } from './verdict';
+
+export type { BreakdownLine };
 
 export interface SideBetView {
   def: SideBetDef;
@@ -23,12 +26,6 @@ export interface SideBetView {
   /** Pays N:1 at the current progress. */
   livePays: number;
   net: number | null;
-}
-
-export interface BreakdownLine {
-  label: string;
-  /** In antes. */
-  amount: number;
 }
 
 export class HandView {

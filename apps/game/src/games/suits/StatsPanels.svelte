@@ -1,9 +1,9 @@
 <script lang="ts">
   import { SUIT_SYMBOL } from '@idlesuits/sim';
-  import type { SpeedMode } from '../lib/director';
-  import type { Game } from '../lib/game.svelte';
-  import { formatMoney } from '../lib/money';
-  import Breakdown from './Breakdown.svelte';
+  import type { SpeedMode } from './director';
+  import type { Game } from './game.svelte';
+  import { formatMoney } from '../../lib/money';
+  import Breakdown from '../../components/Breakdown.svelte';
 
   interface Props {
     game: Game;

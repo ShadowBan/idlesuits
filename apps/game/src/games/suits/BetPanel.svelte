@@ -1,7 +1,7 @@
 <script lang="ts">
   import { DEFAULT_RAISE_CAPS, maxRaise } from '@idlesuits/sim';
-  import { PLAN_SIZES, type Game } from '../lib/game.svelte';
-  import { formatMoney } from '../lib/money';
+  import { PLAN_SIZES, type Game } from './game.svelte';
+  import { formatMoney } from '../../lib/money';
 
   let { game }: { game: Game } = $props();
 

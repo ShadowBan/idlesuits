@@ -30,10 +30,28 @@ edge under optimal play, 7.53% on Flush Rush and 13.11% on Super Flush Rush.
 |---|---|
 | `packages/sim` | The simulator: cards, hand evaluation, seeded shuffling, side bets, round resolution. No DOM, no timers, no `Math.random`. |
 | `packages/balance` | Batch runner and CLI for simulating large numbers of hands. |
-| `apps/game` | The Svelte 5 + Vite game: table, reveal pacing, bets, sound. |
+| `apps/game` | The Svelte 5 + Vite app: the lobby shell and the games themselves. |
+| `apps/game/src/games/<id>` | One game: its rules, table, panels and pacing. Self-contained. |
+| `apps/game/src/lib` | Shared across games: the casino wallet, money formatting, sound, the pausable clock, the game registry and routing. |
+| `apps/game/src/components` | Shared UI: playing cards, payout breakdowns, the lobby. |
 
 The simulator produces an event log; the UI only plays that log back. Any hand can be reproduced
 exactly from its seed.
+
+## Adding a game
+
+Each game is a folder under `src/games/` and one entry in [`src/lib/games.ts`](apps/game/src/lib/games.ts).
+Nothing else in the shell needs to know it exists.
+
+1. Create `src/games/<id>/<Name>Game.svelte`. It takes one prop, `onExit`, and renders the whole
+   screen: its own header, table and panels.
+2. Add an entry to `GAMES` with the name, tagline, blurb and a `load` that imports that component.
+   An entry without `load` shows on the floor as a closed table.
+3. Draw money with `bankroll` from [`src/lib/casino.svelte.ts`](apps/game/src/lib/casino.svelte.ts),
+   so every table shares one wallet.
+
+Games are loaded only when opened, so an unplayed table costs nothing at startup. The route is
+`#/<id>`, which makes tables deep-linkable and keeps the browser's back button working.
 
 ## Deploying to GitHub Pages
 

@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { SideBetDef } from '@idlesuits/sim';
-  import { formatMoney, type Decimal } from '../lib/money';
-  import type { SideBetView } from '../lib/table.svelte';
+  import { formatMoney, type Decimal } from '../../lib/money';
+  import type { SideBetView } from './table.svelte';
 
   interface Props {
     def: SideBetDef;

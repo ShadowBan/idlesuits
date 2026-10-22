@@ -2,8 +2,8 @@
   import type { Snippet } from 'svelte';
   import { flip } from 'svelte/animate';
   import { rankLabel, SUIT_SYMBOL, SUITS, type Card } from '@idlesuits/sim';
-  import type { HandView } from '../lib/table.svelte';
-  import PlayingCard from './PlayingCard.svelte';
+  import type { HandView } from './table.svelte';
+  import PlayingCard from '../../components/PlayingCard.svelte';
 
   interface Props {
     title: string;

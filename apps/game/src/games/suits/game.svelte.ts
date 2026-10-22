@@ -11,13 +11,13 @@ import {
   type Suit,
   type TableRules,
 } from '@idlesuits/sim';
-import { Clock } from './clock';
+import { bankroll } from '../../lib/casino.svelte';
+import { Clock } from '../../lib/clock';
 import { beatDelay, direct, resultHold, type Beat, type Drama, type SpeedMode } from './director';
-import { Decimal } from './money';
-import { sfx } from './sound';
+import { Decimal } from '../../lib/money';
+import { sfx } from '../../lib/sound';
 import { TableView } from './table.svelte';
 
-const STARTING_BANK = 500;
 const STARTING_ANTE = 5;
 const ESTIMATE_HANDS = 40_000;
 
@@ -61,7 +61,6 @@ export class Game {
 
   runSeed = $state(newSeed());
   round = $state(0);
-  bank = $state(new Decimal(STARTING_BANK));
   ante = $state(new Decimal(STARTING_ANTE));
   /** The ante the round on the table was dealt at; `ante` only applies to the next round. */
   roundAnte = $state(new Decimal(STARTING_ANTE));
@@ -97,6 +96,11 @@ export class Game {
   private estimator: Worker | null = null;
   private estimateId = 0;
   private pendingEstimate: { id: number; ante: Decimal } | null = null;
+
+  /** The shared casino wallet; every table pays into the same one. */
+  get bank(): Decimal {
+    return bankroll.balance;
+  }
 
   start() {
     if (this.started || this.disposed) return;
@@ -177,7 +181,7 @@ export class Game {
     this.clock.reset();
     this.runSeed = newSeed();
     this.round = 0;
-    this.bank = new Decimal(STARTING_BANK);
+    bankroll.buyIn();
     this.ante = new Decimal(STARTING_ANTE);
     this.sideStakes = { flushRush: new Decimal(STARTING_ANTE), superFlushRush: new Decimal(0) };
     this.hands = 0;
@@ -343,7 +347,7 @@ export class Game {
     const seat = result.seats[0]!;
     const net = ante.mul(seat.net);
     this.lastAnte = ante;
-    this.bank = this.bank.add(net);
+    bankroll.settle(net);
     this.sessionNet = this.sessionNet.add(net);
     if (net.gt(this.biggestWin)) this.biggestWin = net;
     this.hands++;

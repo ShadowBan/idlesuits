@@ -1,6 +1,6 @@
 <script lang="ts">
   import { formatMoney, type Decimal } from '../lib/money';
-  import type { BreakdownLine } from '../lib/table.svelte';
+  import type { BreakdownLine } from '../lib/breakdown';
 
   interface Props {
     lines: BreakdownLine[];

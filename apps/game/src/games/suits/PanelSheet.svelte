@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { Game } from '../lib/game.svelte';
+  import type { Game } from './game.svelte';
   import BetPanel from './BetPanel.svelte';
   import StatsPanels from './StatsPanels.svelte';
 

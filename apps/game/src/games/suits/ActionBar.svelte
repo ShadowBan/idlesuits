@@ -1,6 +1,6 @@
 <script lang="ts">
-  import type { Game } from '../lib/game.svelte';
-  import { formatMoney } from '../lib/money';
+  import type { Game } from './game.svelte';
+  import { formatMoney } from '../../lib/money';
 
   let { game }: { game: Game } = $props();
 
