@@ -2,6 +2,7 @@ import { parseArgs } from 'node:util';
 import { buildShoe, DEFAULT_RULES, OPTIMAL_BASE_POLICY, standardDeck, type RaisePolicy } from '@idlesuits/sim';
 import { elementOfRisk, mainEdge, runBatch, sideBetEdge, type BatchStats } from './batch';
 import { runBlackjack } from './blackjack-cli';
+import { runUthCli, sliceSums } from './uth-cli';
 
 const POLICIES: Record<string, RaisePolicy> = {
   optimal: OPTIMAL_BASE_POLICY,
@@ -12,6 +13,9 @@ const POLICIES: Record<string, RaisePolicy> = {
 const { values } = parseArgs({
   options: {
     game: { type: 'string', default: 'suits' },
+    workers: { type: 'string', default: '1' },
+    /** Internal: run one slice of a parallel run and print its sums as JSON. */
+    slice: { type: 'string' },
     hands: { type: 'string', default: '1000000' },
     seed: { type: 'string', default: 'balance' },
     policy: { type: 'string', default: 'optimal' },
@@ -23,6 +27,16 @@ const hands = Number(values.hands);
 
 if (values.game === 'blackjack') {
   await runBlackjack(hands, values.seed);
+  process.exit(0);
+}
+
+if (values.game === 'uth') {
+  if (values.slice) {
+    const [start, count] = values.slice.split(',').map(Number);
+    console.log(JSON.stringify(sliceSums(start!, count!, values.seed)));
+  } else {
+    await runUthCli(hands, values.seed, Number(values.workers));
+  }
   process.exit(0);
 }
 const policy = POLICIES[values.policy];

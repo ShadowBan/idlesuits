@@ -10,6 +10,7 @@
     "test": "vitest run",
     "typecheck": "tsc -p packages/sim && tsc -p packages/balance && npm run check -w @idlesuits/game",
     "balance": "tsx packages/balance/src/cli.ts",
+    "derive:uth-chart": "tsx packages/balance/src/derive-uth-chart.ts",
     "dev": "npm run dev -w @idlesuits/game",
     "build": "npm run build -w @idlesuits/game"
   },

@@ -7,3 +7,5 @@ export * from './round';
 export * from './sidebets';
 export * from './strategy';
 export * from './blackjack';
+export * from './poker';
+export * from './uth';
