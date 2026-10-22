@@ -4,11 +4,13 @@ An idle casino. Pick a table from the floor and the same bankroll follows you fr
 
 - **Idle Suits** — seven cards each, biggest flush wins, with side bets that pay on your hand alone.
 - **Free Bet Blackjack** — the house pays for your doubles on 9/10/11 and every split but tens; in
-  exchange a dealer 22 pushes.
+  exchange a dealer 22 pushes. Side bets: Pot of Gold, Push 22.
 - **Ultimate Texas Hold'em** — bet 4× before the flop, 2× on it, or 1× at the end, against a dealer
-  who needs a pair to open.
+  who needs a pair to open. Side bets: Trips, 6-Card Bonus, Hole Card Bonus, Bad Beat.
 - **Mississippi Stud** — no dealer; raise 1× or 3× as each community card lands, and every bet is
-  paid off the same pay table. See
+  paid off the same pay table. Side bet: 3-Card Bonus.
+
+See
 [docs/idle_suits_game_concept_v0_2.md](docs/idle_suits_game_concept_v0_2.md) for the design concept and
 [docs/decisions_v0_3.md](docs/decisions_v0_3.md) for the rules and decisions the build follows.
 
@@ -25,6 +27,8 @@ Other commands:
 npm test           # simulator, director, and verdict tests
 npm run typecheck  # TypeScript + svelte-check
 npm run build      # production build into apps/game/dist
+npm run audit      # check every game and side bet against published odds (~5 min, all cores)
+npm run audit -- --quick --out docs/odds_audit.md     # a tenth of the rounds, and write the report
 npm run balance -- --hands 1000000                    # Idle Suits odds
 npm run balance -- --game blackjack --hands 1000000   # Free Bet Blackjack odds
 npm run balance -- --game uth --hands 12000000 --workers 15    # Ultimate Texas Hold'em
@@ -36,17 +40,36 @@ npm run derive:uth-chart                              # re-derive the UTH pre-fl
 about 4 antes and a round of Mississippi Stud about 9, so their house edges only settle down after
 tens of millions of rounds.
 
-The balance tool reproduces the published figures for both games: Idle Suits at a 2.64% house edge
-under optimal play (7.53% on Flush Rush, 13.11% on Super Flush Rush), and Free Bet Blackjack at
-1.04% — measured at 1.040% over eight million rounds, with its strategy solved from the rules rather
-than hard-coded.
+### Odds audit
 
-| Game | Measured house edge | Published | Rounds |
+`npm run audit` holds every game and every side bet to its published house edge, and writes
+[docs/odds_audit.md](docs/odds_audit.md). Pay tables that can be dealt out completely are checked
+**exactly**, through the simulator's own evaluators: every one of the 133,784,560 seven-card hands
+for Trips and the flush bets, every six-card hand for the 6-Card Bonus, and all 155,937,600 deals of
+Mississippi Stud played by the table's strategy. Everything else is simulated through the real round
+engines with a 95% margin, and so is every exact bet, to prove the table settles it the same way.
+
+| Bet | Measured | Published | How |
 |---|---|---|---|
-| Idle Suits | 2.60% | 2.64% | 2M |
-| Free Bet Blackjack | 1.040% | 1.04% | 8M |
-| Ultimate Texas Hold'em | 2.479% ±0.27% per ante | 2.43% (this strategy) | 12M |
-| Mississippi Stud | 4.975% ±0.25% per ante | 4.91% | 60M |
+| Idle Suits | 2.75% ±0.11% | 2.64% | 8M rounds |
+| Flush Rush | 7.53% | 7.53% | exact |
+| Super Flush Rush | 13.09% | 13.11% | exact (see below) |
+| Free Bet Blackjack | 1.064% ±0.033% | 1.04% | 40M rounds |
+| Pot of Gold | 8.74% ±0.12% | 5.77% | 40M rounds (see below) |
+| Push 22 | 11.77% ±0.10% | 11.76% | 40M rounds |
+| Ultimate Texas Hold'em | 2.41% ±0.34% per ante | 2.43% (this strategy) | 8M rounds |
+| Trips | 0.902% | 0.902% | exact |
+| 6-Card Bonus | 8.56% | 8.56% | exact |
+| Hole Card Bonus | 8.54% | 8.54% | exact |
+| Bad Beat | 15.2% ±1.0% | 14.79% | 8M rounds |
+| Mississippi Stud | 4.9149% per ante | 4.9149% | exact |
+| 3-Card Bonus | 2.14% | 2.14% (NJ pay table 4) | exact |
+
+Two differ from their source, for known reasons. Wizard of Odds' Super Flush Rush table counts 124
+fewer straight flushes than the progressive table on the same page; the simulator matches the
+progressive table. Its Pot of Gold figure comes from a simulation that earns a free bet in 16.66% of
+rounds, but under today's rules that chance is exactly 16.18%, which puts the bet at 8.74%. The game
+shows the measured edge beside every side bet.
 
 ## Layout
 
@@ -76,6 +99,10 @@ Nothing else in the shell needs to know it exists.
    An entry without `load` shows on the floor as a closed table.
 3. Draw money with `bankroll` from [`src/lib/casino.svelte.ts`](apps/game/src/lib/casino.svelte.ts),
    so every table shares one wallet.
+4. For side bets, define each as a `BonusBet` in the simulator (a pay table, its published edge and
+   a `resolve` from the dealt cards) and settle them with `settleBonuses`. On the table,
+   `SideStakes` and [`SideBetsPanel`](apps/game/src/components/SideBetsPanel.svelte) give you the
+   stake controls and pay tables. Then add the bet to `npm run audit`.
 
 Games are loaded only when opened, so an unplayed table costs nothing at startup. The route is
 `#/<id>`, which makes tables deep-linkable and keeps the browser's back button working.
