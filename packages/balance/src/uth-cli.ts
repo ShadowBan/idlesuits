@@ -52,7 +52,7 @@ function merge(into: Sums, from: Sums): Sums {
   into.wagered += from.wagered;
   into.folds += from.folds;
   into.dealerQualified += from.dealerQualified;
-  for (const key of ['ante', 'play', 'blind', 'trips'] as const) into.parts[key] += from.parts[key];
+  for (const key of ['ante', 'play', 'blind', 'bonus'] as const) into.parts[key] += from.parts[key];
   for (const [k, v] of Object.entries(from.raises)) into.raises[Number(k)] = (into.raises[Number(k)] ?? 0) + v;
   for (const [k, v] of Object.entries(from.categories)) into.categories[Number(k)] = (into.categories[Number(k)] ?? 0) + v;
   into.biggestWin = Math.max(into.biggestWin, from.biggestWin);

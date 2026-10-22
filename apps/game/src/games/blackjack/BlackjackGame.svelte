@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onDestroy } from 'svelte';
   import { MediaQuery } from 'svelte/reactivity';
-  import type { Move } from '@idlesuits/sim';
+  import { BJ_BONUSES, type Move } from '@idlesuits/sim';
   import type { GameProps } from '../../lib/games';
   import { formatMoney } from '../../lib/money';
   import { setMuted, unlockAudio } from '../../lib/sound';
@@ -27,6 +27,13 @@
   $effect(() => setMuted(muted));
 
   const flipMs = $derived(FLIP_MS[game.speed]);
+  const sideSpots = $derived(
+    BJ_BONUSES.filter((b) => (game.roundSide[b.id] ?? 0) > 0).map((b) => ({
+      bet: b,
+      units: game.roundSide[b.id]!,
+      result: view.bonusResults[b.id],
+    })),
+  );
   const KEYS: Record<string, Move> = { h: 'hit', s: 'stand', d: 'double', p: 'split' };
 
   function begin() {
@@ -127,6 +134,17 @@
         </p>
       {:else if game.started}
         <p class="stake">Betting {formatMoney(game.roundBet)}</p>
+      {/if}
+      {#if game.started && sideSpots.length}
+        <ul class="side-bets" aria-label="Side bets">
+          {#each sideSpots as spot (spot.bet.id)}
+            {@const net = spot.result?.net}
+            <li class:win={(net ?? 0) > 0} class:loss={(net ?? 0) < 0}>
+              {spot.bet.name}
+              <b>{net === undefined ? formatMoney(game.roundBet.mul(spot.units)) : formatMoney(game.roundBet.mul(net), true)}</b>
+            </li>
+          {/each}
+        </ul>
       {/if}
     </div>
 
@@ -287,7 +305,45 @@
     display: grid;
     align-content: center;
     justify-items: center;
+    gap: 6px;
     min-height: 28px;
+  }
+  .side-bets {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 6px;
+  }
+  .side-bets li {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    padding: 4px 10px;
+    border-radius: 999px;
+    border: 1px dashed color-mix(in srgb, var(--gold) 55%, transparent);
+    font: 600 11px/1 var(--font-ui);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .side-bets b {
+    font: 700 13px/1 var(--font-display);
+    letter-spacing: 0;
+    color: var(--ink);
+    font-variant-numeric: tabular-nums;
+  }
+  .side-bets li.win {
+    border-style: solid;
+    border-color: var(--win);
+  }
+  .side-bets li.win b {
+    color: var(--win);
+  }
+  .side-bets li.loss b {
+    color: var(--loss);
   }
   .hands {
     display: flex;

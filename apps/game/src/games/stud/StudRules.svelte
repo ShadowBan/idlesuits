@@ -1,5 +1,7 @@
 <script lang="ts">
+  import { STUD_BONUSES as BONUSES } from '@idlesuits/sim';
   import RulesFrame from '../../components/RulesFrame.svelte';
+  import { formatEdge } from '../../lib/sidebets.svelte';
 
   let frame: RulesFrame;
 
@@ -30,6 +32,16 @@
       </li>
       <li>A pair of sixes through tens pushes: every bet comes back. Anything less loses them all.</li>
       <li>Folding gives up the Ante and whatever you have bet so far.</li>
+    </ul>
+  </details>
+
+  <details>
+    <summary>Side bets</summary>
+    <ul>
+      {#each BONUSES as bet (bet.id)}
+        <li><b>{bet.name}</b>: {bet.blurb.charAt(0).toLowerCase() + bet.blurb.slice(1)} House edge {formatEdge(bet.edge)}.</li>
+      {/each}
+      <li>Each is optional, starts off, and pays on the cards alone, even if you fold. Pay tables are in the side panel.</li>
     </ul>
   </details>
 

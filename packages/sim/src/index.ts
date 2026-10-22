@@ -6,6 +6,7 @@ export * from './rng';
 export * from './round';
 export * from './sidebets';
 export * from './strategy';
+export * from './bonus';
 export * from './blackjack';
 export * from './poker';
 export * from './uth';

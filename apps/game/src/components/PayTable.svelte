@@ -6,7 +6,7 @@
   }
 
   interface Props {
-    title: string;
+    title?: string;
     rows: Row[];
     /** The row the current hand lands on, if any. */
     lit?: string;
@@ -16,7 +16,7 @@
 </script>
 
 <table>
-  <caption>{title}</caption>
+  {#if title}<caption>{title}</caption>{/if}
   <tbody>
     {#each rows as row (row.label)}
       <tr class:lit={row.label === lit}>

@@ -3,7 +3,9 @@ import {
   decideStud,
   simulateStudRound,
   stepWithChoices,
+  STUD_BONUSES,
   STUD_RULES,
+  type BonusResult,
   type Card,
   type PokerHand,
   type StudChoice,
@@ -15,6 +17,7 @@ import type { BreakdownLine } from '../../lib/breakdown';
 import { bankroll } from '../../lib/casino.svelte';
 import { Decimal } from '../../lib/money';
 import { Sequencer } from '../../lib/sequencer.svelte';
+import { bonusLine, SideStakes } from '../../lib/sidebets.svelte';
 import { sfx } from '../../lib/sound';
 
 const STARTING_ANTE = 5;
@@ -27,6 +30,7 @@ const BASE_MS: Record<StudEvent['type'], number> = {
   Folded: 300,
   CommunityCard: 520,
   FinalHand: 360,
+  BonusSettled: 300,
   RoundSettled: 420,
 };
 const RESULT_HOLD_MS = 1500;
@@ -55,6 +59,8 @@ export class StudGame {
   runSeed = $state(newSeed());
   round = $state(0);
   ante = $state(new Decimal(STARTING_ANTE));
+  /** Side bets for the next hand, in dollars. */
+  readonly side = new SideStakes(STUD_BONUSES);
   roundAnte = $state(new Decimal(STARTING_ANTE));
   lastAnte = $state(new Decimal(STARTING_ANTE));
   started = $state(false);
@@ -67,6 +73,9 @@ export class StudGame {
   /** Street bets in antes, in order; nulls are streets not reached yet. */
   bets = $state<(number | null)[]>([null, null, null]);
   folded = $state(false);
+  /** Side bets riding on this hand, in antes. */
+  roundSide = $state<Record<string, number>>({});
+  bonusResults = $state<Record<string, BonusResult>>({});
   hand = $state<PokerHand | null>(null);
   multiplier = $state<number | null>(null);
   net = $state<number | null>(null);
@@ -136,6 +145,7 @@ export class StudGame {
     this.round = 0;
     bankroll.buyIn();
     this.ante = new Decimal(STARTING_ANTE);
+    this.side.reset();
     this.hands = 0;
     this.folds = 0;
     this.sessionNet = new Decimal(0);
@@ -158,10 +168,12 @@ export class StudGame {
 
   private async playRound(): Promise<boolean> {
     const ante = this.ante;
+    const bonuses = this.side.units(ante);
     this.roundAnte = ante;
+    this.roundSide = bonuses;
     const seed = { run: this.runSeed, round: this.round };
     const run = (decide: (d: StudDecision) => StudChoice, onEvent: (e: StudEvent) => void) =>
-      simulateStudRound({ seed, decide, onEvent });
+      simulateStudRound({ seed, decide, bonuses, onEvent });
 
     const choices: StudChoice[] = [];
     let shown = 0;
@@ -207,6 +219,7 @@ export class StudGame {
         this.community = [null, null, null];
         this.bets = [null, null, null];
         this.folded = false;
+        this.bonusResults = {};
         this.hand = null;
         this.multiplier = null;
         this.net = null;
@@ -243,6 +256,11 @@ export class StudGame {
         ];
         break;
       }
+      case 'BonusSettled':
+        this.bonusResults[event.result.id] = event.result;
+        this.breakdown.push(bonusLine(STUD_BONUSES, event.result));
+        if (event.result.net > 0) sfx.chip();
+        break;
       case 'RoundSettled':
         this.net = event.net;
         this.last = { lines: [...this.breakdown], net: event.net };

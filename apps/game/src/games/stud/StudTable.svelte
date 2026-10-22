@@ -1,9 +1,10 @@
 <script lang="ts">
   import { onDestroy } from 'svelte';
-  import { CATEGORY_NAMES, type StudChoice } from '@idlesuits/sim';
+  import { CATEGORY_NAMES, STUD_BONUSES, type StudChoice } from '@idlesuits/sim';
   import Breakdown from '../../components/Breakdown.svelte';
   import CardRow from '../../components/CardRow.svelte';
   import PayTable from '../../components/PayTable.svelte';
+  import SideBetsPanel from '../../components/SideBetsPanel.svelte';
   import TableShell from '../../components/TableShell.svelte';
   import type { GameProps } from '../../lib/games';
   import { formatMoney } from '../../lib/money';
@@ -57,6 +58,14 @@
     return game.multiplier >= 0 ? CATEGORY_NAMES[game.hand.category] : undefined;
   });
 
+  const sideSpots = $derived(
+    STUD_BONUSES.filter((b) => (game.roundSide[b.id] ?? 0) > 0).map((b) => ({
+      bet: b,
+      units: game.roundSide[b.id]!,
+      result: game.bonusResults[b.id],
+    })),
+  );
+
   function begin() {
     unlockAudio();
     game.start();
@@ -90,45 +99,67 @@
   onTapFelt={() => seq.awaiting === 'deal' && game.deal()}
 >
   {#snippet felt()}
-    <CardRow title="Community" cards={game.community} side="board" {flipMs} highlight={game.net !== null ? game.best : undefined} />
+    <div class="layout">
+      <div class="board-area">
+        <CardRow
+          title="Community"
+          cards={game.community}
+          side="board"
+          {flipMs}
+          highlight={game.net !== null ? game.best : undefined}
+        />
+      </div>
 
-    <ul class="bets" aria-label="Your bets">
-      <li class="placed">
-        <span class="name">Ante</span>
-        <b>{formatMoney(game.roundAnte)}</b>
-      </li>
-      {#each game.bets as bet, i (i)}
-        <li class:placed={bet !== null} class:folded={game.folded && bet === null && i === game.bets.indexOf(null)}>
-          <span class="name">{['3rd', '4th', '5th'][i]}</span>
-          <b>{bet !== null ? formatMoney(game.roundAnte.mul(bet)) : game.folded ? '—' : ''}</b>
-          {#if bet !== null}<small>{bet}×</small>{/if}
+      <ul class="bets" aria-label="Your bets">
+        <li class="placed">
+          <span class="name">Ante</span>
+          <b>{formatMoney(game.roundAnte)}</b>
         </li>
-      {/each}
-    </ul>
+        {#each game.bets as bet, i (i)}
+          <li class:placed={bet !== null} class:folded={game.folded && bet === null && i === game.bets.indexOf(null)}>
+            <span class="name">{['3rd', '4th', '5th'][i]}</span>
+            <b>{bet !== null ? formatMoney(game.roundAnte.mul(bet)) : game.folded ? '—' : ''}</b>
+            {#if bet !== null}<small>{bet}×</small>{/if}
+          </li>
+        {/each}
+        {#if game.started}
+          {#each sideSpots as spot (spot.bet.id)}
+            {@const net = spot.result?.net}
+            <li class="placed side" class:win={(net ?? 0) > 0} class:loss={(net ?? 0) < 0}>
+              <span class="name">{spot.bet.short}</span>
+              <b>{formatMoney(game.roundAnte.mul(spot.units))}</b>
+              {#if net !== undefined}<small class="result-net">{formatMoney(game.roundAnte.mul(net), true)}</small>{/if}
+            </li>
+          {/each}
+        {/if}
+      </ul>
 
-    <CardRow title="You" cards={game.hole} side="player" {flipMs} highlight={game.net !== null ? game.best : undefined}>
-      {#snippet badge()}
-        {#if game.hand}<span class="hand-name">{CATEGORY_NAMES[game.hand.category]}</span>{/if}
-      {/snippet}
-    </CardRow>
+      <div class="player-area">
+        <CardRow title="You" cards={game.hole} side="player" {flipMs} highlight={game.net !== null ? game.best : undefined}>
+          {#snippet badge()}
+            {#if game.hand}<span class="hand-name">{CATEGORY_NAMES[game.hand.category]}</span>{/if}
+          {/snippet}
+        </CardRow>
+      </div>
 
-    <div class="result">
-      {#if game.net !== null}
-        <p class="banner" class:win={game.net > 0} class:loss={game.net < 0} class:big={game.net >= 10}>
-          {#if game.folded}
-            Folded
-          {:else if game.multiplier! > 0}
-            Pays {game.multiplier}:1 on {game.wagered} units
-          {:else if game.multiplier === 0}
-            Push
-          {:else}
-            No pay
-          {/if}
-          <b>{formatMoney(game.roundAnte.mul(game.net), true)}</b>
-        </p>
-      {:else if game.started}
-        <p class="stake">On the table: {formatMoney(game.roundAnte.mul(game.wagered))}</p>
-      {/if}
+      <div class="result">
+        {#if game.net !== null}
+          <p class="banner" class:win={game.net > 0} class:loss={game.net < 0} class:big={game.net >= 10}>
+            {#if game.folded}
+              Folded
+            {:else if game.multiplier! > 0}
+              Pays {game.multiplier}:1 on {game.wagered} units
+            {:else if game.multiplier === 0}
+              Push
+            {:else}
+              No pay
+            {/if}
+            <b>{formatMoney(game.roundAnte.mul(game.net), true)}</b>
+          </p>
+        {:else if game.started}
+          <p class="stake">On the table: {formatMoney(game.roundAnte.mul(game.wagered))}</p>
+        {/if}
+      </div>
     </div>
 
     {#if !game.started}
@@ -189,12 +220,16 @@
           <button type="button" onclick={() => game.changeAnte(2)} aria-label="Double ante">+</button>
         </span>
       </div>
-      <p class="note">Each street adds 1× or 3× the ante. Max at risk: {formatMoney(game.ante.mul(10))}.</p>
+      <p class="note">
+        Each street adds 1× or 3× the ante. Max at risk: {formatMoney(game.ante.mul(10).add(game.side.total))}.
+      </p>
     </section>
 
     <section class="panel">
       <PayTable title="Pays on every bet" rows={PAY_ROWS} {lit} />
     </section>
+
+    <SideBetsPanel stakes={game.side} base={game.ante} results={game.bonusResults} />
 
     <section class="panel">
       <h2>Last hand</h2>
@@ -242,6 +277,34 @@
 </TableShell>
 
 <style>
+  .layout {
+    display: grid;
+    gap: inherit;
+    grid-template-areas: 'board' 'bets' 'player' 'result';
+  }
+  .board-area {
+    grid-area: board;
+  }
+  .bets {
+    grid-area: bets;
+  }
+  .player-area {
+    grid-area: player;
+  }
+  .result {
+    grid-area: result;
+  }
+  /* Landscape phones are short: the community cards and the player's sit side by side. */
+  @media (orientation: landscape) and (max-height: 520px) {
+    .layout {
+      grid-template-columns: 1fr 1fr;
+      grid-template-areas:
+        'board player'
+        'bets bets'
+        'result result';
+      align-items: center;
+    }
+  }
   .hand-name {
     font: 700 15px/1 var(--font-display);
     text-transform: uppercase;
@@ -285,6 +348,23 @@
   .bets small {
     font: 600 11px/1 var(--font-ui);
     color: var(--gold);
+  }
+  .bets li.side {
+    border-style: dashed;
+  }
+  .bets li.win {
+    border-style: solid;
+    border-color: var(--win);
+  }
+  .bets li.loss {
+    border-style: solid;
+    border-color: var(--loss);
+  }
+  .bets .win .result-net {
+    color: var(--win);
+  }
+  .bets .loss .result-net {
+    color: var(--loss);
   }
   .result {
     min-height: 26px;
@@ -374,6 +454,20 @@
   }
   .choice .act {
     flex: 1 1 0;
+  }
+  /* Short landscape puts the action bar in a narrow side column: stack the choices. */
+  @media (orientation: landscape) and (max-height: 520px) {
+    .bar,
+    .choice {
+      flex-direction: column;
+      align-items: stretch;
+    }
+    .choice {
+      flex: 0 0 auto;
+    }
+    .hint {
+      text-align: center;
+    }
   }
   .act small {
     font: 400 12px/1 var(--font-ui);

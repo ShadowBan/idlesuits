@@ -1,13 +1,16 @@
 import {
+  BJ_BONUSES,
   handTotal,
   totalOf,
   type BjEvent,
+  type BonusResult,
   type Card,
   type HandOutcome,
   type HandTotal,
   type Move,
 } from '@idlesuits/sim';
 import type { BreakdownLine } from '../../lib/breakdown';
+import { bonusLine } from '../../lib/sidebets.svelte';
 
 export interface HandView {
   cards: Card[];
@@ -51,6 +54,7 @@ export class BjTableView {
   active = $state<number | null>(null);
   peeked = $state<boolean | null>(null);
   net = $state<number | null>(null);
+  bonusResults = $state<Record<string, BonusResult>>({});
   breakdown = $state<BreakdownLine[]>([]);
   last = $state<{ lines: BreakdownLine[]; net: number } | null>(null);
 
@@ -69,6 +73,7 @@ export class BjTableView {
         this.active = null;
         this.peeked = null;
         this.net = null;
+        this.bonusResults = {};
         this.breakdown = [];
         break;
 
@@ -139,6 +144,11 @@ export class BjTableView {
         this.breakdown.push({ label: `${name} · ${outcomeLabel(event.outcome).toLowerCase()}`, amount: event.net });
         break;
       }
+
+      case 'BonusSettled':
+        this.bonusResults[event.result.id] = event.result;
+        this.breakdown.push(bonusLine(BJ_BONUSES, event.result));
+        break;
 
       case 'RoundSettled':
         this.net = event.net;

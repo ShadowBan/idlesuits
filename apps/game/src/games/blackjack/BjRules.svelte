@@ -1,5 +1,6 @@
 <script lang="ts">
-  import type { BjRules } from '@idlesuits/sim';
+  import { BJ_BONUSES, type BjRules } from '@idlesuits/sim';
+  import { formatEdge } from '../../lib/sidebets.svelte';
 
   let { rules }: { rules: BjRules } = $props();
 
@@ -65,6 +66,16 @@
         <li>Split up to {rules.maxHands} hands. Split aces take one card each.</li>
         <li>Ten-value pairs cannot be split. Doubling after a split is fine.</li>
         <li>No surrender, no insurance.</li>
+      </ul>
+    </details>
+
+    <details>
+      <summary>Side bets</summary>
+      <ul>
+        {#each BJ_BONUSES as bet (bet.id)}
+          <li><b>{bet.name}</b>: {bet.blurb.charAt(0).toLowerCase() + bet.blurb.slice(1)} House edge {formatEdge(bet.edge)}.</li>
+        {/each}
+        <li>Both are optional and start off. With Push 22 up, the dealer always draws out, even if you bust.</li>
       </ul>
     </details>
 

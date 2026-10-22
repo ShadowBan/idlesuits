@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onDestroy } from 'svelte';
-  import { CATEGORY_NAMES } from '@idlesuits/sim';
+  import { CATEGORY_NAMES, rankLabel, SUIT_SYMBOL, UTH_BONUSES } from '@idlesuits/sim';
   import CardRow from '../../components/CardRow.svelte';
   import TableShell from '../../components/TableShell.svelte';
   import type { GameProps } from '../../lib/games';
@@ -64,7 +64,15 @@
     game.advance();
   }
 
-  const partNet = (part: 'ante' | 'blind' | 'play' | 'trips') => game.results[part]?.net;
+  const partNet = (part: 'ante' | 'blind' | 'play') => game.results[part]?.net;
+  /** Side bets riding on this hand, with how each settled. */
+  const sideSpots = $derived(
+    UTH_BONUSES.filter((b) => (game.roundSide[b.id] ?? 0) > 0).map((b) => ({
+      bet: b,
+      units: game.roundSide[b.id]!,
+      result: game.bonusResults[b.id],
+    })),
+  );
 </script>
 
 <svelte:window onkeydown={onKey} />
@@ -102,15 +110,23 @@
       </div>
 
       <ul class="bets" aria-label="Your bets">
-        {#each [['ante', 1], ['blind', 1], ['play', game.play], ['trips', game.tripsUnits]] as const as [part, units] (part)}
+        {#each [['ante', 1], ['blind', 1], ['play', game.play]] as const as [part, units] (part)}
           {@const net = partNet(part)}
           <li class:empty={units === 0} class:win={(net ?? 0) > 0} class:loss={(net ?? 0) < 0}>
             <span class="name">{part}</span>
-            <b>
-              {units > 0 ? formatMoney(game.roundAnte.mul(units)) : part === 'play' ? (game.folded ? 'folded' : '—') : 'off'}
-            </b>
+            <b>{units > 0 ? formatMoney(game.roundAnte.mul(units)) : game.folded ? 'folded' : '—'}</b>
             {#if net !== undefined && units > 0}
               <small>{net === 0 ? 'push' : formatMoney(game.roundAnte.mul(net), true)}</small>
+            {/if}
+          </li>
+        {/each}
+        {#each sideSpots as spot (spot.bet.id)}
+          {@const net = spot.result?.net}
+          <li class="side" class:win={(net ?? 0) > 0} class:loss={(net ?? 0) < 0}>
+            <span class="name">{spot.bet.short}</span>
+            <b>{formatMoney(game.roundAnte.mul(spot.units))}</b>
+            {#if net !== undefined}
+              <small>{formatMoney(game.roundAnte.mul(net), true)}</small>
             {/if}
           </li>
         {/each}
@@ -131,6 +147,14 @@
       </div>
 
       <div class="result">
+        {#if game.bonusCards.length}
+          <p class="bonus-cards">
+            6-Card Bonus
+            {#each game.bonusCards as card (card.uid)}
+              <span class="pc" class:red={card.suit === 'H' || card.suit === 'D'}>{rankLabel(card.rank)}{SUIT_SYMBOL[card.suit]}</span>
+            {/each}
+          </p>
+        {/if}
         {#if game.net !== null}
           <p class="banner" class:win={game.net > 0} class:loss={game.net < 0} class:big={game.net >= 6}>
             {game.folded ? 'Folded' : game.net > 0 ? 'You win' : game.net < 0 ? 'Dealer wins' : 'Push'}
@@ -216,21 +240,6 @@
   .result {
     grid-area: result;
   }
-  /* Landscape phones are short: dealer and player sit side by side. */
-  @media (orientation: landscape) and (max-height: 520px) {
-    .layout {
-      grid-template-columns: 1fr 1fr;
-      grid-template-areas:
-        'dealer player'
-        'board board'
-        'bets result';
-      align-items: center;
-    }
-    .bets li {
-      min-width: 54px;
-      padding: 3px 6px;
-    }
-  }
   .hand-name {
     font: 700 15px/1 var(--font-display);
     text-transform: uppercase;
@@ -268,6 +277,9 @@
   .bets li.empty {
     opacity: 0.5;
   }
+  .bets li.side {
+    border-color: color-mix(in srgb, var(--gold) 55%, transparent);
+  }
   .bets li.win {
     border-style: solid;
     border-color: var(--win);
@@ -302,6 +314,28 @@
     min-height: 26px;
     display: grid;
     justify-items: center;
+    gap: 6px;
+  }
+  .bonus-cards {
+    margin: 0;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font: 600 10px/1 var(--font-ui);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .pc {
+    padding: 3px 5px;
+    border-radius: 4px;
+    background: var(--card-face);
+    color: var(--card-black);
+    font: 700 13px/1 var(--font-display);
+    letter-spacing: 0;
+  }
+  .pc.red {
+    color: var(--card-red);
   }
   .banner {
     margin: 0;
@@ -375,6 +409,20 @@
   .choice .act {
     flex: 1 1 0;
   }
+  /* Short landscape puts the action bar in a narrow side column: stack the choices. */
+  @media (orientation: landscape) and (max-height: 520px) {
+    .bar,
+    .choice {
+      flex-direction: column;
+      align-items: stretch;
+    }
+    .choice {
+      flex: 0 0 auto;
+    }
+    .hint {
+      text-align: center;
+    }
+  }
   .act small {
     font: 400 12px/1 var(--font-ui);
     color: var(--muted);
@@ -399,6 +447,44 @@
   @media (pointer: coarse) {
     kbd {
       display: none;
+    }
+  }
+  /* Landscape phones are short: dealer and player sit side by side. */
+  @media (orientation: landscape) and (max-height: 520px) {
+    .layout {
+      grid-template-columns: 1fr 1fr;
+      grid-template-areas:
+        'dealer player'
+        'board board'
+        'bets bets'
+        'result result';
+      align-items: center;
+    }
+    .bets {
+      gap: 4px;
+    }
+    .bets li {
+      min-width: 48px;
+      padding: 2px 6px;
+      border-width: 1.5px;
+      border-radius: 9px;
+    }
+    .bets .name {
+      font-size: 9px;
+      letter-spacing: 0.06em;
+    }
+    .bets b {
+      font-size: 13px;
+    }
+    .bets small {
+      font-size: 10px;
+    }
+    .result {
+      min-height: 0;
+      grid-auto-flow: column;
+      justify-content: center;
+      align-items: center;
+      gap: 14px;
     }
   }
 </style>

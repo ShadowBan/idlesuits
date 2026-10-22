@@ -1,6 +1,7 @@
 <script lang="ts">
-  import { CATEGORY_NAMES, type UthRules } from '@idlesuits/sim';
+  import { CATEGORY_NAMES, UTH_BONUSES as BONUSES, type UthRules } from '@idlesuits/sim';
   import RulesFrame from '../../components/RulesFrame.svelte';
+  import { formatEdge } from '../../lib/sidebets.svelte';
 
   let { rules }: { rules: UthRules } = $props();
   let frame: RulesFrame;
@@ -32,7 +33,7 @@
         <b>Play</b> is the one extra bet you make: {big}× before the flop, {rules.flopRaise}× after it, or
         {rules.riverRaise}× at the end. If you have not bet by the end, you can fold and lose the Ante and Blind.
       </li>
-      <li><b>Trips</b> is optional and pays on your hand alone, even if you fold.</li>
+      <li>Side bets are optional and pay on the cards alone, even if you fold.</li>
     </ul>
   </details>
 
@@ -45,6 +46,16 @@
       </li>
       <li>Beat the dealer: Ante and Play pay 1:1. Lose: they lose. Tie: everything pushes.</li>
       <li>The Blind only pays on a winning straight or better (see the pay table). A smaller winning hand pushes it.</li>
+    </ul>
+  </details>
+
+  <details>
+    <summary>Side bets</summary>
+    <ul>
+      {#each BONUSES as bet (bet.id)}
+        <li><b>{bet.name}</b>: {bet.blurb.charAt(0).toLowerCase() + bet.blurb.slice(1)} House edge {formatEdge(bet.edge)}.</li>
+      {/each}
+      <li>Each is optional, starts off, and pays on the cards alone, even if you fold. Pay tables are in the side panel.</li>
     </ul>
   </details>
 

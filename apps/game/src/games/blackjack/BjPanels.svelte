@@ -1,5 +1,6 @@
 <script lang="ts">
   import Breakdown from '../../components/Breakdown.svelte';
+  import SideBetsPanel from '../../components/SideBetsPanel.svelte';
   import { formatMoney } from '../../lib/money';
   import type { BjGame, SpeedMode } from './game.svelte';
 
@@ -30,6 +31,8 @@
     nothing on a loss.
   </p>
 </section>
+
+<SideBetsPanel stakes={game.side} base={game.bet} results={view.bonusResults} />
 
 <section class="panel">
   <h2>Last hand</h2>

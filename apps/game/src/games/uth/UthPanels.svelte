@@ -2,6 +2,7 @@
   import { Category, CATEGORY_NAMES } from '@idlesuits/sim';
   import Breakdown from '../../components/Breakdown.svelte';
   import PayTable from '../../components/PayTable.svelte';
+  import SideBetsPanel from '../../components/SideBetsPanel.svelte';
   import { formatMoney } from '../../lib/money';
   import { SPEEDS } from '../../lib/sequencer.svelte';
   import type { UthGame } from './game.svelte';
@@ -36,21 +37,14 @@
       <button type="button" onclick={() => game.changeAnte(2)} aria-label="Double ante">+</button>
     </span>
   </div>
-  <div class="row">
-    <span>Trips</span>
-    <span class="stepper">
-      <button type="button" onclick={() => game.changeTrips(0.5)} aria-label="Halve trips">−</button>
-      <b class:off={game.trips.eq(0)}>{game.trips.gt(0) ? formatMoney(game.trips) : 'Off'}</b>
-      <button type="button" onclick={() => game.changeTrips(2)} aria-label="Raise trips">+</button>
-    </span>
-  </div>
-  <p class="note">The Blind always matches the Ante. Max at risk: {formatMoney(game.ante.mul(6).add(game.trips))}.</p>
+  <p class="note">The Blind always matches the Ante. Max at risk: {formatMoney(game.ante.mul(6).add(game.side.total))}.</p>
 </section>
 
 <section class="panel">
   <PayTable title="Blind pays (when you win)" rows={rowsFor(game.rules.blindPays)} {lit} />
-  <PayTable title="Trips pays (win or lose)" rows={rowsFor(game.rules.tripsPays)} {lit} />
 </section>
+
+<SideBetsPanel stakes={game.side} base={game.ante} results={game.bonusResults} />
 
 <section class="panel">
   <h2>Last hand</h2>
@@ -145,9 +139,6 @@
     text-align: center;
     font: 700 15px/1 var(--font-display);
     font-variant-numeric: tabular-nums;
-  }
-  .stepper b.off {
-    color: var(--muted);
   }
   .note {
     margin: 0;

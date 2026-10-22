@@ -1,6 +1,8 @@
+import { settleBonuses, type BonusResult } from '../bonus';
 import { standardDeck, type Card } from '../cards';
 import { Category, comparePoker, evaluatePoker, type PokerHand } from '../poker';
 import { Rng, type Seed } from '../rng';
+import { UTH_BONUSES, type UthBonusContext } from './bonus';
 import { payOf, UTH_RULES, type UthRules } from './rules';
 
 /** What the player may do at a decision point. */
@@ -21,7 +23,7 @@ export interface UthDecision {
 }
 
 export type UthEvent =
-  | { type: 'RoundStarted'; round: number; ante: number; trips: number }
+  | { type: 'RoundStarted'; round: number; ante: number; bonuses: Record<string, number> }
   | { type: 'HoleCards'; cards: Card[] }
   | { type: 'DealerCards' }
   | { type: 'Decision'; street: Street }
@@ -31,7 +33,10 @@ export type UthEvent =
   | { type: 'BoardRevealed'; street: Street; cards: Card[] }
   | { type: 'DealerRevealed'; cards: Card[]; hand: PokerHand; qualified: boolean }
   | { type: 'PlayerHand'; hand: PokerHand }
-  | { type: 'Settled'; part: 'ante' | 'play' | 'blind' | 'trips'; net: number; note: string }
+  | { type: 'Settled'; part: 'ante' | 'play' | 'blind'; net: number; note: string }
+  /** The 6-Card Bonus's four extra cards, shown only when that bet is up. */
+  | { type: 'BonusCards'; cards: Card[] }
+  | { type: 'BonusSettled'; result: BonusResult }
   | { type: 'RoundSettled'; net: number };
 
 export interface UthSeed {
@@ -42,8 +47,8 @@ export interface UthSeed {
 export interface UthRoundInput {
   rules?: UthRules;
   seed: UthSeed;
-  /** Trips side bet, in antes. Zero leaves it off. */
-  trips?: number;
+  /** Side bets by id (see UTH_BONUSES), in antes. Missing or zero is off. */
+  bonuses?: Readonly<Record<string, number>>;
   /** Forces the player's hole cards, for deriving strategy over fixed holdings. */
   hole?: readonly Card[];
   decide: (decision: UthDecision) => { move: UthMove; raise?: number };
@@ -63,7 +68,9 @@ export interface UthRoundResult {
   play: number;
   /** Everything won or lost, in antes. */
   net: number;
-  parts: { ante: number; play: number; blind: number; trips: number };
+  parts: { ante: number; play: number; blind: number; bonus: number };
+  bonuses: BonusResult[];
+  bonusCards: Card[];
   events: UthEvent[];
 }
 
@@ -87,8 +94,8 @@ export function simulateUthRound(input: UthRoundInput): UthRoundResult {
     return card;
   };
 
-  const trips = input.trips ?? 0;
-  emit({ type: 'RoundStarted', round: input.seed.round, ante: 1, trips });
+  const stakes = { ...input.bonuses };
+  emit({ type: 'RoundStarted', round: input.seed.round, ante: 1, bonuses: stakes });
 
   if (input.hole) {
     // Lift the chosen cards out of the deck so the rest of the deal is honest.
@@ -100,6 +107,8 @@ export function simulateUthRound(input: UthRoundInput): UthRoundResult {
   const hole = input.hole ? [...input.hole] : [draw(), draw()];
   const dealer = [draw(), draw()];
   const board = [draw(), draw(), draw(), draw(), draw()];
+  // Dealt last, so the main game's cards are the same whether or not the bet is up.
+  const bonusCards = [draw(), draw(), draw(), draw()];
   emit({ type: 'HoleCards', cards: hole });
   emit({ type: 'DealerCards' });
 
@@ -144,13 +153,15 @@ export function simulateUthRound(input: UthRoundInput): UthRoundResult {
   emit({ type: 'PlayerHand', hand: playerHand });
   emit({ type: 'DealerRevealed', cards: dealer, hand: dealerHand, qualified: dealerQualified });
 
-  const parts = { ante: 0, play: 0, blind: 0, trips: 0 };
+  const parts = { ante: 0, play: 0, blind: 0, bonus: 0 };
 
-  // The Trips bet rides on the player's own hand, even if they folded.
-  if (trips > 0) {
-    const pays = payOf(rules.tripsPays, playerHand.category);
-    parts.trips = pays > 0 ? pays * trips : -trips;
-    emit({ type: 'Settled', part: 'trips', net: parts.trips, note: pays > 0 ? `pays ${pays}:1` : 'miss' });
+  // Side bets ride on the cards alone, even if the player folded.
+  if ((stakes.sixCard ?? 0) > 0) emit({ type: 'BonusCards', cards: bonusCards });
+  const ctx: UthBonusContext = { hole, dealer, board, bonusCards, playerHand, dealerHand };
+  const bonuses = settleBonuses(UTH_BONUSES, stakes, ctx);
+  for (const result of bonuses) {
+    parts.bonus += result.net;
+    emit({ type: 'BonusSettled', result });
   }
 
   if (folded) {
@@ -187,10 +198,24 @@ export function simulateUthRound(input: UthRoundInput): UthRoundResult {
     });
   }
 
-  const net = parts.ante + parts.play + parts.blind + parts.trips;
+  const net = parts.ante + parts.play + parts.blind + parts.bonus;
   emit({ type: 'RoundSettled', net });
 
-  return { hole, board, dealer, playerHand, dealerHand, dealerQualified, folded, play, net, parts, events };
+  return {
+    hole,
+    board,
+    dealer,
+    playerHand,
+    dealerHand,
+    dealerQualified,
+    folded,
+    play,
+    net,
+    parts,
+    bonuses,
+    bonusCards,
+    events,
+  };
 }
 
 export { Category };

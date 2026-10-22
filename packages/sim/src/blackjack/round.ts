@@ -1,5 +1,7 @@
+import { anyStaked, settleBonuses, type BonusResult } from '../bonus';
 import { standardDeck, type Card } from '../cards';
 import { Rng, type Seed } from '../rng';
+import { BJ_BONUSES } from './bonus';
 import { handTotal, isBlackjack, isPair, type HandTotal } from './hand';
 import { cardValue, FREE_BET_RULES, type BjRules } from './rules';
 import { decideMove, type Allowed, type Move, type StrategyTables } from './strategy';
@@ -32,6 +34,7 @@ export type BjEvent =
   | { type: 'DealerDrew'; card: Card }
   | { type: 'DealerDone'; total: HandTotal }
   | { type: 'HandSettled'; hand: number; outcome: HandOutcome; net: number }
+  | { type: 'BonusSettled'; result: BonusResult }
   | { type: 'RoundSettled'; net: number };
 
 export interface BjSeed {
@@ -43,6 +46,8 @@ export interface BjRoundInput {
   rules?: BjRules;
   tables: StrategyTables;
   seed: BjSeed;
+  /** Side bets by id (see BJ_BONUSES), in units of the base bet. Missing or zero is off. */
+  bonuses?: Readonly<Record<string, number>>;
   /** Overrides the strategy for one decision at a time, for manual play. */
   decide?: (hand: BjHand, index: number, upcard: Card, allowed: Allowed) => Move;
   recordEvents?: boolean;
@@ -55,7 +60,10 @@ export interface BjRoundResult {
   dealer: Card[];
   dealerTotal: HandTotal;
   dealerBlackjack: boolean;
-  /** Everything won or lost this round, in units of the base bet. */
+  /** Free splits plus free doubles: what Pot of Gold counts. */
+  freeBets: number;
+  bonuses: BonusResult[];
+  /** Everything won or lost this round, side bets included, in units of the base bet. */
   net: number;
   events: BjEvent[];
 }
@@ -112,6 +120,31 @@ export function simulateBjRound(input: BjRoundInput): BjRoundResult {
 
   const playerBj = isBlackjack(hands[0]!.cards);
   let net = 0;
+  let freeBets = 0;
+  // Push 22 needs the dealer's final total, so with it up the dealer always draws out.
+  const mustDrawOut = (input.bonuses?.push22 ?? 0) > 0;
+
+  const drawOut = () => {
+    for (;;) {
+      const total = handTotal(dealer);
+      const stands = total.total > 17 || (total.total === 17 && !(total.soft && rules.hitsSoft17));
+      if (total.bust || stands) break;
+      emit({ type: 'DealerDrew', card: deal('dealer') });
+    }
+  };
+
+  const finish = (dealerBlackjack: boolean): BjRoundResult => {
+    const dealerTotal = handTotal(dealer);
+    const bonuses = anyStaked(input.bonuses)
+      ? settleBonuses(BJ_BONUSES, input.bonuses, { freeBets, dealer, dealerTotal, dealerBlackjack })
+      : [];
+    for (const result of bonuses) {
+      net += result.net;
+      emit({ type: 'BonusSettled', result });
+    }
+    emit({ type: 'RoundSettled', net });
+    return { hands, dealer, dealerTotal, dealerBlackjack, freeBets, bonuses, net, events };
+  };
 
   const settle = (hand: BjHand, outcome: HandOutcome, amount: number) => {
     hand.outcome = outcome;
@@ -126,8 +159,11 @@ export function simulateBjRound(input: BjRoundInput): BjRoundResult {
     if (playerBj && dealerBj) settle(hand, 'push', 0);
     else if (playerBj) settle(hand, 'blackjack', rules.blackjackPays * hand.bet);
     else settle(hand, 'dealerBlackjack', -hand.bet);
-    emit({ type: 'RoundSettled', net });
-    return { hands, dealer, dealerTotal: handTotal(dealer), dealerBlackjack: dealerBj, net, events };
+    if (!dealerBj && mustDrawOut) {
+      drawOut();
+      emit({ type: 'DealerDone', total: handTotal(dealer) });
+    }
+    return finish(dealerBj);
   }
 
   // The player plays each hand out; splits are appended and played in turn.
@@ -164,6 +200,7 @@ export function simulateBjRound(input: BjRoundInput): BjRoundResult {
 
       if (move === 'double' && allowed.double) {
         emit({ type: 'MoveMade', hand: i, move, free: freeDouble });
+        if (freeDouble) freeBets++;
         if (freeDouble) hand.free += hand.bet + hand.free;
         else hand.bet *= 2;
         deal('player', i);
@@ -173,6 +210,7 @@ export function simulateBjRound(input: BjRoundInput): BjRoundResult {
 
       if (move === 'split' && allowed.split) {
         emit({ type: 'MoveMade', hand: i, move, free: true });
+        freeBets++;
         const moved = hand.cards.pop()!;
         // The house stakes every split hand; the player's own bet stays on the first.
         hands.push({ cards: [moved], bet: 0, free: hand.bet + hand.free, fromSplit: true, closed: false });
@@ -191,14 +229,7 @@ export function simulateBjRound(input: BjRoundInput): BjRoundResult {
   const live = hands.filter((h) => !handTotal(h.cards).bust);
   emit({ type: 'HoleCardRevealed', card: dealer[1]! });
 
-  if (live.length > 0) {
-    for (;;) {
-      const total = handTotal(dealer);
-      const stands = total.total > 17 || (total.total === 17 && !(total.soft && rules.hitsSoft17));
-      if (total.bust || stands) break;
-      emit({ type: 'DealerDrew', card: deal('dealer') });
-    }
-  }
+  if (live.length > 0 || mustDrawOut) drawOut();
   const dealerTotal = handTotal(dealer);
   emit({ type: 'DealerDone', total: dealerTotal });
 
@@ -212,6 +243,5 @@ export function simulateBjRound(input: BjRoundInput): BjRoundResult {
     else settle(hand, 'push', 0);
   }
 
-  emit({ type: 'RoundSettled', net });
-  return { hands, dealer, dealerTotal, dealerBlackjack: false, net, events };
+  return finish(false);
 }

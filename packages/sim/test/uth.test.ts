@@ -7,6 +7,7 @@ import {
   simulateUthRound,
   standardDeck,
   startingHandKey,
+  UTH_BONUSES,
   UTH_RULES,
   type Card,
   type Suit,
@@ -24,8 +25,11 @@ const cards = (spec: string): Card[] =>
     source: 'player' as const,
   }));
 
-const play = (round: number, decide = (d: UthDecision) => decideUth(strategy, d, deck), trips = 0) =>
-  simulateUthRound({ seed: { run: 'uth-test', round }, decide, trips, recordEvents: true });
+const play = (
+  round: number,
+  decide = (d: UthDecision) => decideUth(strategy, d, deck),
+  bonuses: Record<string, number> = {},
+) => simulateUthRound({ seed: { run: 'uth-test', round }, decide, bonuses, recordEvents: true });
 
 describe('starting hands', () => {
   it('names pairs, suited and offsuit holdings', () => {
@@ -51,7 +55,7 @@ describe('simulateUthRound settlement', () => {
       const r = play(round);
       if (!r.folded) continue;
       folds++;
-      expect(r.parts).toEqual({ ante: -1, play: 0, blind: -1, trips: 0 });
+      expect(r.parts).toEqual({ ante: -1, play: 0, blind: -1, bonus: 0 });
     }
     expect(folds).toBeGreaterThan(300);
   });
@@ -80,15 +84,22 @@ describe('simulateUthRound settlement', () => {
     }
   });
 
-  it('settles Trips on the player hand even after a fold', () => {
-    let foldedTrips = 0;
+  it('settles every side bet even after a fold, without changing the main game', () => {
+    const all = { trips: 1, sixCard: 1, holeCard: 1, badBeat: 1 };
+    let foldedWins = 0;
     for (let round = 0; round < 3000; round++) {
-      const r = play(round, undefined, 1);
-      const pays = UTH_RULES.tripsPays[r.playerHand.category] ?? 0;
-      expect(r.parts.trips).toBe(pays > 0 ? pays : -1);
-      if (r.folded && pays > 0) foldedTrips++;
+      const plain = play(round);
+      const r = play(round, undefined, all);
+      expect(r.bonuses.map((b) => b.id)).toEqual(Object.keys(all));
+      for (const bonus of r.bonuses) {
+        const bet = UTH_BONUSES.find((b) => b.id === bonus.id)!;
+        expect(bonus.net).toBe(bonus.row < 0 ? -1 : bet.rows[bonus.row]!.pays);
+        if (r.folded && bonus.row >= 0) foldedWins++;
+      }
+      expect({ ...r.parts, bonus: 0 }).toEqual(plain.parts);
+      expect(r.net).toBe(plain.net + r.parts.bonus);
     }
-    expect(foldedTrips).toBeGreaterThanOrEqual(0);
+    expect(foldedWins).toBeGreaterThan(0);
   });
 
   it('only allows one play bet, sized for the street it was made on', () => {

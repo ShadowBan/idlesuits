@@ -6,7 +6,9 @@ import {
   simulateUthRound,
   standardDeck,
   stepWithChoices,
+  UTH_BONUSES,
   UTH_RULES,
+  type BonusResult,
   type Card,
   type PokerHand,
   type RiverOdds,
@@ -19,6 +21,7 @@ import type { BreakdownLine } from '../../lib/breakdown';
 import { bankroll } from '../../lib/casino.svelte';
 import { Decimal } from '../../lib/money';
 import { Sequencer } from '../../lib/sequencer.svelte';
+import { bonusLine, SideStakes } from '../../lib/sidebets.svelte';
 import { sfx } from '../../lib/sound';
 
 type Choice = { move: UthMove; raise?: number };
@@ -40,11 +43,13 @@ const BASE_MS: Record<UthEvent['type'], number> = {
   PlayerHand: 200,
   DealerRevealed: 700,
   Settled: 240,
+  BonusCards: 420,
+  BonusSettled: 260,
   RoundSettled: 420,
 };
 const RESULT_HOLD_MS = 1600;
 
-const PART_LABEL = { ante: 'Ante', blind: 'Blind', play: 'Play', trips: 'Trips' } as const;
+const PART_LABEL = { ante: 'Ante', blind: 'Blind', play: 'Play' } as const;
 
 export interface Pending {
   decision: UthDecision;
@@ -71,8 +76,8 @@ export class UthGame {
   runSeed = $state(newSeed());
   round = $state(0);
   ante = $state(new Decimal(STARTING_ANTE));
-  /** Trips side bet in dollars; zero is off. */
-  trips = $state(new Decimal(0));
+  /** Side bets for the next hand, in dollars. */
+  readonly side = new SideStakes(UTH_BONUSES);
   roundAnte = $state(new Decimal(STARTING_ANTE));
   lastAnte = $state(new Decimal(STARTING_ANTE));
   started = $state(false);
@@ -89,7 +94,11 @@ export class UthGame {
   dealerQualified = $state<boolean | null>(null);
   /** Play bet in antes, once made. */
   play = $state(0);
-  tripsUnits = $state(0);
+  /** Side bets riding on this hand, in antes. */
+  roundSide = $state<Record<string, number>>({});
+  bonusResults = $state<Record<string, BonusResult>>({});
+  /** The 6-Card Bonus's own four cards, once shown. */
+  bonusCards = $state<Card[]>([]);
   folded = $state(false);
   checks = $state(0);
   results = $state<Partial<Record<keyof typeof PART_LABEL, { net: number; note: string }>>>({});
@@ -146,12 +155,6 @@ export class UthGame {
     this.ante = next.gt(this.bank) ? this.bank.floor().max(1) : next;
   }
 
-  /** Halve or double Trips; below $1 it switches off, and from off it starts at the ante. */
-  changeTrips(factor: number) {
-    let next = this.trips.eq(0) ? (factor > 1 ? this.ante : this.trips) : this.trips.mul(factor).floor();
-    if (next.lt(1)) next = new Decimal(0);
-    this.trips = next;
-  }
 
   dispose() {
     this.seq.dispose();
@@ -164,7 +167,7 @@ export class UthGame {
     this.round = 0;
     bankroll.buyIn();
     this.ante = new Decimal(STARTING_ANTE);
-    this.trips = new Decimal(0);
+    this.side.reset();
     this.hands = 0;
     this.folds = 0;
     this.sessionNet = new Decimal(0);
@@ -187,11 +190,11 @@ export class UthGame {
 
   private async playRound(): Promise<boolean> {
     const ante = this.ante;
-    const tripsUnits = this.trips.gt(0) ? this.trips.div(ante).toNumber() : 0;
+    const bonuses = this.side.units(ante);
     this.roundAnte = ante;
     const seed = { run: this.runSeed, round: this.round };
     const run = (decide: (d: UthDecision) => Choice, onEvent: (e: UthEvent) => void) =>
-      simulateUthRound({ seed, trips: tripsUnits, decide, onEvent });
+      simulateUthRound({ seed, bonuses, decide, onEvent });
 
     const choices: Choice[] = [];
     let shown = 0;
@@ -243,6 +246,7 @@ export class UthGame {
     // Linger on the dealer's reveal and on anything big; hurry the rest.
     if (event.type === 'DealerRevealed') return base * (this.play >= 2 ? 1.4 : 1);
     if (event.type === 'Settled') return base * (Math.abs(event.net) >= 3 ? 1.5 : 0.7);
+    if (event.type === 'BonusSettled') return base * (event.result.net >= 3 ? 1.5 : 0.7);
     return base * 0.8;
   }
 
@@ -256,7 +260,9 @@ export class UthGame {
         this.dealerHand = null;
         this.dealerQualified = null;
         this.play = 0;
-        this.tripsUnits = event.trips;
+        this.roundSide = event.bonuses;
+        this.bonusResults = {};
+        this.bonusCards = [];
         this.folded = false;
         this.checks = 0;
         this.results = {};
@@ -293,6 +299,15 @@ export class UthGame {
       case 'Settled':
         this.results[event.part] = { net: event.net, note: event.note };
         this.breakdown.push({ label: `${PART_LABEL[event.part]} · ${event.note}`, amount: event.net });
+        break;
+      case 'BonusCards':
+        this.bonusCards = event.cards;
+        sfx.flip();
+        break;
+      case 'BonusSettled':
+        this.bonusResults[event.result.id] = event.result;
+        this.breakdown.push(bonusLine(UTH_BONUSES, event.result));
+        if (event.result.net > 0) sfx.chip();
         break;
       case 'RoundSettled':
         this.net = event.net;

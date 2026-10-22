@@ -12,8 +12,8 @@ import {
 export interface UthBatchInput {
   rules?: UthRules;
   strategy?: UthStrategy;
-  /** Trips side bet, in antes. */
-  trips?: number;
+  /** Side bets by id, in antes. */
+  bonuses?: Record<string, number>;
   runSeed: Seed;
   hands: number;
   startRound?: number;
@@ -22,9 +22,9 @@ export interface UthBatchInput {
 export interface UthStats {
   rounds: number;
   net: number;
-  /** Ante plus blind plus play plus trips, totalled over the run. */
+  /** Ante plus blind plus play plus side bets, totalled over the run. */
   wagered: number;
-  parts: { ante: number; play: number; blind: number; trips: number };
+  parts: { ante: number; play: number; blind: number; bonus: number };
   raises: Record<number, number>;
   folds: number;
   dealerQualified: number;
@@ -38,7 +38,7 @@ export function emptyUthStats(): UthStats {
     rounds: 0,
     net: 0,
     wagered: 0,
-    parts: { ante: 0, play: 0, blind: 0, trips: 0 },
+    parts: { ante: 0, play: 0, blind: 0, bonus: 0 },
     raises: {},
     folds: 0,
     dealerQualified: 0,
@@ -53,22 +53,23 @@ export const DEFAULT_UTH_STRATEGY: UthStrategy = { chart: PREFLOP_CHART };
 export function runUthBatch(input: UthBatchInput, stats: UthStats = emptyUthStats()): UthStats {
   const deck = standardDeck('player');
   const strategy = input.strategy ?? DEFAULT_UTH_STRATEGY;
-  const trips = input.trips ?? 0;
+  const bonuses = input.bonuses ?? {};
+  const side = Object.values(bonuses).reduce((a, b) => a + b, 0);
   const start = input.startRound ?? 0;
 
   for (let round = start; round < start + input.hands; round++) {
     const result = simulateUthRound({
       rules: input.rules,
       seed: { run: input.runSeed, round },
-      trips,
+      bonuses,
       decide: (decision) => decideUth(strategy, decision, deck),
     });
 
     stats.rounds++;
     stats.net += result.net;
     // Ante and blind are always up; the play bet only when it is made.
-    stats.wagered += 2 + result.play + trips;
-    for (const key of ['ante', 'play', 'blind', 'trips'] as const) stats.parts[key] += result.parts[key];
+    stats.wagered += 2 + result.play + side;
+    for (const key of ['ante', 'play', 'blind', 'bonus'] as const) stats.parts[key] += result.parts[key];
     stats.raises[result.play] = (stats.raises[result.play] ?? 0) + 1;
     if (result.folded) stats.folds++;
     if (result.dealerQualified) stats.dealerQualified++;

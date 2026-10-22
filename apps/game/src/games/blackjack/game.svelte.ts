@@ -1,4 +1,5 @@
 import {
+  BJ_BONUSES,
   FREE_BET_RULES,
   handTotal,
   solveStrategy,
@@ -13,6 +14,7 @@ import {
 import { bankroll } from '../../lib/casino.svelte';
 import { Clock } from '../../lib/clock';
 import { Decimal } from '../../lib/money';
+import { SideStakes } from '../../lib/sidebets.svelte';
 import { sfx } from '../../lib/sound';
 import { BjTableView } from './table.svelte';
 
@@ -33,6 +35,7 @@ const BASE_MS: Record<BjEvent['type'], number> = {
   DealerDrew: 420,
   DealerDone: 260,
   HandSettled: 260,
+  BonusSettled: 320,
   RoundSettled: 420,
 };
 
@@ -60,6 +63,10 @@ export class BjGame {
   runSeed = $state(newSeed());
   round = $state(0);
   bet = $state(new Decimal(STARTING_BET));
+  /** Side bets for the next hand, in dollars. */
+  readonly side = new SideStakes(BJ_BONUSES);
+  /** Side bets riding on the round on the table, in base bets. */
+  roundSide = $state<Record<string, number>>({});
   /** The bet the round on the table was dealt at. */
   roundBet = $state(new Decimal(STARTING_BET));
   lastBet = $state(new Decimal(STARTING_BET));
@@ -147,6 +154,7 @@ export class BjGame {
     this.round = 0;
     bankroll.buyIn();
     this.bet = new Decimal(STARTING_BET);
+    this.side.reset();
     this.hands = 0;
     this.sessionNet = new Decimal(0);
     this.biggestWin = new Decimal(0);
@@ -189,8 +197,11 @@ export class BjGame {
   /** Plays one round; false if the game was reset part-way through. */
   private async playRound(): Promise<boolean> {
     const bet = this.bet;
+    const bonuses = this.side.units(bet);
     this.roundBet = bet;
-    const input = { tables: this.tables, rules: this.rules, seed: { run: this.runSeed, round: this.round } };
+    this.roundSide = bonuses;
+    const seed = { run: this.runSeed, round: this.round };
+    const input = { tables: this.tables, rules: this.rules, seed, bonuses };
     const moves: Move[] = [];
     let shown = 0;
 
@@ -246,6 +257,9 @@ export class BjGame {
         if (event.outcome === 'blackjack') sfx.bigWin();
         else if (event.net > 0) sfx.win();
         else if (event.net < 0) sfx.lose();
+        break;
+      case 'BonusSettled':
+        if (event.result.net > 0) sfx.chip();
         break;
       case 'DealerDrew': {
         const total = this.view.dealerTotal?.total ?? 0;
