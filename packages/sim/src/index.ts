@@ -12,3 +12,6 @@ export * from './poker';
 export * from './uth';
 export * from './stud';
 export * from './step';
+export * from './three';
+export * from './tcp';
+export * from './paigow';

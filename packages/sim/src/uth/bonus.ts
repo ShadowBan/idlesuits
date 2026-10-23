@@ -47,6 +47,12 @@ export const UTH_TRIPS: BonusBet<UthBonusContext> = {
 };
 
 const sixCard = pokerTable([1000, 200, 100, 20, 15, 10, 7]);
+/** The 6-Card Bonus lines (Wizard of Odds version 1-A, 8.56%), shared by every game that deals one. */
+export const SIX_CARD_ROWS = sixCard.rows;
+/** The 6-Card Bonus line six cards win, or -1. */
+export function sixCardRow(cards: readonly Card[]): number {
+  return sixCard.rowOf(evaluatePoker(cards).category);
+}
 /** Wizard of Odds version 1-A (8.56%). */
 export const UTH_SIX_CARD: BonusBet<UthBonusContext> = {
   id: 'sixCard',
@@ -55,7 +61,7 @@ export const UTH_SIX_CARD: BonusBet<UthBonusContext> = {
   blurb: 'Your two cards plus four bonus cards: three of a kind or better.',
   rows: sixCard.rows,
   edge: 0.085614,
-  resolve: (ctx) => sixCard.rowOf(evaluatePoker([...ctx.hole, ...ctx.bonusCards]).category),
+  resolve: (ctx) => sixCardRow([...ctx.hole, ...ctx.bonusCards]),
 };
 
 /** Wizard of Odds (8.54%): the Pairs Bonus with a 1,000:1 line for aces against aces. */

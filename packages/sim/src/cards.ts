@@ -14,6 +14,8 @@ export interface Card {
   suit: Suit;
   rank: Rank;
   source: CardSource;
+  /** Pai Gow Poker's joker. Its suit and rank mean nothing; games that use it read this flag. */
+  joker?: boolean;
 }
 
 /** The suit/rank the evaluator sees, after any effects have been applied. */
