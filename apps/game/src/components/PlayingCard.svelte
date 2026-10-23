@@ -15,7 +15,7 @@
   let { card, highlight = false, dim = false, focus = false, flipMs = 260 }: Props = $props();
 
   const SUIT_NAME = { S: 'spades', H: 'hearts', D: 'diamonds', C: 'clubs' } as const;
-  const red = $derived(card?.suit === 'H' || card?.suit === 'D');
+  const red = $derived(!card?.joker && (card?.suit === 'H' || card?.suit === 'D'));
 </script>
 
 <div
@@ -29,8 +29,16 @@
   <div class="inner">
     <div class="face back" aria-hidden="true"></div>
     <!-- The front is empty while face down, so no old face can ever show through. -->
-    <div class="face front" class:red aria-label={card ? `${rankLabel(card.rank)} of ${SUIT_NAME[card.suit]}` : undefined}>
-      {#if card}
+    <div
+      class="face front"
+      class:red
+      aria-label={card ? (card.joker ? 'Joker' : `${rankLabel(card.rank)} of ${SUIT_NAME[card.suit]}`) : undefined}
+    >
+      {#if card?.joker}
+        <span class="corner">★</span>
+        <span class="joker">Joker</span>
+        <span class="corner flip">★</span>
+      {:else if card}
         <span class="corner">{rankLabel(card.rank)}<br />{SUIT_SYMBOL[card.suit]}</span>
         <span class="pip">{SUIT_SYMBOL[card.suit]}</span>
         <span class="corner flip">{rankLabel(card.rank)}<br />{SUIT_SYMBOL[card.suit]}</span>
@@ -105,6 +113,15 @@
   }
   .pip {
     font-size: calc(var(--card-w) * 0.5);
+  }
+  .joker {
+    font-size: calc(var(--card-w) * 0.19);
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--gold);
+    writing-mode: vertical-rl;
+    text-orientation: upright;
   }
   .highlight {
     transform: translateY(-8px);

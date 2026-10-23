@@ -72,6 +72,28 @@ export const GAMES: GameEntry[] = [
     load: () => import('../games/stud/StudTable.svelte'),
   },
   {
+    id: 'tcp',
+    name: 'Three Card Poker',
+    tagline: 'Three cards. Play or fold.',
+    blurb:
+      'You and the dealer get three cards each. Play if yours look stronger; straights and better earn a bonus either way.',
+    facts: ['Ante bonus', 'Pairplus', 'Q-6-4 strategy'],
+    motif: ['Q', '♣', '6'],
+    accent: '#7ee0d2',
+    load: () => import('../games/tcp/TcpTable.svelte'),
+  },
+  {
+    id: 'paigow',
+    name: 'Pai Gow Poker',
+    tagline: 'Seven cards, two hands, one joker.',
+    blurb:
+      'Set your seven cards into a five-card high hand and a two-card low hand. Win both to get paid; split them and it pushes.',
+    facts: ['53 cards', 'House way', 'Lots of pushes'],
+    motif: ['★', '♠', 'A'],
+    accent: '#ffb86b',
+    load: () => import('../games/paigow/PaiGowTable.svelte'),
+  },
+  {
     id: 'draw',
     name: 'Draw Poker',
     tagline: 'Keep what you like, redraw the rest.',
