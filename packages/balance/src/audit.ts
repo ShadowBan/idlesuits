@@ -8,8 +8,14 @@ import {
   BJ_PUSH_22,
   FLUSH_RUSH,
   lookupScale,
+  PG_EMPEROR,
+  PG_FORTUNE,
+  PG_INSURANCE,
   STUD_THREE_CARD,
   SUPER_FLUSH_RUSH,
+  TCP_PAIR_PLUS,
+  TCP_PRIME,
+  TCP_SIX_CARD,
   UTH_BAD_BEAT,
   UTH_HOLE_CARD,
   UTH_SIX_CARD,
@@ -21,14 +27,18 @@ import { chanceOfFreeBet } from './audit/blackjack-exact';
 import {
   holeCardCounts,
   mergeCounts,
+  pairPlusCounts,
+  paiGowSevenCounts,
+  primeCounts,
   sixCardCounts,
   studMainTotals,
   suitsCounts,
+  tcpMainCounts,
   threeCardCounts,
   tripsCounts,
   type Counts,
 } from './audit/exact';
-import { PUBLISHED, type Reference } from './audit/published';
+import { PAI_GOW_HANDS, PUBLISHED, type Reference } from './audit/published';
 import { mergeSums, SIMULATIONS, type Acc, type SimGame, type SimSums } from './audit/simulate';
 
 /**
@@ -47,9 +57,12 @@ const EXACT_JOBS = {
   trips: tripsCounts,
   sixCard: sixCardCounts,
   studMain: studMainTotals,
+  tcpMain: tcpMainCounts,
+  prime: primeCounts,
+  paiGowSeven: paiGowSevenCounts,
 } as const;
 
-const ROUNDS: Record<SimGame, number> = { suits: 8e6, blackjack: 40e6, uth: 8e6, stud: 40e6 };
+const ROUNDS: Record<SimGame, number> = { suits: 8e6, blackjack: 40e6, uth: 8e6, stud: 40e6, tcp: 20e6, paigow: 16e6 };
 
 const { values } = parseArgs({
   options: {
@@ -290,6 +303,70 @@ const threeEdge = edgeOfBonus(STUD_THREE_CARD as BonusBet<never>, threeCounts);
 exactRow('Mississippi Stud', '3-Card Bonus', threeEdge, PUBLISHED.threeCard, threeCounts);
 simRow('Mississippi Stud', '3-Card Bonus, dealt through the table', acc('stud', 'threeCard'), threeEdge, 'exact, above');
 
+// Three Card Poker
+const tcp = exact.tcpMain!;
+{
+  let deals = 0;
+  let net = 0;
+  for (const [win, n] of Object.entries(tcp)) {
+    deals += n;
+    net += Number(win) * n;
+  }
+  const tcpEdge = -net / deals;
+  exactRow('Three Card Poker', 'Ante and Play, per ante', tcpEdge, PUBLISHED.tcpMain, tcp,
+    `all ${deals.toLocaleString()} deals, played queen-6-4 or better`);
+  simRow('Three Card Poker', 'Ante and Play, dealt through the table', acc('tcp', 'main'), tcpEdge, 'exact, above');
+}
+const pairPlus = pairPlusCounts();
+const pairPlusEdge = edgeOfBonus(TCP_PAIR_PLUS as BonusBet<never>, pairPlus);
+exactRow('Three Card Poker', 'Pairplus', pairPlusEdge, PUBLISHED.pairPlus, pairPlus);
+simRow('Three Card Poker', 'Pairplus, dealt through the table', acc('tcp', 'pairPlus'), pairPlusEdge, 'exact, above');
+const tcpSixEdge = edgeOfBonus(TCP_SIX_CARD as BonusBet<never>, exact.sixCard!);
+exactRow('Three Card Poker', '6-Card Bonus', tcpSixEdge, PUBLISHED.sixCard, exact.sixCard,
+  'the same six-card count as Ultimate’s, through the same rule');
+simRow('Three Card Poker', '6-Card Bonus, dealt through the table', acc('tcp', 'sixCard'), tcpSixEdge, 'exact, above');
+const prime = exact.prime!;
+const primeEdge = edgeOfBonus(TCP_PRIME as BonusBet<never>, prime);
+exactRow('Three Card Poker', 'Prime', primeEdge, PUBLISHED.prime, prime, 'counted by color over all 407,170,400 deals');
+simRow('Three Card Poker', 'Prime, dealt through the table', acc('tcp', 'prime'), primeEdge, 'exact, above');
+
+// Pai Gow Poker
+const pgRounds = acc('paigow', 'main').n;
+simRow('Pai Gow Poker', 'Main bet, both sides by the house way', acc('paigow', 'main'), PUBLISHED.paiGowMain.edge,
+  PUBLISHED.paiGowMain.source,
+  ['win', 'push', 'lose'].map((o) => `${o} ${pct(tally('paigow', o) / pgRounds)}`).join(', ') +
+    ' (published 29.120% / 40.496% / 30.385%)');
+const seven = exact.paiGowSeven!;
+const part = (prefix: string) =>
+  Object.fromEntries(Object.entries(seven).filter(([k]) => k.startsWith(`${prefix}:`)).map(([k, v]) => [k.slice(prefix.length + 1), v]));
+{
+  const hands = part('hand');
+  const mismatched = Object.entries(PAI_GOW_HANDS).filter(([hand, n]) => hands[hand] !== n);
+  rows.push({
+    game: 'Pai Gow Poker',
+    bet: 'Seven-card hands, joker included',
+    method: 'exact',
+    ours: NaN,
+    verdict: mismatched.length ? 'fail' : 'pass',
+    detail: mismatched.length
+      ? `counts differ: ${mismatched.map(([h, n]) => `${h}: ${hands[h]} vs ${n}`).join('; ')}`
+      : `all 154,143,080 hands land in the published counts, from five aces to high card`,
+  });
+}
+const pgBets: [string, BonusBet<never>, Reference][] = [
+  ['Fortune', PG_FORTUNE as BonusBet<never>, PUBLISHED.fortune],
+  ["Emperor's Challenge", PG_EMPEROR as BonusBet<never>, PUBLISHED.emperor],
+  ['Pai Gow Insurance', PG_INSURANCE as BonusBet<never>, PUBLISHED.insurance],
+];
+const pgEdges: Record<string, number> = {};
+for (const [name, bet, ref] of pgBets) {
+  const counts = part(bet.id);
+  const edge = edgeOfBonus(bet, counts);
+  pgEdges[bet.id] = edge;
+  exactRow('Pai Gow Poker', name, edge, ref, counts);
+  simRow('Pai Gow Poker', `${name}, dealt through the table`, acc('paigow', bet.id), edge, 'exact, above');
+}
+
 // Side bets show their house edge in the game; it must be the one measured here.
 const shown: [string, number, number][] = [
   ['Flush Rush', FLUSH_RUSH.edge, flushRushEdge],
@@ -298,6 +375,12 @@ const shown: [string, number, number][] = [
   ['6-Card Bonus', UTH_SIX_CARD.edge, edgeOfBonus(UTH_SIX_CARD as BonusBet<never>, exact.sixCard!)],
   ['Hole Card Bonus', UTH_HOLE_CARD.edge, edgeOfBonus(UTH_HOLE_CARD as BonusBet<never>, exactBonus[2]![2])],
   ['3-Card Bonus', STUD_THREE_CARD.edge, threeEdge],
+  ['Pairplus', TCP_PAIR_PLUS.edge, pairPlusEdge],
+  ['6-Card Bonus (Three Card Poker)', TCP_SIX_CARD.edge, tcpSixEdge],
+  ['Prime', TCP_PRIME.edge, primeEdge],
+  ['Fortune', PG_FORTUNE.edge, pgEdges.fortune!],
+  ["Emperor's Challenge", PG_EMPEROR.edge, pgEdges.emperor!],
+  ['Pai Gow Insurance', PG_INSURANCE.edge, pgEdges.insurance!],
 ];
 const simShown: [string, number, Acc][] = [
   ['Pot of Gold', BJ_POT_OF_GOLD.edge, acc('blackjack', 'potOfGold')],
@@ -327,7 +410,7 @@ for (const row of rows) {
     game = row.game;
     lines.push(`\n${game}`);
   }
-  const ours = `${pct(row.ours)}${row.margin !== undefined ? ` ±${pct(row.margin)}` : ''}`;
+  const ours = Number.isNaN(row.ours) ? '—' : `${pct(row.ours)}${row.margin !== undefined ? ` ±${pct(row.margin)}` : ''}`;
   const ref = row.reference !== undefined ? pct(row.reference) : '';
   lines.push(`  ${MARK[row.verdict]} ${row.bet.padEnd(42)} ${ours.padStart(18)}  vs ${ref.padStart(8)}   ${row.method}`);
   if (row.detail) lines.push(`      ${row.detail}`);
@@ -358,7 +441,7 @@ if (values.out) {
     '| | Game | Bet | Measured | Reference | Method | Notes |',
     '|---|---|---|---|---|---|---|',
     ...rows.map((r) => {
-      const ours = `${pct(r.ours)}${r.margin !== undefined ? ` ± ${pct(r.margin)}` : ''}`;
+      const ours = Number.isNaN(r.ours) ? '—' : `${pct(r.ours)}${r.margin !== undefined ? ` ± ${pct(r.margin)}` : ''}`;
       const ref = r.reference !== undefined ? `${pct(r.reference)} (${r.referenceLabel})` : '';
       return `| ${MARK[r.verdict]} | ${r.game} | ${r.bet} | ${ours} | ${ref} | ${r.method} | ${r.detail ?? ''} |`;
     }),

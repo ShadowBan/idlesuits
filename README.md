@@ -9,6 +9,10 @@ An idle casino. Pick a table from the floor and the same bankroll follows you fr
   who needs a pair to open. Side bets: Trips, 6-Card Bonus, Hole Card Bonus, Bad Beat.
 - **Mississippi Stud** — no dealer; raise 1× or 3× as each community card lands, and every bet is
   paid off the same pay table. Side bet: 3-Card Bonus.
+- **Three Card Poker** — three cards each; play or fold, with an Ante bonus for straights and better.
+  Side bets: Pairplus, 6-Card Bonus, Prime.
+- **Pai Gow Poker** — seven cards from a 53-card deck with a joker, set into a five-card and a
+  two-card hand; win both to get paid. Side bets: Fortune, Emperor's Challenge, Pai Gow Insurance.
 
 See
 [docs/idle_suits_game_concept_v0_2.md](docs/idle_suits_game_concept_v0_2.md) for the design concept and
@@ -45,8 +49,9 @@ tens of millions of rounds.
 `npm run audit` holds every game and every side bet to its published house edge, and writes
 [docs/odds_audit.md](docs/odds_audit.md). Pay tables that can be dealt out completely are checked
 **exactly**, through the simulator's own evaluators: every one of the 133,784,560 seven-card hands
-for Trips and the flush bets, every six-card hand for the 6-Card Bonus, and all 155,937,600 deals of
-Mississippi Stud played by the table's strategy. Everything else is simulated through the real round
+for Trips and the flush bets, every six-card hand for the 6-Card Bonus, all 155,937,600 deals of
+Mississippi Stud and all 407,170,400 of Three Card Poker played by the table's strategy, and all
+154,143,080 seven-card Pai Gow hands, joker included. Everything else is simulated through the real round
 engines with a 95% margin, and so is every exact bet, to prove the table settles it the same way.
 
 | Bet | Measured | Published | How |
@@ -64,6 +69,14 @@ engines with a 95% margin, and so is every exact bet, to prove the table settles
 | Bad Beat | 15.2% ±1.0% | 14.79% | 8M rounds |
 | Mississippi Stud | 4.9149% per ante | 4.9149% | exact |
 | 3-Card Bonus | 2.14% | 2.14% (NJ pay table 4) | exact |
+| Three Card Poker | 3.373% per ante | 3.373% | exact |
+| Pairplus | 2.32% | 2.32% | exact |
+| 6-Card Bonus | 8.56% | 8.56% | exact |
+| Prime | 3.62% | 3.62% | exact |
+| Pai Gow Poker | 2.73% ±0.04% | 2.72% (house way) | 16M rounds |
+| Fortune | 7.77% | 7.77% | exact |
+| Emperor's Challenge | 4.17% | 4.17% | exact |
+| Pai Gow Insurance | 7.35% | 7.35% | exact |
 
 Two differ from their source, for known reasons. Wizard of Odds' Super Flush Rush table counts 124
 fewer straight flushes than the progressive table on the same page; the simulator matches the

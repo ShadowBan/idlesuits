@@ -110,4 +110,103 @@ export const PUBLISHED = {
       loses: 16440,
     },
   },
+  tcpMain: {
+    edge: 0.03373,
+    source: `${WOO}/games/three-card-poker (Ante Bonus pay table 1)`,
+    combos: {
+      '7': 617044,
+      '6': 931972,
+      '5': 289104,
+      '3': 8976452,
+      '2': 91100696,
+      '1': 80955780,
+      '0': 249216,
+      '-1': 132923304,
+      '-2': 91126832,
+    },
+  },
+  pairPlus: {
+    edge: 512 / 22100,
+    source: `${WOO}/games/three-card-poker (Pairplus pay table 1)`,
+    combos: { 'Straight flush': 48, 'Three of a kind': 52, Straight: 720, Flush: 1096, Pair: 3744, loses: 16440 },
+  },
+  prime: {
+    edge: 0.036206,
+    source: `${WOO}/games/three-card-poker (Prime)`,
+    combos: { 'All six cards one color': 9209200, 'Your three cards one color': 86595600, loses: 311365600 },
+  },
+  paiGowMain: {
+    edge: 0.027212,
+    source: `${WOO}/games/pai-gow-poker (house way against the Foxwoods house way, dealer banking)`,
+  },
+  fortune: {
+    edge: 0.07765575,
+    source: `${WOO}/games/pai-gow-poker/side-bets/fortune (pay table 2, before envy bonuses)`,
+    combos: {
+      'Seven-card straight flush': 32,
+      'Royal flush + suited K-Q': 72,
+      'Seven-card straight flush, with joker': 196,
+      'Five aces': 1128,
+      'Royal flush': 26020,
+      'Straight flush': 184644,
+      'Four of a kind': 307472,
+      'Full house': 4188528,
+      Flush: 6172088,
+      'Three of a kind': 7672500,
+      Straight: 11034204,
+      loses: 124556196,
+    },
+  },
+  emperor: {
+    edge: 0.041714,
+    source: `${WOO}/games/pai-gow-poker/appendix/3 (Emperor's Challenge)`,
+    combos: {
+      'Seven-card straight flush': 32,
+      'Seven-card straight flush, with joker': 196,
+      'Five aces': 1128,
+      'Royal flush': 26092,
+      'Straight flush': 184644,
+      'Four of a kind': 307472,
+      'Full house': 4188528,
+      Flush: 6172088,
+      'Three of a kind': 7672500,
+      Straight: 11034204,
+      'Nine-high pai gow': 31080,
+      'Ten-high pai gow': 248640,
+      'Jack-high pai gow': 963480,
+      loses: 123312996,
+    },
+  },
+  insurance: {
+    edge: 0.073457,
+    source: `${WOO}/games/pai-gow-poker/appendix/3 (Pai Gow Insurance)`,
+    combos: {
+      'Nine-high pai gow': 31080,
+      'Ten-high pai gow': 248640,
+      'Jack-high pai gow': 963480,
+      'Queen-high pai gow': 2719500,
+      'King-high pai gow': 6386940,
+      'Ace-high pai gow': 14430780,
+      loses: 129362660,
+    },
+  },
 } satisfies Record<string, Reference>;
+
+/**
+ * Wizard of Odds' seven-card Pai Gow hand counts. It lists royal and straight
+ * flushes together (210,964) and notes 26,132 royals; they are split here.
+ */
+export const PAI_GOW_HANDS: Record<string, number> = {
+  'Five aces': 1128,
+  'Royal flush': 26132,
+  'Straight flush': 184832,
+  'Four of a kind': 307472,
+  'Full house': 4188528,
+  Flush: 6172088,
+  Straight: 11236028,
+  'Three of a kind': 7470676,
+  'Two pair': 35553816,
+  Pair: 64221960,
+  'High card': 24780420,
+};
+

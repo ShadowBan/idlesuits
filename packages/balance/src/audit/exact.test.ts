@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { FLUSH_RUSH, lookupScale, STUD_THREE_CARD, UTH_HOLE_CARD } from '@idlesuits/sim';
 import { chanceOfFreeBet } from './blackjack-exact';
-import { holeCardCounts, suitsCounts, threeCardCounts } from './exact';
+import { holeCardCounts, pairPlusCounts, suitsCounts, threeCardCounts } from './exact';
 import { PUBLISHED } from './published';
 
 // The quick exact checks from `npm run audit`; the slow ones (Trips, 6-Card, the
@@ -19,9 +19,10 @@ describe('exact odds match the published hand counts', () => {
     expect(FLUSH_RUSH.edge).toBeCloseTo(PUBLISHED.flushRush.edge, 6);
   });
 
-  it('Hole Card Bonus and the 3-Card Bonus, line by line', () => {
+  it('Hole Card Bonus, the 3-Card Bonus and Pairplus, line by line', () => {
     expect(holeCardCounts()).toEqual(PUBLISHED.holeCard.combos);
     expect(threeCardCounts()).toEqual(PUBLISHED.threeCard.combos);
+    expect(pairPlusCounts()).toEqual(PUBLISHED.pairPlus.combos);
     expect(UTH_HOLE_CARD.rows.map((r) => r.label)).toEqual(Object.keys(PUBLISHED.holeCard.combos).slice(0, -1));
     expect(STUD_THREE_CARD.edge).toBeCloseTo(PUBLISHED.threeCard.edge, 10);
   });

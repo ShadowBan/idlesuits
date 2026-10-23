@@ -1,5 +1,10 @@
 import {
   buildShoe,
+  decideTcp,
+  PG_BONUSES,
+  simulatePaiGowRound,
+  simulateTcpRound,
+  TCP_BONUSES,
   decideStud,
   decideUth,
   DEFAULT_RULES,
@@ -139,5 +144,38 @@ export function simStud(seed: string, start: number, rounds: number): SimSums {
   return sums;
 }
 
-export const SIMULATIONS = { suits: simSuits, blackjack: simBlackjack, uth: simUth, stud: simStud } as const;
+const TCP_ALL = Object.fromEntries(TCP_BONUSES.map((b) => [b.id, 1]));
+
+export function simTcp(seed: string, start: number, rounds: number): SimSums {
+  const sums: SimSums = {};
+  for (let round = start; round < start + rounds; round++) {
+    const r = simulateTcpRound({ seed: { run: seed, round }, decide: (d) => decideTcp(d.cards), bonuses: TCP_ALL });
+    for (const bonus of r.bonuses) acc(sums, bonus.id, bonus.net);
+    acc(sums, 'main', r.net - r.parts.bonus);
+    count(sums, 'wagered', r.folded ? 1 : 2);
+  }
+  return sums;
+}
+
+const PG_ALL = Object.fromEntries(PG_BONUSES.map((b) => [b.id, 1]));
+
+export function simPaiGow(seed: string, start: number, rounds: number): SimSums {
+  const sums: SimSums = {};
+  for (let round = start; round < start + rounds; round++) {
+    const r = simulatePaiGowRound({ seed: { run: seed, round }, decide: (d) => d.suggestion, bonuses: PG_ALL });
+    for (const bonus of r.bonuses) acc(sums, bonus.id, bonus.net);
+    acc(sums, 'main', r.main);
+    count(sums, r.outcome);
+  }
+  return sums;
+}
+
+export const SIMULATIONS = {
+  suits: simSuits,
+  blackjack: simBlackjack,
+  uth: simUth,
+  stud: simStud,
+  tcp: simTcp,
+  paigow: simPaiGow,
+} as const;
 export type SimGame = keyof typeof SIMULATIONS;

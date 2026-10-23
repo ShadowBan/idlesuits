@@ -5,8 +5,18 @@ import {
   pokerScore,
   standardDeck,
   STUD_RULES,
+  paiGowDeck,
+  PG_BONUSES,
+  PG_CATEGORY_NAMES,
+  sevenCardCategory,
+  sevenCardFeatures,
   STUD_THREE_CARD,
   studMultiplier,
+  TCP_PAIR_PLUS,
+  TCP_PLAY_FROM,
+  TCP_RULES,
+  threeCardHand,
+  threeCardScore,
   UTH_HOLE_CARD,
   UTH_SIX_CARD,
   UTH_TRIPS,
@@ -246,6 +256,129 @@ export function studMainTotals(part: number, parts: number): Counts {
       }
     }
   return { net, wagered, deals };
+}
+
+/**
+ * Three Card Poker's Ante and Play, exactly: every player hand against every
+ * dealer hand from the other 49 cards, 407,170,400 deals, played Q-6-4 or
+ * better. Counted by net result in antes, as Wizard of Odds tabulates them.
+ */
+export function tcpMainCounts(part: number, parts: number): Counts {
+  const combos: { score: number; hand: string; lo: number; hi: number }[] = [];
+  for (let a = 0; a < 52; a++)
+    for (let b = a + 1; b < 52; b++)
+      for (let c = b + 1; c < 52; c++) {
+        const cards = [DECK[a]!, DECK[b]!, DECK[c]!];
+        const bit = (i: number, lo: boolean) => (lo ? (i < 26 ? 1 << i : 0) : i >= 26 ? 1 << (i - 26) : 0);
+        combos.push({
+          score: threeCardScore(cards),
+          hand: threeCardHand(cards),
+          lo: bit(a, true) | bit(b, true) | bit(c, true),
+          hi: bit(a, false) | bit(b, false) | bit(c, false),
+        });
+      }
+  const qualifyFrom = TCP_RULES.qualifyHigh * 15 * 15;
+  const byNet = new Map<number, number>();
+  for (let i = part; i < combos.length; i += parts) {
+    const p = combos[i]!;
+    if (p.score < TCP_PLAY_FROM) {
+      byNet.set(-1, (byNet.get(-1) ?? 0) + 18424);
+      continue;
+    }
+    const bonus = TCP_RULES.anteBonus[p.hand as keyof typeof TCP_RULES.anteBonus] ?? 0;
+    for (const d of combos) {
+      if (d.lo & p.lo || d.hi & p.hi) continue;
+      const net = d.score < qualifyFrom ? 1 : p.score > d.score ? 2 : p.score < d.score ? -2 : 0;
+      byNet.set(net + bonus, (byNet.get(net + bonus) ?? 0) + 1);
+    }
+  }
+  return Object.fromEntries([...byNet].map(([net, n]) => [String(net), n]));
+}
+
+/**
+ * Every seven-card Pai Gow hand from the 53-card deck, 154,143,080 of them:
+ * the best poker hand each makes, and the line each side bet pays. Keys are
+ * "hand:<name>" and "<bet id>:<line>".
+ */
+export function paiGowSevenCounts(part: number, parts: number): Counts {
+  const deck = paiGowDeck();
+  const counts: Counts = {};
+  const hand = new Array<Card>(7);
+  const features = sevenCardFeatures(deck.slice(0, 7));
+  const ctx = { cards: hand, features };
+  const byCategory = new Float64Array(11);
+  const byRow = PG_BONUSES.map((b) => new Float64Array(b.rows.length + 1));
+  for (let a = part; a < 47; a += parts) {
+    hand[0] = deck[a]!;
+    for (let b = a + 1; b < 48; b++) {
+      hand[1] = deck[b]!;
+      for (let c = b + 1; c < 49; c++) {
+        hand[2] = deck[c]!;
+        for (let d = c + 1; d < 50; d++) {
+          hand[3] = deck[d]!;
+          for (let e = d + 1; e < 51; e++) {
+            hand[4] = deck[e]!;
+            for (let f = e + 1; f < 52; f++) {
+              hand[5] = deck[f]!;
+              for (let g = f + 1; g < 53; g++) {
+                hand[6] = deck[g]!;
+                sevenCardFeatures(hand, features);
+                byCategory[sevenCardCategory(features)]!++;
+                for (let i = 0; i < PG_BONUSES.length; i++) byRow[i]![PG_BONUSES[i]!.resolve(ctx) + 1]!++;
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+  byCategory.forEach((n, c) => n && add(counts, `hand:${PG_CATEGORY_NAMES[c as keyof typeof PG_CATEGORY_NAMES]}`, n));
+  PG_BONUSES.forEach((bet, i) =>
+    byRow[i]!.forEach((n, row) => n && add(counts, `${bet.id}:${rowKey(bet as BonusBet<never>, row - 1)}`, n)),
+  );
+  return counts;
+}
+
+/** Pairplus: every three-card hand, by the line it pays. */
+export function pairPlusCounts(): Counts {
+  const counts: Counts = {};
+  for (let a = 0; a < 52; a++)
+    for (let b = a + 1; b < 52; b++)
+      for (let c = b + 1; c < 52; c++) {
+        const row = TCP_PAIR_PLUS.resolve({ player: [DECK[a]!, DECK[b]!, DECK[c]!], dealer: [] });
+        add(counts, rowKey(TCP_PAIR_PLUS as BonusBet<never>, row));
+      }
+  return counts;
+}
+
+/**
+ * Prime: every player hand against every dealer hand, by color alone. Counted
+ * by color class rather than through the bet itself, which the tests cover.
+ */
+export function primeCounts(part: number, parts: number): Counts {
+  const red = (i: number) => DECK[i]!.suit === 'H' || DECK[i]!.suit === 'D';
+  const combos: { color: number; lo: number; hi: number }[] = [];
+  for (let a = 0; a < 52; a++)
+    for (let b = a + 1; b < 52; b++)
+      for (let c = b + 1; c < 52; c++) {
+        const reds = Number(red(a)) + Number(red(b)) + Number(red(c));
+        const bit = (i: number) => [i < 26 ? 1 << i : 0, i >= 26 ? 1 << (i - 26) : 0] as const;
+        combos.push({
+          color: reds === 3 ? 1 : reds === 0 ? 2 : 0,
+          lo: bit(a)[0] | bit(b)[0] | bit(c)[0],
+          hi: bit(a)[1] | bit(b)[1] | bit(c)[1],
+        });
+      }
+  const counts: Counts = {};
+  for (let i = part; i < combos.length; i += parts) {
+    const p = combos[i]!;
+    for (const d of combos) {
+      if (p.lo & d.lo || p.hi & d.hi) continue;
+      const line = !p.color ? 'loses' : d.color === p.color ? 'All six cards one color' : 'Your three cards one color';
+      add(counts, line);
+    }
+  }
+  return counts;
 }
 
 /** Adds counts from several parts together. */
