@@ -4,7 +4,8 @@ import { bjEdge, runBjBatch } from './blackjack';
 
 // Published figure for Free Bet Blackjack: 1.04% house edge (wizardofodds.com).
 describe('matches the published house edge', () => {
-  it('loses about 1.04% of each bet under solved strategy', () => {
+  // 400k rounds take about five seconds, more with the rest of the suite running alongside.
+  it('loses about 1.04% of each bet under solved strategy', { timeout: 30_000 }, () => {
     const stats = runBjBatch({
       tables: solveStrategy(FREE_BET_RULES),
       runSeed: 'published',

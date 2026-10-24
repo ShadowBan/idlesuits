@@ -5,6 +5,8 @@ import {
   pokerScore,
   standardDeck,
   STUD_RULES,
+  decideLir,
+  LIR_RULES,
   paiGowDeck,
   PG_BONUSES,
   PG_CATEGORY_NAMES,
@@ -124,14 +126,16 @@ export function holeCardCounts(): Counts {
   return counts;
 }
 
-/** Mississippi Stud's 3-Card Bonus: every set of three community cards. */
-export function threeCardCounts(): Counts {
+/** A three-card side bet (Mississippi Stud's by default): every set of three cards, by the line it pays. */
+export function threeCardCounts(bet: BonusBet<never> = STUD_THREE_CARD as BonusBet<never>): Counts {
   const counts: Counts = {};
   for (let a = 0; a < 52; a++)
     for (let b = a + 1; b < 52; b++)
       for (let c = b + 1; c < 52; c++) {
-        const row = STUD_THREE_CARD.resolve({ hole: [], community: [DECK[a]!, DECK[b]!, DECK[c]!] });
-        add(counts, rowKey(STUD_THREE_CARD, row));
+        // The same three cards, whichever field the bet reads them from.
+        const cards = [DECK[a]!, DECK[b]!, DECK[c]!];
+        const row = bet.resolve({ hole: cards, community: cards } as never);
+        add(counts, rowKey(bet, row));
       }
   return counts;
 }
@@ -378,6 +382,93 @@ export function primeCounts(part: number, parts: number): Counts {
       add(counts, line);
     }
   }
+  return counts;
+}
+
+const LIR_LINES = [
+  'Royal flush',
+  'Straight flush',
+  'Four of a kind',
+  'Full house',
+  'Flush',
+  'Straight',
+  'Three of a kind',
+  'Two pair',
+  'Tens or better',
+];
+
+/**
+ * Let It Ride, exactly: every three-card hand and every order of the two
+ * community cards, 51,979,200 deals, played by the table's strategy. Keys are
+ * "<line>:<bets riding>" as Wizard of Odds tabulates them, plus "net".
+ */
+export function lirCounts(part: number, parts: number): Counts {
+  const counts: Counts = {};
+  const five = new Array<Card>(5);
+  const line = new Int8Array(49 * 49);
+  const pays = [1000, 200, 50, 11, 8, 5, 3, 2, 1];
+  let net = 0;
+  for (let a = 0; a < 52; a++)
+    for (let b = a + 1; b < 52; b++)
+      for (let c = b + 1; c < 52; c++) {
+        if ((a * 2704 + b * 52 + c) % parts !== part) continue;
+        const hole = [DECK[a]!, DECK[b]!, DECK[c]!];
+        const rest = DECK.filter((_, i) => i !== a && i !== b && i !== c);
+        five[0] = hole[0]!;
+        five[1] = hole[1]!;
+        five[2] = hole[2]!;
+        // The pay line for each pair of community cards, filed both ways round.
+        for (let x = 0; x < 49; x++)
+          for (let y = x + 1; y < 49; y++) {
+            five[3] = rest[x]!;
+            five[4] = rest[y]!;
+            const score = pokerScore(five);
+            const category = categoryOfScore(score);
+            const pair = Math.floor(score / 15 ** 4) % 15;
+            let l = -1;
+            if (category >= 2) l = 9 - category;
+            else if (category === 1 && pair >= LIR_RULES.payPairFrom) l = 8;
+            line[x * 49 + y] = l;
+            line[y * 49 + x] = l;
+          }
+        const first = decideLir(hole) === 'ride' ? 1 : 0;
+        for (let x = 0; x < 49; x++) {
+          const second = decideLir([...hole, rest[x]!]) === 'ride' ? 1 : 0;
+          const bets = 1 + first + second;
+          for (let y = 0; y < 49; y++) {
+            if (y === x) continue;
+            const l = line[x * 49 + y]!;
+            add(counts, `${l < 0 ? 'Loser' : LIR_LINES[l]}:${bets}`);
+            net += (l < 0 ? -1 : pays[l]!) * bets;
+          }
+        }
+      }
+  counts.net = net;
+  return counts;
+}
+
+/** A side bet on five cards: every five-card hand, by the line it pays. */
+export function fiveCardCounts(bet: BonusBet<never>, ctx: (cards: Card[]) => unknown): Counts {
+  const counts: Counts = {};
+  const hand = new Array<Card>(5);
+  const byRow = new Float64Array(bet.rows.length + 1);
+  for (let a = 0; a < 48; a++) {
+    hand[0] = DECK[a]!;
+    for (let b = a + 1; b < 49; b++) {
+      hand[1] = DECK[b]!;
+      for (let c = b + 1; c < 50; c++) {
+        hand[2] = DECK[c]!;
+        for (let d = c + 1; d < 51; d++) {
+          hand[3] = DECK[d]!;
+          for (let e = d + 1; e < 52; e++) {
+            hand[4] = DECK[e]!;
+            byRow[bet.resolve(ctx(hand) as never) + 1]!++;
+          }
+        }
+      }
+    }
+  }
+  byRow.forEach((n, i) => n && add(counts, rowKey(bet, i - 1), n));
   return counts;
 }
 

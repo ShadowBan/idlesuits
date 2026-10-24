@@ -5,6 +5,10 @@ import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import {
   BJ_POT_OF_GOLD,
+  C4P_QUEENS_UP,
+  CSP_FIVE_PLUS_ONE,
+  LIR_FIVE_CARD,
+  LIR_THREE_CARD,
   BJ_PUSH_22,
   FLUSH_RUSH,
   lookupScale,
@@ -25,7 +29,9 @@ import {
 } from '@idlesuits/sim';
 import { chanceOfFreeBet } from './audit/blackjack-exact';
 import {
+  fiveCardCounts,
   holeCardCounts,
+  lirCounts,
   mergeCounts,
   pairPlusCounts,
   paiGowSevenCounts,
@@ -60,9 +66,10 @@ const EXACT_JOBS = {
   tcpMain: tcpMainCounts,
   prime: primeCounts,
   paiGowSeven: paiGowSevenCounts,
+  lir: lirCounts,
 } as const;
 
-const ROUNDS: Record<SimGame, number> = { suits: 8e6, blackjack: 40e6, uth: 8e6, stud: 40e6, tcp: 20e6, paigow: 16e6 };
+const ROUNDS: Record<SimGame, number> = { suits: 8e6, blackjack: 40e6, uth: 8e6, stud: 40e6, tcp: 20e6, paigow: 16e6, lir: 20e6, csp: 40e6, c4p: 40e6 };
 
 const { values } = parseArgs({
   options: {
@@ -367,6 +374,48 @@ for (const [name, bet, ref] of pgBets) {
   simRow('Pai Gow Poker', `${name}, dealt through the table`, acc('paigow', bet.id), edge, 'exact, above');
 }
 
+// Let It Ride
+const lir = exact.lir!;
+const lirEdge = -lir.net! / 51979200;
+{
+  const { net: _, ...lines } = lir;
+  exactRow('Let It Ride', 'Main game, per bet', lirEdge, PUBLISHED.lirMain,
+    Object.fromEntries(Object.entries(lines).filter(([, n]) => n > 0)),
+    'all 51,979,200 deals; every line of the table, by bets left riding');
+}
+simRow('Let It Ride', 'Main game, dealt through the table', acc('lir', 'main'), lirEdge, 'exact, above');
+const lirThree = threeCardCounts(LIR_THREE_CARD as BonusBet<never>);
+const lirThreeEdge = edgeOfBonus(LIR_THREE_CARD as BonusBet<never>, lirThree);
+exactRow('Let It Ride', '3-Card Bonus', lirThreeEdge, PUBLISHED.lirThreeCard, lirThree);
+simRow('Let It Ride', '3-Card Bonus, dealt through the table', acc('lir', 'threeCard'), lirThreeEdge, 'exact, above');
+const lirFive = fiveCardCounts(LIR_FIVE_CARD as BonusBet<never>, (cards) => ({ hole: cards.slice(0, 3), community: cards.slice(3) }));
+const lirFiveEdge = edgeOfBonus(LIR_FIVE_CARD as BonusBet<never>, lirFive);
+exactRow('Let It Ride', '5-Card Bonus', lirFiveEdge, PUBLISHED.lirFiveCard, lirFive, 'paid "for one": tens or better is a push');
+simRow('Let It Ride', '5-Card Bonus, dealt through the table', acc('lir', 'fiveCard'), lirFiveEdge, 'exact, above');
+
+// Caribbean Stud
+simRow('Caribbean Stud', 'Ante and Raise, per ante', acc('csp', 'main'), PUBLISHED.cspMain.edge, PUBLISHED.cspMain.source,
+  `raised ${pct(tally('csp', 'raised') / acc('csp', 'main').n, 2)} of hands (52.23% with perfect play)`);
+const cspSixEdge = edgeOfBonus(CSP_FIVE_PLUS_ONE as BonusBet<never>, exact.sixCard!);
+exactRow('Caribbean Stud', '5+1 Bonus', cspSixEdge, PUBLISHED.fivePlusOne, exact.sixCard,
+  'the same six-card count and rule as the other 6-Card Bonus bets');
+simRow('Caribbean Stud', '5+1 Bonus, dealt through the table', acc('csp', 'fivePlusOne'), cspSixEdge, 'exact, above');
+
+// Crazy 4 Poker
+{
+  const n = acc('c4p', 'main').n;
+  const per = (key: string) => (acc('c4p', key).sum / n).toFixed(5);
+  simRow('Crazy 4 Poker', 'Ante, Play and Super Bonus, per ante', acc('c4p', 'main'), PUBLISHED.c4pMain.edge,
+    PUBLISHED.c4pMain.source,
+    `per ante: Ante ${per('ante')} (−0.171298), Play ${per('play')} (0.484904), Super Bonus ${per('superBonus')} ` +
+      `(−0.347795); played 3× ${pct(tally('c4p', 'big') / n, 2)}, 1× ${pct(tally('c4p', 'small') / n, 2)}, ` +
+      `folded ${pct(tally('c4p', 'fold') / n, 2)} (18.56% / 57.93% / 23.51%)`);
+}
+const queensUp = fiveCardCounts(C4P_QUEENS_UP as BonusBet<never>, (cards) => ({ player: cards, dealer: [] }));
+const queensUpEdge = edgeOfBonus(C4P_QUEENS_UP as BonusBet<never>, queensUp);
+exactRow('Crazy 4 Poker', 'Queens Up', queensUpEdge, PUBLISHED.queensUp, queensUp, 'scored on the best four of five cards');
+simRow('Crazy 4 Poker', 'Queens Up, dealt through the table', acc('c4p', 'queensUp'), queensUpEdge, 'exact, above');
+
 // Side bets show their house edge in the game; it must be the one measured here.
 const shown: [string, number, number][] = [
   ['Flush Rush', FLUSH_RUSH.edge, flushRushEdge],
@@ -381,6 +430,10 @@ const shown: [string, number, number][] = [
   ['Fortune', PG_FORTUNE.edge, pgEdges.fortune!],
   ["Emperor's Challenge", PG_EMPEROR.edge, pgEdges.emperor!],
   ['Pai Gow Insurance', PG_INSURANCE.edge, pgEdges.insurance!],
+  ['3-Card Bonus (Let It Ride)', LIR_THREE_CARD.edge, lirThreeEdge],
+  ['5-Card Bonus', LIR_FIVE_CARD.edge, lirFiveEdge],
+  ['5+1 Bonus', CSP_FIVE_PLUS_ONE.edge, cspSixEdge],
+  ['Queens Up', C4P_QUEENS_UP.edge, queensUpEdge],
 ];
 const simShown: [string, number, Acc][] = [
   ['Pot of Gold', BJ_POT_OF_GOLD.edge, acc('blackjack', 'potOfGold')],

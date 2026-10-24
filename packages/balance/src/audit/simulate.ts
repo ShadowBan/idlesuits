@@ -1,5 +1,14 @@
 import {
   buildShoe,
+  C4P_BONUSES,
+  CSP_BONUSES,
+  decideC4p,
+  decideCsp,
+  decideLir,
+  LIR_BONUSES,
+  simulateC4pRound,
+  simulateCspRound,
+  simulateLirRound,
   decideTcp,
   PG_BONUSES,
   simulatePaiGowRound,
@@ -170,6 +179,46 @@ export function simPaiGow(seed: string, start: number, rounds: number): SimSums 
   return sums;
 }
 
+const all = (bets: readonly { id: string }[]) => Object.fromEntries(bets.map((b) => [b.id, 1]));
+
+export function simLir(seed: string, start: number, rounds: number): SimSums {
+  const sums: SimSums = {};
+  const bonuses = all(LIR_BONUSES);
+  for (let round = start; round < start + rounds; round++) {
+    const r = simulateLirRound({ seed: { run: seed, round }, decide: (d) => decideLir(d.cards), bonuses });
+    for (const bonus of r.bonuses) acc(sums, bonus.id, bonus.net);
+    acc(sums, 'main', r.main);
+  }
+  return sums;
+}
+
+export function simCsp(seed: string, start: number, rounds: number): SimSums {
+  const sums: SimSums = {};
+  const bonuses = all(CSP_BONUSES);
+  for (let round = start; round < start + rounds; round++) {
+    const r = simulateCspRound({ seed: { run: seed, round }, decide: (d) => decideCsp(d.cards, d.upcard), bonuses });
+    for (const bonus of r.bonuses) acc(sums, bonus.id, bonus.net);
+    acc(sums, 'main', r.parts.ante + r.parts.raise);
+    if (!r.folded) count(sums, 'raised');
+  }
+  return sums;
+}
+
+export function simC4p(seed: string, start: number, rounds: number): SimSums {
+  const sums: SimSums = {};
+  const bonuses = all(C4P_BONUSES);
+  for (let round = start; round < start + rounds; round++) {
+    const r = simulateC4pRound({ seed: { run: seed, round }, decide: (d) => decideC4p(d.cards), bonuses });
+    for (const bonus of r.bonuses) acc(sums, bonus.id, bonus.net);
+    acc(sums, 'main', r.parts.ante + r.parts.play + r.parts.superBonus);
+    acc(sums, 'ante', r.parts.ante);
+    acc(sums, 'play', r.parts.play);
+    acc(sums, 'superBonus', r.parts.superBonus);
+    count(sums, r.folded ? 'fold' : r.play > 1 ? 'big' : 'small');
+  }
+  return sums;
+}
+
 export const SIMULATIONS = {
   suits: simSuits,
   blackjack: simBlackjack,
@@ -177,5 +226,8 @@ export const SIMULATIONS = {
   stud: simStud,
   tcp: simTcp,
   paigow: simPaiGow,
+  lir: simLir,
+  csp: simCsp,
+  c4p: simC4p,
 } as const;
 export type SimGame = keyof typeof SIMULATIONS;

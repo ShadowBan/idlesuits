@@ -13,6 +13,12 @@ An idle casino. Pick a table from the floor and the same bankroll follows you fr
   Side bets: Pairplus, 6-Card Bonus, Prime.
 - **Pai Gow Poker** — seven cards from a 53-card deck with a joker, set into a five-card and a
   two-card hand; win both to get paid. Side bets: Fortune, Emperor's Challenge, Pai Gow Insurance.
+- **Let It Ride** — three bets on your three cards plus two shared; pull back up to two of them as
+  the cards come. Side bets: 3-Card Bonus, 5-Card Bonus.
+- **Caribbean Stud** — five cards against the dealer's five, one showing; raise 2× and a big hand
+  pays the raise up to 100:1. Side bet: 5+1 Bonus.
+- **Crazy 4 Poker** — best four of five; play up to 3× with aces, and the Super Bonus pays any
+  straight or better. Side bet: Queens Up.
 
 See
 [docs/idle_suits_game_concept_v0_2.md](docs/idle_suits_game_concept_v0_2.md) for the design concept and
@@ -50,8 +56,8 @@ tens of millions of rounds.
 [docs/odds_audit.md](docs/odds_audit.md). Pay tables that can be dealt out completely are checked
 **exactly**, through the simulator's own evaluators: every one of the 133,784,560 seven-card hands
 for Trips and the flush bets, every six-card hand for the 6-Card Bonus, all 155,937,600 deals of
-Mississippi Stud and all 407,170,400 of Three Card Poker played by the table's strategy, and all
-154,143,080 seven-card Pai Gow hands, joker included. Everything else is simulated through the real round
+Mississippi Stud, all 407,170,400 of Three Card Poker and all 51,979,200 of Let It Ride played by the
+table's strategy, and all 154,143,080 seven-card Pai Gow hands, joker included. Everything else is simulated through the real round
 engines with a 95% margin, and so is every exact bet, to prove the table settles it the same way.
 
 | Bet | Measured | Published | How |
@@ -77,6 +83,13 @@ engines with a 95% margin, and so is every exact bet, to prove the table settles
 | Fortune | 7.77% | 7.77% | exact |
 | Emperor's Challenge | 4.17% | 4.17% | exact |
 | Pai Gow Insurance | 7.35% | 7.35% | exact |
+| Let It Ride | 3.506% per bet | 3.506% | exact |
+| 3-Card Bonus (Let It Ride) | 7.10% | 7.10% | exact |
+| 5-Card Bonus | 23.73% | 23.73% | exact |
+| Caribbean Stud | 5.21% ±0.07% per ante | 5.22% (Wizard's strategy) | 40M rounds |
+| 5+1 Bonus | 8.56% | 8.56% | exact |
+| Crazy 4 Poker | 3.44% ±0.10% per ante | 3.42% | 40M rounds |
+| Queens Up | 6.78% | 6.78% | exact |
 
 Two differ from their source, for known reasons. Wizard of Odds' Super Flush Rush table counts 124
 fewer straight flushes than the progressive table on the same page; the simulator matches the
