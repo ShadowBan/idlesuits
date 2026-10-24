@@ -1,14 +1,20 @@
 <script lang="ts">
   import { onDestroy } from 'svelte';
-  import { CATEGORY_NAMES, rankLabel, SUIT_SYMBOL, UTH_BONUSES } from '@idlesuits/sim';
+  import { handName, rankLabel, SUIT_SYMBOL, UTH_BONUSES } from '@idlesuits/sim';
+  import BetBar from '../../components/BetBar.svelte';
+  import BetSpot from '../../components/BetSpot.svelte';
   import CardRow from '../../components/CardRow.svelte';
+  import FeltPrint from '../../components/FeltPrint.svelte';
+  import ResultBanner from '../../components/ResultBanner.svelte';
   import TableShell from '../../components/TableShell.svelte';
+  import { heldValue } from '../../lib/betting.svelte';
   import type { GameProps } from '../../lib/games';
-  import { formatMoney } from '../../lib/money';
-  import { setMuted, unlockAudio } from '../../lib/sound';
+  import { Decimal, formatMoney } from '../../lib/money';
+  import { setMuted, sfx, unlockAudio } from '../../lib/sound';
   import { UthGame } from './game.svelte';
   import UthPanels from './UthPanels.svelte';
   import UthRules from './UthRules.svelte';
+  import { handPhrase, showdownLine } from '../../lib/verdict';
 
   let { onExit }: GameProps = $props();
 
@@ -47,6 +53,49 @@
     river: 'Bet 1× to stay in, or fold',
   } as const;
 
+  // ---------------------------------------------------------------------------
+  // The spots on the felt. Between hands, once the player touches the chips,
+  // they show the next bet; otherwise they show this hand and how it settled.
+
+  const betting = $derived(seq.awaiting === 'deal' && (game.bets.touched || game.hands === 0));
+  const zero = new Decimal(0);
+
+  function view(roundUnits: number, next: Decimal, netUnits: number | undefined) {
+    if (betting) return { amount: next, net: null, next: null };
+    const amount = game.roundAnte.mul(roundUnits);
+    return { amount, net: netUnits === undefined ? null : game.roundAnte.mul(netUnits), next };
+  }
+
+  const ante = $derived(view(1, game.ante, game.results.ante?.net));
+  const blind = $derived(view(1, game.ante, game.results.blind?.net));
+  const play = $derived(view(game.play, zero, game.play > 0 ? game.results.play?.net : undefined));
+  const sides = $derived(
+    UTH_BONUSES.map((bet) => ({
+      bet,
+      ...view(game.roundSide[bet.id] ?? 0, game.side.amount(bet.id), game.bonusResults[bet.id]?.net),
+    })),
+  );
+
+  function placeAnte() {
+    if (game.bets.addMain(heldValue(game.bank))) sfx.chip();
+  }
+  function placeSide(id: string) {
+    if (game.bets.addSide(id, heldValue(game.bank))) sfx.chip();
+  }
+
+  // ---------------------------------------------------------------------------
+
+  const result = $derived.by(() => {
+    if (game.net === null || betting) return null;
+    const net = game.roundAnte.mul(game.net);
+    const you = { name: game.playerHand ? handName(game.playerHand) : '', score: game.playerHand?.score ?? 0 };
+    const them = { name: game.dealerHand ? handName(game.dealerHand) : '', score: game.dealerHand?.score ?? 0 };
+    const title = game.folded ? 'Folded' : you.score > them.score ? 'You win' : you.score < them.score ? 'Dealer wins' : 'Push';
+    let detail = game.folded ? `The dealer had ${handPhrase(them.name)}` : showdownLine(you, them);
+    if (title === 'You win' && !game.dealerQualified) detail += ' · dealer does not open';
+    return { title, net, detail, big: game.net >= 10 };
+  });
+
   function begin() {
     unlockAudio();
     game.start();
@@ -63,16 +112,6 @@
     e.preventDefault();
     game.advance();
   }
-
-  const partNet = (part: 'ante' | 'blind' | 'play') => game.results[part]?.net;
-  /** Side bets riding on this hand, with how each settled. */
-  const sideSpots = $derived(
-    UTH_BONUSES.filter((b) => (game.roundSide[b.id] ?? 0) > 0).map((b) => ({
-      bet: b,
-      units: game.roundSide[b.id]!,
-      result: game.bonusResults[b.id],
-    })),
-  );
 </script>
 
 <svelte:window onkeydown={onKey} />
@@ -89,79 +128,111 @@
   onRules={() => rules?.open()}
   {onExit}
   onTapFelt={() => seq.awaiting === 'deal' && game.deal()}
+  cards={{ across: 5, rows: 3, reserve: 266 }}
 >
   {#snippet felt()}
     <div class="layout">
-      <div class="dealer-area">
-        <CardRow title="Dealer" cards={game.dealer} side="dealer" {flipMs}>
-          {#snippet badge()}
-            {#if game.dealerHand}
-              <span class="hand-name">{CATEGORY_NAMES[game.dealerHand.category]}</span>
-              <span class="tag" class:muted={!game.dealerQualified}>
-                {game.dealerQualified ? 'Opens' : 'Does not open'}
-              </span>
-            {/if}
-          {/snippet}
-        </CardRow>
-      </div>
+      <div class="area-dealer"><CardRow
+        title="Dealer"
+        cards={game.dealer}
+        side="dealer"
+        {flipMs}
+        deal={game.deals}
+        dealOrder={1}
+        focus={game.dealerFocus}
+      >
+        {#snippet badge()}
+          {#if game.dealerHand}
+            <span class="hand-name">{handName(game.dealerHand)}</span>
+            <span class="hand-tag" class:good={!game.dealerQualified}>{game.dealerQualified ? 'Opens' : 'Does not open'}</span>
+          {/if}
+        {/snippet}
+      </CardRow></div>
 
-      <div class="board-area">
-        <CardRow cards={game.board} side="board" {flipMs} highlight={game.net !== null ? game.playerBest : undefined} />
-      </div>
+      <div class="area-board"><CardRow
+        cards={game.board}
+        side="board"
+        {flipMs}
+        deal={game.deals}
+        dealOrder={2}
+        highlight={game.net !== null ? game.playerBest : undefined}
+      /></div>
 
-      <ul class="bets" aria-label="Your bets">
-        {#each [['ante', 1], ['blind', 1], ['play', game.play]] as const as [part, units] (part)}
-          {@const net = partNet(part)}
-          <li class:empty={units === 0} class:win={(net ?? 0) > 0} class:loss={(net ?? 0) < 0}>
-            <span class="name">{part}</span>
-            <b>{units > 0 ? formatMoney(game.roundAnte.mul(units)) : game.folded ? 'folded' : '—'}</b>
-            {#if net !== undefined && units > 0}
-              <small>{net === 0 ? 'push' : formatMoney(game.roundAnte.mul(net), true)}</small>
-            {/if}
-          </li>
-        {/each}
-        {#each sideSpots as spot (spot.bet.id)}
-          {@const net = spot.result?.net}
-          <li class="side" class:win={(net ?? 0) > 0} class:loss={(net ?? 0) < 0}>
-            <span class="name">{spot.bet.short}</span>
-            <b>{formatMoney(game.roundAnte.mul(spot.units))}</b>
-            {#if net !== undefined}
-              <small>{formatMoney(game.roundAnte.mul(net), true)}</small>
-            {/if}
-          </li>
-        {/each}
-      </ul>
-
-      <div class="player-area">
-        <CardRow
-          title="You"
-          cards={game.hole}
-          side="player"
-          {flipMs}
-          highlight={game.net !== null ? game.playerBest : undefined}
-        >
-          {#snippet badge()}
-            {#if game.playerHand}<span class="hand-name">{CATEGORY_NAMES[game.playerHand.category]}</span>{/if}
-          {/snippet}
-        </CardRow>
-      </div>
-
-      <div class="result">
-        {#if game.bonusCards.length}
-          <p class="bonus-cards">
-            6-Card Bonus
+      <div class="spots">
+        <div class="main-spots">
+          <BetSpot
+            label="Trips"
+            size="md"
+            shape="diamond"
+            amount={sides[0]!.amount}
+            net={sides[0]!.net}
+            next={sides[0]!.next}
+            onPlace={() => placeSide('trips')}
+            onClear={() => game.bets.clearSide('trips')}
+          />
+          <BetSpot
+            label="Ante"
+            size="lg"
+            amount={ante.amount}
+            net={ante.net}
+            next={ante.next}
+            onPlace={placeAnte}
+            onClear={() => game.bets.clearMain()}
+          />
+          <BetSpot label="Blind" size="lg" hint="= Ante" amount={blind.amount} net={blind.net} next={blind.next} />
+          <BetSpot
+            label="Play"
+            size="lg"
+            hint="4× 2× 1×"
+            amount={play.amount}
+            net={play.net}
+            active={seq.awaiting === 'move'}
+          />
+        </div>
+        <div class="side-spots">
+          {#each sides.slice(1) as side (side.bet.id)}
+            <BetSpot
+              label={side.bet.short}
+              size="sm"
+              amount={side.amount}
+              net={side.net}
+              next={side.next}
+              onPlace={() => placeSide(side.bet.id)}
+              onClear={() => game.bets.clearSide(side.bet.id)}
+            />
+          {/each}
+        </div>
+        <p class="bonus-cards">
+          {#if game.bonusCards.length}
+            <span class="bonus-label">6-Card Bonus</span>
             {#each game.bonusCards as card (card.uid)}
               <span class="pc" class:red={card.suit === 'H' || card.suit === 'D'}>{rankLabel(card.rank)}{SUIT_SYMBOL[card.suit]}</span>
             {/each}
-          </p>
-        {/if}
-        {#if game.net !== null}
-          <p class="banner" class:win={game.net > 0} class:loss={game.net < 0} class:big={game.net >= 6}>
-            {game.folded ? 'Folded' : game.net > 0 ? 'You win' : game.net < 0 ? 'Dealer wins' : 'Push'}
-            <b>{formatMoney(game.roundAnte.mul(game.net), true)}</b>
-          </p>
+          {/if}
+        </p>
+      </div>
+
+      <!-- The open felt between the bets and your cards: the printed name, and where results show. -->
+      <div class="band">
+        <FeltPrint title="Ultimate Texas Hold'em" lines={['Dealer needs a pair to open', 'Blind pays on a straight or better']} />
+        {#if result}
+          <ResultBanner title={result.title} net={result.net} detail={result.detail} big={result.big} />
         {/if}
       </div>
+
+      <div class="area-player"><CardRow
+        title="You"
+        cards={game.hole}
+        side="player"
+        {flipMs}
+        deal={game.deals}
+        dealOrder={0}
+        highlight={game.net !== null ? game.playerBest : undefined}
+      >
+        {#snippet badge()}
+          {#if game.playerHand}<span class="hand-name">{handName(game.playerHand)}</span>{/if}
+        {/snippet}
+      </CardRow></div>
     </div>
 
     {#if !game.started}
@@ -180,8 +251,8 @@
   {/snippet}
 
   {#snippet action()}
-    <div class="bar">
-      {#if seq.awaiting === 'move' && pending}
+    {#if seq.awaiting === 'move' && pending}
+      <div class="bar">
         <div class="choice" role="group" aria-label="Your move">
           {#each options as option (option.label)}
             <button
@@ -203,15 +274,18 @@
             {STREET_HINT[pending.decision.street]}
           {/if}
         </p>
-      {:else if seq.awaiting === 'deal'}
-        <button type="button" class="act primary" onclick={() => game.deal()}>Deal</button>
-      {:else if game.started && !game.gameOver}
-        <p class="hint">{game.autoPlay ? `Auto playing · ${seq.speed}` : 'Dealing…'}</p>
-        {#if game.autoPlay}
-          <button type="button" onclick={() => seq.togglePause()}>{seq.paused ? 'Resume' : 'Pause'}</button>
-        {/if}
-      {/if}
-    </div>
+      </div>
+    {:else}
+      <BetBar
+        bank={game.bank}
+        total={game.bets.total}
+        canDeal={seq.awaiting === 'deal' && game.bets.canDeal}
+        onDeal={() => game.deal()}
+        onClear={() => game.bets.clearAll()}
+        onDouble={() => game.bets.double()}
+        trailing={game.autoPlay && game.started ? pause : undefined}
+      />
+    {/if}
   {/snippet}
 
   {#snippet panels()}
@@ -219,105 +293,103 @@
   {/snippet}
 </TableShell>
 
+{#snippet pause()}
+  <button type="button" class="pause" onclick={() => seq.togglePause()}>{seq.paused ? 'Resume' : 'Pause'}</button>
+{/snippet}
+
 <style>
   .layout {
     display: grid;
-    gap: inherit;
-    grid-template-areas: 'dealer' 'board' 'bets' 'player' 'result';
+    height: 100%;
+    grid-template-rows: auto auto auto minmax(36px, 1fr) auto;
+    grid-template-areas: 'dealer' 'board' 'spots' 'band' 'player';
+    align-items: center;
+    justify-items: center;
+    gap: 4px;
   }
-  .dealer-area {
+  .area-dealer,
+  .area-board,
+  .area-player {
+    width: 100%;
+  }
+  .area-dealer {
     grid-area: dealer;
   }
-  .board-area {
+  .area-board {
     grid-area: board;
   }
-  .bets {
-    grid-area: bets;
+  .spots {
+    grid-area: spots;
   }
-  .player-area {
+  .band {
+    grid-area: band;
+  }
+  .area-player {
     grid-area: player;
   }
-  .result {
-    grid-area: result;
+  /*
+   * Landscape phones: the dealer and your hand side by side over the board,
+   * and the betting spots in a column of their own, so the cards stay large.
+   */
+  @media (orientation: landscape) and (max-height: 520px) {
+    .layout {
+      --card-w: clamp(30px, min(calc((100cqw - 250px) / 5.9), calc((100cqh - 96px) / 2.8)), 90px);
+      grid-template-columns: 1fr 1fr auto;
+      grid-template-rows: auto auto;
+      grid-template-areas:
+        'dealer player spots'
+        'board board spots';
+      align-content: center;
+      column-gap: 10px;
+    }
+    .main-spots {
+      flex-wrap: wrap;
+      width: 190px;
+      row-gap: 2px;
+    }
+    .layout {
+      position: relative;
+    }
+    .layout .band {
+      position: absolute;
+      grid-area: auto;
+      inset: 0;
+      width: auto;
+      pointer-events: none;
+    }
+    .band :global(.print),
+    .bonus-label {
+      display: none;
+    }
   }
-  .hand-name {
-    font: 700 15px/1 var(--font-display);
-    text-transform: uppercase;
-    letter-spacing: 0.03em;
+  .band {
+    position: relative;
+    align-self: stretch;
+    width: 100%;
+    min-height: 0;
+    display: grid;
+    align-items: center;
   }
-  .tag {
-    font: 700 10px/1 var(--font-ui);
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-    padding: 4px 8px;
-    border-radius: 999px;
-    background: var(--chip-bg);
-  }
-  .tag.muted {
-    color: var(--win);
-  }
-  .bets {
-    list-style: none;
-    margin: 0;
-    padding: 0;
-    display: flex;
-    flex-wrap: wrap;
-    justify-content: center;
-    gap: 8px;
-  }
-  .bets li {
+  .spots {
     display: grid;
     justify-items: center;
+    align-content: center;
     gap: 2px;
-    min-width: 66px;
-    padding: 6px 10px;
-    border-radius: 12px;
-    border: 2px dashed var(--line);
   }
-  .bets li.empty {
-    opacity: 0.5;
+  .main-spots {
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+    gap: clamp(8px, 2.6cqw, 22px);
   }
-  .bets li.side {
-    border-color: color-mix(in srgb, var(--gold) 55%, transparent);
-  }
-  .bets li.win {
-    border-style: solid;
-    border-color: var(--win);
-  }
-  .bets li.loss {
-    border-style: solid;
-    border-color: var(--loss);
-  }
-  .bets .name {
-    font: 600 10px/1 var(--font-ui);
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
-    color: var(--muted);
-  }
-  .bets b {
-    font: 700 15px/1.1 var(--font-display);
-    font-variant-numeric: tabular-nums;
-  }
-  .bets small {
-    font: 600 11px/1 var(--font-ui);
-    font-variant-numeric: tabular-nums;
-  }
-  .win small,
-  .banner.win {
-    color: var(--win);
-  }
-  .loss small,
-  .banner.loss {
-    color: var(--loss);
-  }
-  .result {
-    min-height: 26px;
-    display: grid;
-    justify-items: center;
-    gap: 6px;
+  .side-spots {
+    display: flex;
+    justify-content: center;
+    gap: clamp(10px, 4cqw, 30px);
   }
   .bonus-cards {
     margin: 0;
+    height: 18px;
     display: flex;
     align-items: center;
     gap: 4px;
@@ -327,38 +399,20 @@
     color: var(--muted);
   }
   .pc {
-    padding: 3px 5px;
-    border-radius: 4px;
+    padding: 2px 4px;
+    border-radius: 3px;
     background: var(--card-face);
     color: var(--card-black);
-    font: 700 13px/1 var(--font-display);
+    font: 700 12px/1 var(--font-display);
     letter-spacing: 0;
   }
   .pc.red {
     color: var(--card-red);
   }
-  .banner {
-    margin: 0;
-    font: 700 18px/1 var(--font-display);
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-    animation: pop 300ms ease-out;
-  }
-  .banner.big {
-    font-size: 24px;
-    color: var(--gold);
-    text-shadow: 0 0 18px var(--gold);
-  }
-  @keyframes pop {
-    from {
-      transform: scale(0.6);
-      opacity: 0;
-    }
-  }
   .overlay {
     position: absolute;
     inset: 0;
-    z-index: 2;
+    z-index: 4;
     display: grid;
     place-content: center;
     justify-items: center;
@@ -409,20 +463,6 @@
   .choice .act {
     flex: 1 1 0;
   }
-  /* Short landscape puts the action bar in a narrow side column: stack the choices. */
-  @media (orientation: landscape) and (max-height: 520px) {
-    .bar,
-    .choice {
-      flex-direction: column;
-      align-items: stretch;
-    }
-    .choice {
-      flex: 0 0 auto;
-    }
-    .hint {
-      text-align: center;
-    }
-  }
   .act small {
     font: 400 12px/1 var(--font-ui);
     color: var(--muted);
@@ -433,8 +473,14 @@
   }
   .hint {
     margin: 0;
-    font: 13px/1.3 var(--font-ui);
+    height: 17px;
+    font: 13px/17px var(--font-ui);
     color: var(--muted);
+    white-space: nowrap;
+  }
+  .pause {
+    min-width: 108px;
+    min-height: 44px;
   }
   kbd {
     font: 600 10px/1 var(--font-ui);
@@ -449,42 +495,20 @@
       display: none;
     }
   }
-  /* Landscape phones are short: dealer and player sit side by side. */
+  /* Short landscape puts the action bar in a narrow side column: stack the choices. */
   @media (orientation: landscape) and (max-height: 520px) {
-    .layout {
-      grid-template-columns: 1fr 1fr;
-      grid-template-areas:
-        'dealer player'
-        'board board'
-        'bets bets'
-        'result result';
-      align-items: center;
+    .bar,
+    .choice {
+      flex-direction: column;
+      align-items: stretch;
     }
-    .bets {
-      gap: 4px;
+    .choice {
+      flex: 0 0 auto;
     }
-    .bets li {
-      min-width: 48px;
-      padding: 2px 6px;
-      border-width: 1.5px;
-      border-radius: 9px;
-    }
-    .bets .name {
-      font-size: 9px;
-      letter-spacing: 0.06em;
-    }
-    .bets b {
-      font-size: 13px;
-    }
-    .bets small {
-      font-size: 10px;
-    }
-    .result {
-      min-height: 0;
-      grid-auto-flow: column;
-      justify-content: center;
-      align-items: center;
-      gap: 14px;
+    .hint {
+      text-align: center;
+      white-space: normal;
+      height: auto;
     }
   }
 </style>

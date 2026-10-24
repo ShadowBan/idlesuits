@@ -28,16 +28,11 @@
 </script>
 
 <section class="panel">
-  <h2>Bets <span>apply to the next hand</span></h2>
-  <div class="row">
-    <span>Ante <small>and Blind</small></span>
-    <span class="stepper">
-      <button type="button" onclick={() => game.changeAnte(0.5)} aria-label="Halve ante">−</button>
-      <b>{formatMoney(game.ante)}</b>
-      <button type="button" onclick={() => game.changeAnte(2)} aria-label="Double ante">+</button>
-    </span>
-  </div>
-  <p class="note">The Blind always matches the Ante. Max at risk: {formatMoney(game.ante.mul(6).add(game.side.total))}.</p>
+  <h2>Your bets <span>set with chips on the felt</span></h2>
+  <p class="note">
+    Ante {formatMoney(game.ante)} and a matching Blind. The Play bet is 4× or 3× the Ante before the flop, 2× after it,
+    or 1× at the end. Max at risk: {formatMoney(game.ante.mul(6).add(game.side.total))}.
+  </p>
 </section>
 
 <section class="panel">
@@ -112,33 +107,6 @@
     letter-spacing: 0;
     text-transform: none;
     font-weight: 400;
-  }
-  .row {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 8px;
-    font: 13px/1.3 var(--font-ui);
-  }
-  .row small {
-    color: var(--muted);
-  }
-  .stepper {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-  }
-  .stepper button {
-    width: 36px;
-    height: 36px;
-    padding: 0;
-    font-size: 16px;
-  }
-  .stepper b {
-    min-width: 56px;
-    text-align: center;
-    font: 700 15px/1 var(--font-display);
-    font-variant-numeric: tabular-nums;
   }
   .note {
     margin: 0;

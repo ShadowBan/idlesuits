@@ -18,6 +18,7 @@ import { bankroll } from '../../lib/casino.svelte';
 import { Decimal } from '../../lib/money';
 import { Sequencer } from '../../lib/sequencer.svelte';
 import { bonusLine, SideStakes } from '../../lib/sidebets.svelte';
+import { ChipBets } from '../../lib/stakes.svelte';
 import { sfx } from '../../lib/sound';
 
 const STARTING_ANTE = 5;
@@ -59,6 +60,18 @@ export class DjGame {
   ante = $state(new Decimal(STARTING_ANTE));
   /** Side bets for the next hand, in dollars. */
   readonly side = new SideStakes(DJ_BONUSES);
+  /** Chips on the spots for the next hand. */
+  readonly bets = new ChipBets(
+    () => this.ante,
+    (v) => (this.ante = v),
+    this.side,
+    () => this.bank,
+    2,
+  );
+  /** Counts deals, so the table can throw each new hand in from the shoe. */
+  deals = $state(0);
+  /** The dealer card about to turn, for a moment of suspense. */
+  dealerFocus = $state(-1);
   roundAnte = $state(new Decimal(STARTING_ANTE));
   lastAnte = $state(new Decimal(STARTING_ANTE));
   started = $state(false);
@@ -100,7 +113,7 @@ export class DjGame {
     this.autoPlay = on;
     if (!on) return;
     if (this.seq.awaiting === 'move') this.seq.answer(this.suggestion!);
-    else if (this.seq.awaiting === 'deal') this.seq.answer('play');
+    else if (this.seq.awaiting === 'deal' && this.bets.canDeal) this.seq.answer('play');
   }
 
   choose(move: DjMove) {
@@ -108,7 +121,7 @@ export class DjGame {
   }
 
   deal() {
-    if (this.seq.awaiting === 'deal') this.seq.answer('play');
+    if (this.seq.awaiting === 'deal' && this.bets.canDeal) this.seq.answer('play');
   }
 
   advance() {
@@ -116,10 +129,6 @@ export class DjGame {
     else this.deal();
   }
 
-  changeAnte(factor: number) {
-    const next = this.ante.mul(factor).floor().max(1);
-    this.ante = next.gt(this.bank) ? this.bank.floor().max(1) : next;
-  }
 
   dispose() {
     this.seq.dispose();
@@ -144,12 +153,14 @@ export class DjGame {
     this.start();
   }
 
+  /** Bets go down before every hand; auto play deals on its own once there is a bet. */
   private async loop() {
     while (this.started && !this.gameOver && !this.seq.disposed) {
-      if (!(await this.playRound())) return;
-      if (this.gameOver) return;
-      const ok = this.autoPlay ? await this.seq.wait(RESULT_HOLD_MS) : (await this.seq.ask('deal')) !== null;
+      const auto = this.autoPlay && this.bets.canDeal && this.hands > 0;
+      const ok = auto ? await this.seq.wait(RESULT_HOLD_MS) : (await this.seq.ask('deal')) !== null;
       if (!ok) return;
+      if (!this.bets.canDeal) continue;
+      if (!(await this.playRound())) return;
     }
   }
 
@@ -187,6 +198,18 @@ export class DjGame {
 
   private async show(events: DjEvent[]): Promise<boolean> {
     for (const event of events) {
+      if (event.type === 'DealerRevealed') {
+        // The dealer turns over one card at a time; the next one lifts first.
+        const step = BASE_MS.DealerRevealed * (event.cards.length > 4 ? 0.3 : 0.45);
+        for (let i = 0; i < event.cards.length; i++) {
+          if (this.dealer[i]) continue;
+          this.dealerFocus = i;
+          if (!(await this.seq.wait(step))) return false;
+          this.dealer[i] = event.cards[i]!;
+          sfx.flip();
+        }
+        this.dealerFocus = -1;
+      }
       let ms = BASE_MS[event.type];
       if (this.seq.speed === 'smart') {
         if (event.type === 'Settled' || event.type === 'BonusSettled') ms *= 0.7;
@@ -201,6 +224,9 @@ export class DjGame {
   private apply(event: DjEvent) {
     switch (event.type) {
       case 'RoundStarted':
+        this.deals++;
+        this.bets.touched = false;
+        this.dealerFocus = -1;
         this.player = Array(5).fill(null);
         this.dealer = Array(5).fill(null);
         this.playerScore = null;
@@ -271,6 +297,6 @@ export class DjGame {
     };
     this.history = [entry, ...this.history].slice(0, 12);
     if (this.bank.lte(0)) this.gameOver = true;
-    else if (this.ante.gt(this.bank)) this.ante = this.bank.floor().max(1);
+    else this.bets.fitToBank();
   }
 }

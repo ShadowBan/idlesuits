@@ -21,6 +21,7 @@ import { bankroll } from '../../lib/casino.svelte';
 import { Decimal } from '../../lib/money';
 import { Sequencer } from '../../lib/sequencer.svelte';
 import { bonusLine, SideStakes } from '../../lib/sidebets.svelte';
+import { ChipBets } from '../../lib/stakes.svelte';
 import { sfx } from '../../lib/sound';
 
 const STARTING_BET = 5;
@@ -67,6 +68,18 @@ export class PaiGowGame {
   bet = $state(new Decimal(STARTING_BET));
   /** Side bets for the next hand, in dollars. */
   readonly side = new SideStakes(PG_BONUSES);
+  /** Chips on the spots for the next hand. */
+  readonly bets = new ChipBets(
+    () => this.bet,
+    (v) => (this.bet = v),
+    this.side,
+    () => this.bank,
+    1,
+  );
+  /** Counts deals, so the table can throw each new hand in from the shoe. */
+  deals = $state(0);
+  /** The dealer card about to turn, for a moment of suspense. */
+  dealerFocus = $state(-1);
   roundBet = $state(new Decimal(STARTING_BET));
   lastBet = $state(new Decimal(STARTING_BET));
   started = $state(false);
@@ -122,7 +135,7 @@ export class PaiGowGame {
     this.autoPlay = on;
     if (!on) return;
     if (this.seq.awaiting === 'move') this.seq.answer(this.suggestion!);
-    else if (this.seq.awaiting === 'deal') this.seq.answer({ low: [0, 1] });
+    else if (this.seq.awaiting === 'deal' && this.bets.canDeal) this.seq.answer({ low: [0, 1] });
   }
 
   /** Tap a card: into the low hand, or back out. A third pick replaces the first. */
@@ -143,7 +156,7 @@ export class PaiGowGame {
   }
 
   deal() {
-    if (this.seq.awaiting === 'deal') this.seq.answer({ low: [0, 1] });
+    if (this.seq.awaiting === 'deal' && this.bets.canDeal) this.seq.answer({ low: [0, 1] });
   }
 
   /** Space: set the picked hand if it is legal, otherwise the house way; or deal. */
@@ -152,10 +165,6 @@ export class PaiGowGame {
     else this.deal();
   }
 
-  changeBet(factor: number) {
-    const next = this.bet.mul(factor).floor().max(1);
-    this.bet = next.gt(this.bank) ? this.bank.floor().max(1) : next;
-  }
 
   dispose() {
     this.seq.dispose();
@@ -180,12 +189,14 @@ export class PaiGowGame {
     this.start();
   }
 
+  /** Bets go down before every hand; auto play deals on its own once there is a bet. */
   private async loop() {
     while (this.started && !this.gameOver && !this.seq.disposed) {
-      if (!(await this.playRound())) return;
-      if (this.gameOver) return;
-      const ok = this.autoPlay ? await this.seq.wait(RESULT_HOLD_MS) : (await this.seq.ask('deal')) !== null;
+      const auto = this.autoPlay && this.bets.canDeal && this.hands > 0;
+      const ok = auto ? await this.seq.wait(RESULT_HOLD_MS) : (await this.seq.ask('deal')) !== null;
       if (!ok) return;
+      if (!this.bets.canDeal) continue;
+      if (!(await this.playRound())) return;
     }
   }
 
@@ -224,6 +235,18 @@ export class PaiGowGame {
 
   private async show(events: PaiGowEvent[]): Promise<boolean> {
     for (const event of events) {
+      if (event.type === 'DealerRevealed') {
+        // The dealer turns over one card at a time; the next one lifts first.
+        const step = BASE_MS.DealerRevealed * (event.cards.length > 4 ? 0.3 : 0.45);
+        for (let i = 0; i < event.cards.length; i++) {
+          if (this.dealer[i]) continue;
+          this.dealerFocus = i;
+          if (!(await this.seq.wait(step))) return false;
+          this.dealer[i] = event.cards[i]!;
+          sfx.flip();
+        }
+        this.dealerFocus = -1;
+      }
       let ms = BASE_MS[event.type];
       if (this.seq.speed === 'smart' && (event.type === 'BonusSettled' || event.type === 'Settled')) ms *= 0.7;
       if (!(await this.seq.wait(ms))) return false;
@@ -235,6 +258,9 @@ export class PaiGowGame {
   private apply(event: PaiGowEvent) {
     switch (event.type) {
       case 'RoundStarted':
+        this.deals++;
+        this.bets.touched = false;
+        this.dealerFocus = -1;
         this.player = Array(7).fill(null);
         this.dealer = Array(7).fill(null);
         this.playerSet = null;
@@ -305,6 +331,6 @@ export class PaiGowGame {
     };
     this.history = [entry, ...this.history].slice(0, 12);
     if (this.bank.lte(0)) this.gameOver = true;
-    else if (this.bet.gt(this.bank)) this.bet = this.bank.floor().max(1);
+    else this.bets.fitToBank();
   }
 }

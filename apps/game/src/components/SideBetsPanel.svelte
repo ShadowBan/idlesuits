@@ -6,13 +6,13 @@
 
   interface Props {
     stakes: SideStakes;
-    /** Where a bet starts when it is switched on: the ante. */
-    base: Decimal;
+    /** Unused since bets moved onto the felt; kept so tables need not change at once. */
+    base?: Decimal;
     /** Last hand's results by bet, to light the line that paid. */
     results: Record<string, BonusResult>;
   }
 
-  let { stakes, base, results }: Props = $props();
+  let { stakes, results }: Props = $props();
 
   /** "8:1", or for a bet quoted for one, "9 for 1" (the stake is not returned on top). */
   const ratio = (n: number, forOne?: boolean) =>
@@ -20,18 +20,14 @@
 </script>
 
 <section class="panel">
-  <h2>Side bets <span>apply to the next hand</span></h2>
+  <h2>Side bets <span>set with chips on the felt</span></h2>
   {#each stakes.bets as bet (bet.id)}
     {@const stake = stakes.amount(bet.id)}
     {@const result = results[bet.id]}
     <div class="bet" class:on={stake.gt(0)}>
       <div class="row">
         <span class="name">{bet.name}</span>
-        <span class="stepper">
-          <button type="button" onclick={() => stakes.change(bet.id, 0.5, base)} aria-label="Lower {bet.name}">−</button>
-          <b class:off={stake.eq(0)}>{stake.gt(0) ? formatMoney(stake) : 'Off'}</b>
-          <button type="button" onclick={() => stakes.change(bet.id, 2, base)} aria-label="Raise {bet.name}">+</button>
-        </span>
+        <b class="stake" class:off={stake.eq(0)}>{stake.gt(0) ? formatMoney(stake) : 'Off'}</b>
       </div>
       <p class="blurb">{bet.blurb} <span class="edge">House edge {formatEdge(bet.edge)}</span></p>
       <details open={stake.gt(0) || (result?.row ?? -1) >= 0}>
@@ -91,24 +87,11 @@
   .bet:not(.on) .name {
     color: var(--muted);
   }
-  .stepper {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-  }
-  .stepper button {
-    width: 36px;
-    height: 36px;
-    padding: 0;
-    font-size: 16px;
-  }
-  .stepper b {
-    min-width: 56px;
-    text-align: center;
+  .stake {
     font: 700 15px/1 var(--font-display);
     font-variant-numeric: tabular-nums;
   }
-  .stepper b.off {
+  .stake.off {
     color: var(--muted);
   }
   .blurb {

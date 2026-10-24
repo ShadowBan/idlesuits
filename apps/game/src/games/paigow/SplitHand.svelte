@@ -1,13 +1,16 @@
 <script lang="ts">
-  import type { Card, HandWinner, PaiGowSet } from '@idlesuits/sim';
+  import type { Snippet } from 'svelte';
+  import { flip } from 'svelte/animate';
+  import type { Card, PaiGowSet } from '@idlesuits/sim';
   import PlayingCard from '../../components/PlayingCard.svelte';
+  import { fromShoe } from '../../lib/deal';
 
   interface Props {
     title: string;
     side: 'player' | 'dealer';
     /** Seven cards; nulls are face down. */
     cards: (Card | null)[];
-    /** Once set, the cards split into the low hand and the high hand. */
+    /** Once set, the low hand is the two cards before the gap. */
     set: PaiGowSet | null;
     lowName?: string;
     highName?: string;
@@ -18,64 +21,129 @@
     picked?: number[];
     onPick?: (index: number) => void;
     flipMs: number;
+    /** Changes with every deal, so the cards are thrown in from the shoe. */
+    deal?: number;
+    dealOrder?: number;
+    /** The face-down card about to turn. */
+    focus?: number;
+    badge?: Snippet;
   }
 
-  let { title, side, cards, set, lowName, highName, lowResult, highResult, picked = [], onPick, flipMs }: Props = $props();
+  let {
+    title,
+    side,
+    cards,
+    set,
+    lowName,
+    highName,
+    lowResult,
+    highResult,
+    picked = [],
+    onPick,
+    flipMs,
+    deal = 0,
+    dealOrder = 0,
+    focus = -1,
+    badge,
+  }: Props = $props();
 
   const value = (card: Card | null) => (card === null ? 0 : card.joker ? 15 : card.rank);
-  /** Indices high to low, so a hand reads left to right; the simulator's order is kept underneath. */
   const byValue = (indices: number[]) => [...indices].sort((a, b) => value(cards[b]!) - value(cards[a]!));
-  const all = $derived(byValue(cards.map((_, i) => i)));
-  const low = $derived(set ? byValue([...set.low]) : []);
-  const high = $derived(set ? byValue(cards.map((_, i) => i).filter((i) => !set.low.includes(i))) : []);
+
+  /**
+   * One row of seven, in a fixed frame: the low hand's two places, a gap, the
+   * high hand's five. Picked or set low cards glide into the first two places;
+   * nothing else on the table moves.
+   */
+  const order = $derived.by(() => {
+    const all = cards.map((_, i) => i);
+    const low = set ? [...set.low] : picked.slice(0, 2);
+    // The dealer's cards stay in deal order while they turn over, and arrange once the hand is set.
+    const others = all.filter((i) => !low.includes(i));
+    const rest = set || side === 'player' ? byValue(others) : others;
+    return [...byValue(low), ...rest];
+  });
+  const lowCount = $derived(set ? 2 : Math.min(picked.length, 2));
 </script>
 
-{#snippet card(i: number)}
-  {#if onPick}
-    <button
-      type="button"
-      class="pick"
-      class:picked={picked.includes(i)}
-      onclick={() => onPick(i)}
-      aria-pressed={picked.includes(i)}
-      aria-label={picked.includes(i) ? 'In the low hand' : 'In the high hand'}
-    >
-      <PlayingCard card={cards[i]!} {flipMs} highlight={picked.includes(i)} />
-    </button>
-  {:else}
-    <PlayingCard card={cards[i]!} {flipMs} />
-  {/if}
-{/snippet}
-
 <section class="hand {side}">
-  <header><h2>{title}</h2></header>
-  {#if set}
-    <div class="split">
-      <div class="group low" class:won={lowResult === 'won'} class:lost={lowResult === 'lost'}>
-        <div class="cards">{#each low as i (i)}{@render card(i)}{/each}</div>
-        <p><span class="k">Low</span> {lowName ?? ''}</p>
+  <header>
+    <h2>{title}</h2>
+    <span class="badge">{@render badge?.()}</span>
+  </header>
+
+  <div class="frame">
+    {#key deal}
+      <div class="cards">
+        {#each order as i, pos (i)}
+          <div
+            class="slot"
+            class:gap={pos === 2}
+            animate:flip={{ duration: 320 }}
+            in:fromShoe={{ delay: (dealOrder * 7 + i) * flipMs * 0.2, duration: Math.max(120, flipMs * 1.1) }}
+          >
+            {#if onPick}
+              <button
+                type="button"
+                class="pick"
+                class:picked={picked.includes(i)}
+                onclick={() => onPick(i)}
+                aria-pressed={picked.includes(i)}
+                aria-label={picked.includes(i) ? 'In the low hand' : 'In the high hand'}
+              >
+                <PlayingCard card={cards[i]!} {flipMs} highlight={picked.includes(i)} />
+              </button>
+            {:else}
+              <PlayingCard card={cards[i]!} {flipMs} focus={focus === i} />
+            {/if}
+          </div>
+        {/each}
       </div>
-      <div class="group high" class:won={highResult === 'won'} class:lost={highResult === 'lost'}>
-        <div class="cards">{#each high as i (i)}{@render card(i)}{/each}</div>
-        <p><span class="k">High</span> {highName ?? ''}</p>
-      </div>
+    {/key}
+
+    <!-- Captions in fixed places under each hand, so naming a hand never moves a card. -->
+    <div class="captions">
+      <p class="low" class:won={lowResult === 'won'} class:lost={lowResult === 'lost'} class:filled={lowCount === 2}>
+        <span class="k">Low</span>
+        {lowName ?? ''}
+      </p>
+      <p class="high" class:won={highResult === 'won'} class:lost={highResult === 'lost'} class:filled={!!set}>
+        <span class="k">High</span>
+        {highName ?? ''}
+      </p>
     </div>
-  {:else}
-    <div class="cards">{#each all as i (i)}{@render card(i)}{/each}</div>
-  {/if}
+  </div>
 </section>
 
 <style>
   .hand {
     display: grid;
     justify-items: center;
-    gap: 6px;
+    gap: 4px;
+    width: 100%;
+  }
+  header {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    align-items: center;
+    column-gap: 10px;
+    width: 100%;
+    height: 24px;
+    white-space: nowrap;
   }
   h2 {
+    justify-self: end;
     margin: 0;
     font: 600 12px/1 var(--font-ui);
     letter-spacing: 0.14em;
     text-transform: uppercase;
+  }
+  .badge {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    overflow: hidden;
   }
   .dealer h2 {
     color: var(--dealer);
@@ -83,47 +151,52 @@
   .player h2 {
     color: var(--player);
   }
+  .frame {
+    --split: calc(var(--card-gap) * 3);
+    display: grid;
+    gap: 3px;
+  }
   .cards {
     display: flex;
     gap: var(--card-gap);
-    justify-content: center;
+    padding-top: 8px;
   }
-  .split {
-    display: flex;
-    gap: calc(var(--card-gap) * 3);
-    align-items: flex-start;
-    justify-content: center;
+  .slot.gap {
+    margin-left: var(--split);
   }
-  .group {
+  .captions {
     display: grid;
-    justify-items: center;
-    gap: 4px;
-    padding: 4px 6px;
-    border-radius: 10px;
-    border: 2px solid transparent;
+    grid-template-columns: calc(var(--card-w) * 2 + var(--card-gap)) 1fr;
+    column-gap: calc(var(--split) + var(--card-gap));
+    height: 18px;
   }
-  .group.won {
-    border-color: var(--win);
-  }
-  .group.lost {
-    border-color: color-mix(in srgb, var(--loss) 70%, transparent);
-  }
-  .group p {
+  .captions p {
     margin: 0;
-    font: 700 13px/1 var(--font-display);
-    text-transform: uppercase;
+    padding-top: 3px;
+    border-top: 2px solid rgb(255 255 255 / 0.12);
+    font: 700 12px/1 var(--font-display);
     letter-spacing: 0.03em;
+    text-transform: uppercase;
     white-space: nowrap;
-  }
-  /* Two cards are narrower than "Pair of 8s": let the low hand's name wrap rather than widen it. */
-  .group.low p {
-    max-width: calc(var(--card-w) * 2 + var(--card-gap) + 8px);
-    white-space: normal;
+    overflow: hidden;
+    text-overflow: ellipsis;
     text-align: center;
-    line-height: 1.15;
+    color: var(--ink);
+    transition: border-color 200ms ease;
   }
-  .group .k {
-    font: 600 10px/1 var(--font-ui);
+  .captions .filled {
+    border-top-color: rgb(236 216 160 / 0.45);
+  }
+  .captions .won {
+    border-top-color: var(--win);
+    color: var(--win);
+  }
+  .captions .lost {
+    border-top-color: color-mix(in srgb, var(--loss) 70%, transparent);
+    color: color-mix(in srgb, var(--ink) 70%, transparent);
+  }
+  .k {
+    font: 600 9px/1 var(--font-ui);
     letter-spacing: 0.12em;
     color: var(--muted);
   }
@@ -144,17 +217,5 @@
   }
   .pick.picked {
     box-shadow: 0 0 0 2px var(--gold);
-  }
-  @media (orientation: landscape) and (max-height: 520px) {
-    .hand {
-      gap: 3px;
-    }
-    .group {
-      padding: 2px 4px;
-      gap: 2px;
-    }
-    .group p {
-      font-size: 11px;
-    }
   }
 </style>

@@ -9,33 +9,10 @@
 </script>
 
 <section class="panel">
-  <h2>Bets <span>apply to the next hand</span></h2>
-
-  <div class="row">
-    <span class="name">Ante</span>
-    <span class="stepper">
-      <button type="button" onclick={() => game.changeAnte(0.5)} aria-label="Halve ante">−</button>
-      <b>{formatMoney(game.ante)}</b>
-      <button type="button" onclick={() => game.changeAnte(2)} aria-label="Double ante">+</button>
-    </span>
-  </div>
-
-  {#each game.rules.sideBets as def (def.id)}
-    {@const stake = game.sideStakes[def.id]}
-    <div class="row">
-      <span class="name">{def.name}</span>
-      <span class="stepper">
-        <button type="button" onclick={() => game.changeSideStake(def.id, 0.5)} aria-label="Halve {def.name}">−</button>
-        <b class:off={!stake?.gt(0)}>{stake?.gt(0) ? formatMoney(stake) : 'Off'}</b>
-        <button type="button" onclick={() => game.changeSideStake(def.id, 2)} aria-label="Raise {def.name}">+</button>
-      </span>
-    </div>
-  {/each}
-
-  <h3>
+  <h2>
     Raise plan
     <span>{game.autoPlay ? 'used by Auto' : 'suggested in manual play'}</span>
-  </h3>
+  </h2>
   <table>
     <tbody>
       {#each PLAN_SIZES as size (size)}
@@ -59,6 +36,11 @@
   <label class="switch">
     <input type="checkbox" bind:checked={game.raisePlan.threeCardMinimum} />
     3-card flushes: only 10-8-6 or better
+  </label>
+
+  <label class="switch">
+    <input type="checkbox" bind:checked={game.dealerClaims} />
+    Dealer claims open side bets
   </label>
 
   <dl>
@@ -86,8 +68,7 @@
     display: grid;
     gap: 8px;
   }
-  h2,
-  h3 {
+  h2 {
     margin: 0;
     font: 600 11px/1 var(--font-ui);
     letter-spacing: 0.14em;
@@ -97,41 +78,10 @@
     justify-content: space-between;
     gap: 8px;
   }
-  h3 {
-    margin-top: 6px;
-  }
-  h2 span,
-  h3 span {
+  h2 span {
     letter-spacing: 0;
     text-transform: none;
     font-weight: 400;
-  }
-  .row {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 8px;
-    font: 13px/1.3 var(--font-ui);
-  }
-  .stepper {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-  }
-  .stepper button {
-    width: 36px;
-    height: 36px;
-    padding: 0;
-    font-size: 16px;
-  }
-  .stepper b {
-    min-width: 56px;
-    text-align: center;
-    font: 700 15px/1 var(--font-display);
-    font-variant-numeric: tabular-nums;
-  }
-  .stepper b.off {
-    color: var(--muted);
   }
   table {
     border-collapse: collapse;

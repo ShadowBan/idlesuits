@@ -4,6 +4,7 @@
   import { rankLabel, SUIT_SYMBOL, SUITS, type Card } from '@idlesuits/sim';
   import type { HandView } from './table.svelte';
   import PlayingCard from '../../components/PlayingCard.svelte';
+  import { fromShoe } from '../../lib/deal';
 
   interface Props {
     title: string;
@@ -17,9 +18,24 @@
     winner?: boolean;
     /** Position within the flush of the card that broke a tie. */
     decider?: number | null;
+    /** Changes with every deal, so the cards are thrown in from the shoe. */
+    deal?: number;
+    /** 0 for the first hand dealt to, 1 for the second: the dealer alternates. */
+    dealOrder?: number;
   }
 
-  let { title, hand, side, flipMs, badge, onFlip, winner = false, decider = null }: Props = $props();
+  let {
+    title,
+    hand,
+    side,
+    flipMs,
+    badge,
+    onFlip,
+    winner = false,
+    decider = null,
+    deal = 0,
+    dealOrder = 0,
+  }: Props = $props();
 
   const lead = $derived(hand.eval && (hand.eval.size >= 3 || hand.arranged) ? hand.eval.suit : null);
 
@@ -43,11 +59,14 @@
 </script>
 
 <section class="hand {side}">
+  <!-- Two fixed halves meeting at the centre: names and labels come and go without moving the cards. -->
   <header>
-    <h2>{title}</h2>
-    {#if winner}<span class="wins">Wins</span>{/if}
-    {#if label}<span class="label" class:big={(hand.eval?.size ?? 0) >= 5}>{label}</span>{/if}
-    {@render badge?.()}
+    <span class="who">
+      <!-- Once the hand is won, "Wins" says all that matters and takes the badge's place. -->
+      {#if winner}<span class="wins">Wins</span>{:else}{@render badge?.()}{/if}
+      <h2>{title}</h2>
+    </span>
+    <span class="label" class:big={(hand.eval?.size ?? 0) >= 5}>{label}</span>
   </header>
 
   {#snippet face(card: Card | null, i: number)}
@@ -60,7 +79,8 @@
     />
   {/snippet}
 
-  <div class="cards">
+  {#key deal}
+  <div class="cards" class:arranged={hand.arranged}>
     {#each order as i, pos (i)}
       {@const card = hand.cards[i] ?? null}
       {@const clickable = onFlip !== undefined && card === null}
@@ -69,6 +89,7 @@
         class:split={i === firstOff}
         class:decider={hand.arranged && decider !== null && pos === decider}
         animate:flip={{ duration: hand.arranged ? 450 : 0 }}
+        in:fromShoe={{ delay: (i * 2 + dealOrder) * Math.min(45, flipMs * 0.16), duration: Math.max(140, flipMs) }}
       >
         {#if side === 'player'}
           <button
@@ -87,6 +108,7 @@
       </div>
     {/each}
   </div>
+  {/key}
 
   <ul class="counters" aria-label="Suit counts">
     {#each SUITS as suit (suit)}
@@ -106,12 +128,20 @@
     justify-items: center;
   }
   header {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    align-items: center;
+    column-gap: 12px;
+    width: 100%;
+    height: 28px;
+    white-space: nowrap;
+  }
+  .who {
     display: flex;
-    align-items: baseline;
-    gap: 12px;
-    flex-wrap: wrap;
-    justify-content: center;
-    min-height: 28px;
+    justify-content: flex-end;
+    min-width: 0;
+    align-items: center;
+    gap: 8px;
   }
   h2 {
     margin: 0;
@@ -127,6 +157,9 @@
     --side: var(--dealer);
   }
   .label {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
     font: 600 15px/1 var(--font-display);
     color: var(--ink);
     text-transform: uppercase;
@@ -136,11 +169,19 @@
     color: var(--gold);
     text-shadow: 0 0 12px rgb(227 179 65 / 0.5);
   }
+  /*
+   * Room for the gap after the flush is kept either side until the hand is
+   * arranged, then given to the gap: the row never changes width.
+   */
   .cards {
     display: flex;
     gap: var(--card-gap);
-    padding-top: 14px;
+    padding: 14px calc(var(--card-w) * 0.15) 0;
     max-width: 100%;
+    transition: padding 300ms ease;
+  }
+  .cards.arranged {
+    padding-inline: 0;
   }
   .place {
     position: relative;
@@ -240,11 +281,11 @@
       gap: 6px;
     }
     header {
-      min-height: 22px;
-      gap: 8px;
+      height: 22px;
+      column-gap: 8px;
     }
     .label {
-      font-size: 14px;
+      font-size: 13px;
     }
     .cards {
       padding-top: 8px;

@@ -19,6 +19,7 @@ import { bankroll } from '../../lib/casino.svelte';
 import { Decimal } from '../../lib/money';
 import { Sequencer } from '../../lib/sequencer.svelte';
 import { bonusLine, SideStakes } from '../../lib/sidebets.svelte';
+import { ChipBets } from '../../lib/stakes.svelte';
 import { sfx } from '../../lib/sound';
 
 const STARTING_BET = 5;
@@ -58,6 +59,18 @@ export class LirGame {
   bet = $state(new Decimal(STARTING_BET));
   /** Side bets for the next hand, in dollars. */
   readonly side = new SideStakes(LIR_BONUSES);
+  /** Chips on the spots for the next hand. */
+  readonly bets = new ChipBets(
+    () => this.bet,
+    (v) => (this.bet = v),
+    this.side,
+    () => this.bank,
+    3,
+  );
+  /** Counts deals, so the table can throw each new hand in from the shoe. */
+  deals = $state(0);
+  /** The dealer card about to turn, for a moment of suspense. */
+  dealerFocus = $state(-1);
   roundBet = $state(new Decimal(STARTING_BET));
   lastBet = $state(new Decimal(STARTING_BET));
   started = $state(false);
@@ -110,7 +123,7 @@ export class LirGame {
     this.autoPlay = on;
     if (!on) return;
     if (this.seq.awaiting === 'move') this.seq.answer(this.pending!.suggestion);
-    else if (this.seq.awaiting === 'deal') this.seq.answer('ride');
+    else if (this.seq.awaiting === 'deal' && this.bets.canDeal) this.seq.answer('ride');
   }
 
   choose(move: LirMove) {
@@ -118,7 +131,7 @@ export class LirGame {
   }
 
   deal() {
-    if (this.seq.awaiting === 'deal') this.seq.answer('ride');
+    if (this.seq.awaiting === 'deal' && this.bets.canDeal) this.seq.answer('ride');
   }
 
   advance() {
@@ -126,10 +139,6 @@ export class LirGame {
     else this.deal();
   }
 
-  changeBet(factor: number) {
-    const next = this.bet.mul(factor).floor().max(1);
-    this.bet = next.gt(this.bank) ? this.bank.floor().max(1) : next;
-  }
 
   dispose() {
     this.seq.dispose();
@@ -154,12 +163,14 @@ export class LirGame {
     this.start();
   }
 
+  /** Bets go down before every hand; auto play deals on its own once there is a bet. */
   private async loop() {
     while (this.started && !this.gameOver && !this.seq.disposed) {
-      if (!(await this.playRound())) return;
-      if (this.gameOver) return;
-      const ok = this.autoPlay ? await this.seq.wait(RESULT_HOLD_MS) : (await this.seq.ask('deal')) !== null;
+      const auto = this.autoPlay && this.bets.canDeal && this.hands > 0;
+      const ok = auto ? await this.seq.wait(RESULT_HOLD_MS) : (await this.seq.ask('deal')) !== null;
       if (!ok) return;
+      if (!this.bets.canDeal) continue;
+      if (!(await this.playRound())) return;
     }
   }
 
@@ -208,6 +219,9 @@ export class LirGame {
   private apply(event: LirEvent) {
     switch (event.type) {
       case 'RoundStarted':
+        this.deals++;
+        this.bets.touched = false;
+        this.dealerFocus = -1;
         this.hole = [null, null, null];
         this.community = [null, null];
         this.riding = [null, null, true];
@@ -274,6 +288,6 @@ export class LirGame {
     };
     this.history = [entry, ...this.history].slice(0, 12);
     if (this.bank.lte(0)) this.gameOver = true;
-    else if (this.bet.gt(this.bank)) this.bet = this.bank.floor().max(1);
+    else this.bets.fitToBank();
   }
 }

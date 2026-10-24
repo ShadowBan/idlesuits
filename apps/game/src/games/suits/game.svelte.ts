@@ -15,7 +15,9 @@ import { bankroll } from '../../lib/casino.svelte';
 import { Clock } from '../../lib/clock';
 import { beatDelay, direct, resultHold, type Beat, type Drama, type SpeedMode } from './director';
 import { Decimal } from '../../lib/money';
+import { SideStakes } from '../../lib/sidebets.svelte';
 import { sfx } from '../../lib/sound';
+import { ChipBets } from '../../lib/stakes.svelte';
 import { TableView } from './table.svelte';
 
 const STARTING_ANTE = 5;
@@ -70,8 +72,18 @@ export class Game {
   paused = $state(false);
   gameOver = $state(false);
   speed = $state<SpeedMode>('smart');
-  /** Dollar stake per side bet; zero means not claimed. Independent of the ante. */
-  sideStakes = $state<Record<string, Decimal>>({ flushRush: new Decimal(STARTING_ANTE), superFlushRush: new Decimal(0) });
+  /** Dollar stake per side bet for the next hand; zero means not claimed. Independent of the ante. */
+  readonly side = new SideStakes(this.rules.sideBets);
+  /** Chips on the spots for the next hand. */
+  readonly bets = new ChipBets(
+    () => this.ante,
+    (v) => (this.ante = v),
+    this.side,
+    () => this.bank,
+    1,
+  );
+  /** Counts deals, so the table can throw each new hand in from the shoe. */
+  deals = $state(0);
   raisePlan = $state<RaisePlan>(structuredClone(DEFAULT_PLAN));
   estimate = $state<Estimate | null>(null);
   /** Dev toggle: the dealer takes any side bet the player leaves open. */
@@ -94,8 +106,19 @@ export class Game {
   private flipRest = false;
   private disposed = false;
   private estimator: Worker | null = null;
+  /** How dramatic the last hand was: a big one stays on the table longer under auto play. */
+  private lastDrama: Drama = 'routine';
   private estimateId = 0;
   private pendingEstimate: { id: number; ante: Decimal } | null = null;
+
+  constructor() {
+    this.side.stakes = { ...this.side.stakes, flushRush: new Decimal(STARTING_ANTE) };
+    this.view.apply({ type: 'RoundStarted', round: 0, shoeSize: this.shoe.length, seats: 1 });
+  }
+
+  get sideStakes(): Record<string, Decimal> {
+    return this.side.stakes;
+  }
 
   /** The shared casino wallet; every table pays into the same one. */
   get bank(): Decimal {
@@ -118,7 +141,7 @@ export class Game {
     if (!on) return;
     if (this.awaiting === 'flip') this.answer(this.nextFaceDown());
     else if (this.awaiting === 'bet') this.answer(this.betChoice!.suggested);
-    else this.answer(0);
+    else if (this.awaiting === 'deal' && this.bets.canDeal) this.answer(0);
   }
 
   /** Player's own raise decision in manual play; 0 folds. */
@@ -138,7 +161,7 @@ export class Game {
   }
 
   deal() {
-    if (this.awaiting === 'deal') this.answer(0);
+    if (this.awaiting === 'deal' && this.bets.canDeal) this.answer(0);
   }
 
   /** Space/Enter: flip the next card, take the plan's bet, or deal. */
@@ -183,7 +206,8 @@ export class Game {
     this.round = 0;
     bankroll.buyIn();
     this.ante = new Decimal(STARTING_ANTE);
-    this.sideStakes = { flushRush: new Decimal(STARTING_ANTE), superFlushRush: new Decimal(0) };
+    this.side.reset();
+    this.side.stakes = { ...this.side.stakes, flushRush: new Decimal(STARTING_ANTE) };
     this.hands = 0;
     this.sessionNet = new Decimal(0);
     this.biggestWin = new Decimal(0);
@@ -195,19 +219,6 @@ export class Game {
     this.started = false;
     this.view.apply({ type: 'RoundStarted', round: 0, shoeSize: this.shoe.length, seats: 1 });
     this.start();
-  }
-
-  changeAnte(factor: number) {
-    const next = this.ante.mul(factor).floor().max(1);
-    this.ante = next.gt(this.bank) ? this.bank.floor().max(1) : next;
-  }
-
-  /** Halve or double a side bet. Below $1 turns it off; raising from off starts at the ante. */
-  changeSideStake(id: string, factor: number) {
-    const current = this.sideStakes[id] ?? new Decimal(0);
-    let next = current.eq(0) ? (factor > 1 ? this.ante : current) : current.mul(factor).floor();
-    if (next.lt(1)) next = new Decimal(0);
-    this.sideStakes[id] = next.gt(this.bank) ? this.bank.floor() : next;
   }
 
   setPlanRaise(size: number, raise: number) {
@@ -278,12 +289,18 @@ export class Game {
     return worker;
   }
 
+  /** Bets go down before every hand; auto play deals on its own once there is a bet. */
   private async loop() {
     while (this.started && !this.gameOver && !this.disposed) {
-      const drama = await this.playRound();
-      if (drama === null || this.gameOver) return;
-      const ok = this.autoPlay ? await this.clock.wait(resultHold(drama, this.speed)) : (await this.waitFor('deal')) >= 0;
+      const auto = this.autoPlay && this.bets.canDeal && this.hands > 0;
+      const ok = auto
+        ? await this.clock.wait(resultHold(this.lastDrama, this.speed))
+        : (await this.waitFor('deal')) >= 0;
       if (!ok) return;
+      if (!this.bets.canDeal) continue;
+      const drama = await this.playRound();
+      if (drama === null) return;
+      this.lastDrama = drama;
     }
   }
 
@@ -304,6 +321,7 @@ export class Game {
     let result = simulate(seatConfig.raisePolicy);
     this.roundAnte = ante;
     this.flipRest = false;
+    this.bets.touched = false;
 
     let beats = direct(result);
     for (let i = 0; i < beats.length; i++) {
@@ -339,6 +357,7 @@ export class Game {
         this.view.anticipate(event, drama);
         if (drama === 'tense' && event.type === 'CardRevealed' && this.speed === 'smart') sfx.tension();
         if (!(await this.clock.wait(beatDelay(beat, this.speed)))) return null;
+        if (event.type === 'RoundStarted') this.deals++;
         this.view.apply(event);
       }
       this.playSound(beat);
@@ -357,7 +376,7 @@ export class Game {
     this.history = [entry, ...this.history].slice(0, 12);
 
     if (this.bank.lte(0)) this.gameOver = true;
-    else if (this.ante.gt(this.bank)) this.ante = this.bank.floor().max(1);
+    else this.bets.fitToBank();
     return beats.at(-1)!.drama;
   }
 

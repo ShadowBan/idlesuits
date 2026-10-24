@@ -18,6 +18,7 @@ import { bankroll } from '../../lib/casino.svelte';
 import { Decimal } from '../../lib/money';
 import { Sequencer } from '../../lib/sequencer.svelte';
 import { bonusLine, SideStakes } from '../../lib/sidebets.svelte';
+import { ChipBets } from '../../lib/stakes.svelte';
 import { sfx } from '../../lib/sound';
 
 const STARTING_ANTE = 5;
@@ -61,6 +62,18 @@ export class StudGame {
   ante = $state(new Decimal(STARTING_ANTE));
   /** Side bets for the next hand, in dollars. */
   readonly side = new SideStakes(STUD_BONUSES);
+  /** Chips on the spots for the next hand. */
+  readonly bets = new ChipBets(
+    () => this.ante,
+    (v) => (this.ante = v),
+    this.side,
+    () => this.bank,
+    1,
+  );
+  /** Counts deals, so the table can throw each new hand in from the shoe. */
+  deals = $state(0);
+  /** The dealer card about to turn, for a moment of suspense. */
+  dealerFocus = $state(-1);
   roundAnte = $state(new Decimal(STARTING_ANTE));
   lastAnte = $state(new Decimal(STARTING_ANTE));
   started = $state(false);
@@ -71,7 +84,7 @@ export class StudGame {
   hole = $state<(Card | null)[]>([null, null]);
   community = $state<(Card | null)[]>([null, null, null]);
   /** Street bets in antes, in order; nulls are streets not reached yet. */
-  bets = $state<(number | null)[]>([null, null, null]);
+  streetBets = $state<(number | null)[]>([null, null, null]);
   folded = $state(false);
   /** Side bets riding on this hand, in antes. */
   roundSide = $state<Record<string, number>>({});
@@ -100,7 +113,7 @@ export class StudGame {
 
   /** Everything on the table so far: ante plus street bets. */
   get wagered(): number {
-    return 1 + this.bets.reduce<number>((sum, b) => sum + (b ?? 0), 0);
+    return 1 + this.streetBets.reduce<number>((sum, b) => sum + (b ?? 0), 0);
   }
 
   start() {
@@ -113,7 +126,7 @@ export class StudGame {
     this.autoPlay = on;
     if (!on) return;
     if (this.seq.awaiting === 'move') this.seq.answer(this.pending!.suggestion);
-    else if (this.seq.awaiting === 'deal') this.seq.answer({ move: 'fold' });
+    else if (this.seq.awaiting === 'deal' && this.bets.canDeal) this.seq.answer({ move: 'fold' });
   }
 
   choose(choice: StudChoice) {
@@ -121,7 +134,7 @@ export class StudGame {
   }
 
   deal() {
-    if (this.seq.awaiting === 'deal') this.seq.answer({ move: 'fold' });
+    if (this.seq.awaiting === 'deal' && this.bets.canDeal) this.seq.answer({ move: 'fold' });
   }
 
   advance() {
@@ -129,10 +142,6 @@ export class StudGame {
     else this.deal();
   }
 
-  changeAnte(factor: number) {
-    const next = this.ante.mul(factor).floor().max(1);
-    this.ante = next.gt(this.bank) ? this.bank.floor().max(1) : next;
-  }
 
   dispose() {
     this.seq.dispose();
@@ -157,12 +166,14 @@ export class StudGame {
     this.start();
   }
 
+  /** Bets go down before every hand; auto play deals on its own once there is a bet. */
   private async loop() {
     while (this.started && !this.gameOver && !this.seq.disposed) {
-      if (!(await this.playRound())) return;
-      if (this.gameOver) return;
-      const ok = this.autoPlay ? await this.seq.wait(RESULT_HOLD_MS) : (await this.seq.ask('deal')) !== null;
+      const auto = this.autoPlay && this.bets.canDeal && this.hands > 0;
+      const ok = auto ? await this.seq.wait(RESULT_HOLD_MS) : (await this.seq.ask('deal')) !== null;
       if (!ok) return;
+      if (!this.bets.canDeal) continue;
+      if (!(await this.playRound())) return;
     }
   }
 
@@ -215,9 +226,12 @@ export class StudGame {
   private apply(event: StudEvent) {
     switch (event.type) {
       case 'RoundStarted':
+        this.deals++;
+        this.bets.touched = false;
+        this.dealerFocus = -1;
         this.hole = [null, null];
         this.community = [null, null, null];
-        this.bets = [null, null, null];
+        this.streetBets = [null, null, null];
         this.folded = false;
         this.bonusResults = {};
         this.hand = null;
@@ -230,7 +244,7 @@ export class StudGame {
         sfx.flip();
         break;
       case 'Bet':
-        this.bets[event.street - 3] = event.size;
+        this.streetBets[event.street - 3] = event.size;
         sfx.chip();
         break;
       case 'Folded':
@@ -249,7 +263,7 @@ export class StudGame {
           event.multiplier > 0 ? `pays ${event.multiplier}:1` : event.multiplier === 0 ? 'push' : 'loses';
         this.breakdown = [
           { label: `Ante · ${label}`, amount: event.multiplier },
-          ...this.bets.map((b, i) => ({
+          ...this.streetBets.map((b, i) => ({
             label: `${STREET_NAME[(i + 3) as 3 | 4 | 5]} ${b}× · ${label}`,
             amount: (b ?? 0) * event.multiplier,
           })),
@@ -289,7 +303,7 @@ export class StudGame {
     };
     this.history = [entry, ...this.history].slice(0, 12);
     if (this.bank.lte(0)) this.gameOver = true;
-    else if (this.ante.gt(this.bank)) this.ante = this.bank.floor().max(1);
+    else this.bets.fitToBank();
   }
 }
 

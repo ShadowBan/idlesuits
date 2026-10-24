@@ -112,7 +112,7 @@ shows the measured edge beside every side bet.
 | `apps/game` | The Svelte 5 + Vite app: the lobby shell and the games themselves. |
 | `apps/game/src/games/<id>` | One game: its rules, table, panels and pacing. Self-contained. |
 | `apps/game/src/lib` | Shared across games: the casino wallet, money formatting, sound, the pausable clock, the game registry and routing. |
-| `apps/game/src/components` | Shared UI: the table shell, card rows, playing cards, pay tables, payout breakdowns, the rules frame, the lobby. |
+| `apps/game/src/components` | Shared UI: the table shell and printed felt, chips, the chip rack and bet spots, card rows, playing cards, decision and bet bars, result banners, pay tables, payout breakdowns, the rules frame, the lobby. |
 
 The simulator produces an event log; the UI only plays that log back. Any hand can be reproduced
 exactly from its seed.
@@ -127,14 +127,22 @@ Nothing else in the shell needs to know it exists.
    header, felt, action bar and side panels (a bottom sheet on phones); you fill in the snippets.
    A `Sequencer` from `lib/sequencer.svelte.ts` handles pacing, pausing and waiting on the player,
    and `stepWithChoices` from the simulator lets a round pause mid-hand for a decision.
+   Any converted table (Three Card Poker is a short one) shows the pattern for the felt: a layout
+   grid with the hands, a `FeltBand` (the printed name and the result banner) and a row of
+   `BetSpot`s; `BetBar` or `DecisionBar` below; `SeatOverlay` and `TablePanels` for the rest.
+   Keep everything that changes during a hand in fixed-size boxes, so nothing on the felt moves
+   when a card turns or a label appears.
 2. Add an entry to `GAMES` with the name, tagline, blurb and a `load` that imports that component.
    An entry without `load` shows on the floor as a closed table.
 3. Draw money with `bankroll` from [`src/lib/casino.svelte.ts`](apps/game/src/lib/casino.svelte.ts),
    so every table shares one wallet.
 4. For side bets, define each as a `BonusBet` in the simulator (a pay table, its published edge and
    a `resolve` from the dealt cards) and settle them with `settleBonuses`. On the table,
-   `SideStakes` and [`SideBetsPanel`](apps/game/src/components/SideBetsPanel.svelte) give you the
-   stake controls and pay tables. Then add the bet to `npm run audit`.
+   `SideStakes` holds the stakes and [`SideBetsPanel`](apps/game/src/components/SideBetsPanel.svelte)
+   shows the pay tables. Then add the bet to `npm run audit`.
+5. Bets are chips on the felt. `ChipBets` (in `lib/stakes.svelte.ts`) holds the next hand's main bet
+   and side bets and keeps them within the bankroll; `spotView` tells each `BetSpot` what to show
+   between hands and once the hand settles. Deal only when `bets.canDeal`.
 
 Games are loaded only when opened, so an unplayed table costs nothing at startup. The route is
 `#/<id>`, which makes tables deep-linkable and keeps the browser's back button working.

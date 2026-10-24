@@ -7,12 +7,12 @@ export type AnyBonus = BonusBet<never>;
 
 /**
  * What the player has riding on each side bet, in dollars, for the next hand.
- * Every bet starts off; the + button turns one on at the ante.
+ * Every bet starts off; chips set on its spot turn it on.
  */
-export class SideStakes {
+export class SideStakes<Bet extends { id: string } = AnyBonus> {
   stakes = $state<Record<string, Decimal>>({});
 
-  constructor(readonly bets: readonly AnyBonus[]) {
+  constructor(readonly bets: readonly Bet[]) {
     this.reset();
   }
 
@@ -20,12 +20,20 @@ export class SideStakes {
     return this.stakes[id] ?? new Decimal(0);
   }
 
-  /** Halve or double one bet; below $1 it switches off, and from off it starts at `base`. */
-  change(id: string, factor: number, base: Decimal) {
-    const now = this.amount(id);
-    let next = now.eq(0) ? (factor > 1 ? base : now) : now.mul(factor).floor();
-    if (next.lt(1)) next = new Decimal(0);
-    this.stakes = { ...this.stakes, [id]: next };
+
+  /** Puts more on one bet, as chips set on its spot. */
+  add(id: string, amount: Decimal) {
+    this.stakes = { ...this.stakes, [id]: this.amount(id).add(amount) };
+  }
+
+  /** Takes every chip off one bet. */
+  clear(id: string) {
+    this.stakes = { ...this.stakes, [id]: new Decimal(0) };
+  }
+
+  /** Doubles every side bet that is up. */
+  double() {
+    this.stakes = Object.fromEntries(Object.entries(this.stakes).map(([id, s]) => [id, s.mul(2)]));
   }
 
   /** Stakes in units of `ante`, for the simulator. Bets that are off are left out. */

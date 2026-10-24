@@ -1,15 +1,30 @@
 <script lang="ts">
   import { onDestroy } from 'svelte';
-  import { rankLabel, TCP_BONUSES, THREE_CARD_NAMES, type Card, type TcpMove, type ThreeCardHand } from '@idlesuits/sim';
-  import Breakdown from '../../components/Breakdown.svelte';
+  import {
+    rankLabel,
+    TCP_BONUSES,
+    THREE_CARD_NAMES,
+    threeCardScore,
+    type Card,
+    type TcpMove,
+    type ThreeCardHand,
+  } from '@idlesuits/sim';
+  import BetBar from '../../components/BetBar.svelte';
+  import BetSpot from '../../components/BetSpot.svelte';
   import CardRow from '../../components/CardRow.svelte';
+  import DecisionBar from '../../components/DecisionBar.svelte';
+  import FeltBand from '../../components/FeltBand.svelte';
   import PayTable from '../../components/PayTable.svelte';
+  import SeatOverlay from '../../components/SeatOverlay.svelte';
   import SideBetsPanel from '../../components/SideBetsPanel.svelte';
   import TableShell from '../../components/TableShell.svelte';
+  import TablePanels from '../../components/TablePanels.svelte';
+  import { heldValue } from '../../lib/betting.svelte';
   import type { GameProps } from '../../lib/games';
-  import { formatMoney } from '../../lib/money';
-  import { SPEEDS } from '../../lib/sequencer.svelte';
-  import { setMuted, unlockAudio } from '../../lib/sound';
+  import { Decimal, formatMoney } from '../../lib/money';
+  import { setMuted, sfx, unlockAudio } from '../../lib/sound';
+  import { spotView } from '../../lib/stakes.svelte';
+  import { handPhrase, showdownLine } from '../../lib/verdict';
   import { TcpGame } from './game.svelte';
   import TcpRules from './TcpRules.svelte';
 
@@ -26,11 +41,6 @@
   const FLIP_MS = { smart: 280, '1x': 300, '2x': 190, '5x': 90 } as const;
   const flipMs = $derived(FLIP_MS[seq.speed]);
 
-  const OPTIONS: { label: string; move: TcpMove; key: string }[] = [
-    { label: 'Fold', move: 'fold', key: 'F' },
-    { label: 'Play 1×', move: 'play', key: 'P' },
-  ];
-
   /** "Queen high" reads better than "High card" for the hands that decide most rounds. */
   function handName(hand: ThreeCardHand | null, cards: (Card | null)[]): string {
     if (!hand) return '';
@@ -38,6 +48,64 @@
     const top = Math.max(...cards.filter((c): c is Card => c !== null).map((c) => c.rank));
     return `${rankLabel(top)} high`;
   }
+
+  const options = $derived(
+    game.suggestion === null
+      ? []
+      : ([
+          ['Fold', 'fold', 'F'],
+          ['Play 1×', 'play', 'P'],
+        ] as const).map(([label, move, key]) => ({
+          label,
+          key,
+          sub: move === 'play' ? formatMoney(game.roundAnte) : undefined,
+          suggested: move === game.suggestion,
+          pick: () => game.choose(move as TcpMove),
+        })),
+  );
+
+  // The spots on the felt.
+  const betting = $derived(seq.awaiting === 'deal' && (game.bets.touched || game.hands === 0));
+  const ante = $derived(spotView(betting, game.roundAnte, 1, game.ante, game.results.ante?.net));
+  const play = $derived(
+    spotView(betting, game.roundAnte, game.played ? 1 : 0, new Decimal(0), game.results.play?.net),
+  );
+  const sides = $derived(
+    TCP_BONUSES.map((bet) => ({
+      bet,
+      ...spotView(
+        betting,
+        game.roundAnte,
+        game.roundSide[bet.id] ?? 0,
+        game.side.amount(bet.id),
+        game.bonusResults[bet.id]?.net,
+      ),
+    })),
+  );
+  /** The Ante bonus is paid beside the Ante. */
+  const anteNet = $derived(
+    ante.net && game.results.anteBonus ? ante.net.add(game.roundAnte.mul(game.results.anteBonus.net)) : ante.net,
+  );
+
+  function placeAnte() {
+    if (game.bets.addMain(heldValue(game.bank))) sfx.chip();
+  }
+  function placeSide(id: string) {
+    if (game.bets.addSide(id, heldValue(game.bank))) sfx.chip();
+  }
+
+  const result = $derived.by(() => {
+    if (game.net === null || betting) return null;
+    const net = game.roundAnte.mul(game.net);
+    const you = { name: handName(game.playerHand, game.player), score: threeCardScore(game.player as Card[]) };
+    const them = { name: handName(game.dealerHand, game.dealer), score: threeCardScore(game.dealer as Card[]) };
+    if (game.folded) return { title: 'Folded', net, detail: `You folded ${handPhrase(you.name)}`, big: false };
+    if (!game.qualified) {
+      return { title: 'You win', net, detail: `Dealer has only ${handPhrase(them.name)} · ante pays`, big: game.net >= 5 };
+    }
+    const title = you.score > them.score ? 'You win' : you.score < them.score ? 'Dealer wins' : 'Push';
+    return { title, net, detail: showdownLine(you, them), big: game.net >= 5 };
+  });
 
   const ANTE_ROWS = $derived(
     (['straightFlush', 'trips', 'straight'] as const).map((h) => ({
@@ -51,15 +119,6 @@
       : undefined,
   );
 
-  const sideSpots = $derived(
-    TCP_BONUSES.filter((b) => (game.roundSide[b.id] ?? 0) > 0).map((b) => ({
-      bet: b,
-      units: game.roundSide[b.id]!,
-      result: game.bonusResults[b.id],
-    })),
-  );
-  const partNet = (part: 'ante' | 'play') => game.results[part]?.net;
-
   function begin() {
     unlockAudio();
     game.start();
@@ -68,8 +127,8 @@
   function onKey(e: KeyboardEvent) {
     const target = e.target as HTMLElement;
     if (target.closest('input, select, textarea, dialog')) return;
-    const option = OPTIONS.find((o) => o.key === e.key.toUpperCase());
-    if (option && seq.awaiting === 'move') return game.choose(option.move);
+    const option = options.find((o) => o.key === e.key.toUpperCase());
+    if (option && seq.awaiting === 'move') return option.pick();
     if (e.key !== ' ' && e.key !== 'Enter') return;
     if (target.closest('button, a')) return;
     e.preventDefault();
@@ -91,508 +150,191 @@
   onRules={() => rules?.open()}
   {onExit}
   onTapFelt={() => seq.awaiting === 'deal' && game.deal()}
+  cards={{ across: 3, rows: 2, reserve: 230 }}
 >
   {#snippet felt()}
     <div class="layout">
-      <div class="dealer-area">
-        <CardRow title="Dealer" cards={game.dealer} side="dealer" {flipMs}>
+      <div class="area dealer">
+        <CardRow
+          title="Dealer"
+          cards={game.dealer}
+          side="dealer"
+          {flipMs}
+          deal={game.deals}
+          dealOrder={1}
+          focus={game.dealerFocus}
+        >
           {#snippet badge()}
             {#if game.dealerHand}
               <span class="hand-name">{handName(game.dealerHand, game.dealer)}</span>
-              <span class="tag" class:muted={!game.qualified}>{game.qualified ? 'Qualifies' : 'Does not qualify'}</span>
+              <span class="hand-tag" class:good={!game.qualified}>{game.qualified ? 'Qualifies' : 'No qualify'}</span>
             {/if}
           {/snippet}
         </CardRow>
       </div>
 
-      <ul class="bets" aria-label="Your bets">
-        {#each [['ante', 1], ['play', game.played ? 1 : 0]] as const as [part, units] (part)}
-          {@const net = partNet(part)}
-          <li class:placed={units > 0} class:win={(net ?? 0) > 0} class:loss={(net ?? 0) < 0}>
-            <span class="name">{part}</span>
-            <b>{units > 0 ? formatMoney(game.roundAnte) : game.folded ? 'folded' : '—'}</b>
-            {#if net !== undefined && units > 0}
-              <small class="result-net">{net === 0 ? 'push' : formatMoney(game.roundAnte.mul(net), true)}</small>
-            {/if}
-          </li>
-        {/each}
-        {#if game.results.anteBonus}
-          <li class="placed win">
-            <span class="name">Bonus</span>
-            <b>{game.results.anteBonus.note}</b>
-            <small class="result-net">{formatMoney(game.roundAnte.mul(game.results.anteBonus.net), true)}</small>
-          </li>
-        {/if}
-        {#each sideSpots as spot (spot.bet.id)}
-          {@const net = spot.result?.net}
-          <li class="placed side" class:win={(net ?? 0) > 0} class:loss={(net ?? 0) < 0}>
-            <span class="name">{spot.bet.short}</span>
-            <b>{formatMoney(game.roundAnte.mul(spot.units))}</b>
-            {#if net !== undefined}<small class="result-net">{formatMoney(game.roundAnte.mul(net), true)}</small>{/if}
-          </li>
-        {/each}
-      </ul>
+      <FeltBand title="Three Card Poker" lines={['Dealer plays with queen high', 'Ante bonus on a straight or better']} {result} />
 
-      <div class="player-area">
-        <CardRow title="You" cards={game.player} side="player" {flipMs}>
+      <div class="spots">
+        <div class="row-spots">
+          <BetSpot
+            label="Pairplus"
+            shape="diamond"
+            amount={sides[0]!.amount}
+            net={sides[0]!.net}
+            next={sides[0]!.next}
+            onPlace={() => placeSide('pairPlus')}
+            onClear={() => game.bets.clearSide('pairPlus')}
+          />
+          <BetSpot
+            label="Ante"
+            size="lg"
+            amount={ante.amount}
+            net={anteNet}
+            next={ante.next}
+            onPlace={placeAnte}
+            onClear={() => game.bets.clearMain()}
+          />
+          <BetSpot label="Play" size="lg" hint="= Ante" amount={play.amount} net={play.net} active={seq.awaiting === 'move'} />
+        </div>
+        <div class="row-spots small">
+          {#each sides.slice(1) as side (side.bet.id)}
+            <BetSpot
+              label={side.bet.short}
+              size="sm"
+              amount={side.amount}
+              net={side.net}
+              next={side.next}
+              onPlace={() => placeSide(side.bet.id)}
+              onClear={() => game.bets.clearSide(side.bet.id)}
+            />
+          {/each}
+        </div>
+      </div>
+
+      <div class="area player">
+        <CardRow title="You" cards={game.player} side="player" {flipMs} deal={game.deals} dealOrder={0}>
           {#snippet badge()}
             {#if game.playerHand}<span class="hand-name">{handName(game.playerHand, game.player)}</span>{/if}
           {/snippet}
         </CardRow>
       </div>
-
-      <div class="result">
-        {#if game.net !== null}
-          <p class="banner" class:win={game.net > 0} class:loss={game.net < 0} class:big={game.net >= 5}>
-            {game.folded ? 'Folded' : game.net > 0 ? 'You win' : game.net < 0 ? 'Dealer wins' : 'Push'}
-            <b>{formatMoney(game.roundAnte.mul(game.net), true)}</b>
-          </p>
-        {/if}
-      </div>
     </div>
 
-    {#if !game.started}
-      <div class="overlay">
-        <p>Three cards each. Play if you think yours beat the dealer's — the dealer needs a queen high to qualify.</p>
-        <button type="button" class="primary" onclick={begin}>Take a seat</button>
-        <button type="button" onclick={() => rules?.open()}>How to play</button>
-      </div>
-    {:else if game.gameOver}
-      <div class="overlay">
-        <h2>Busted</h2>
-        <p>{game.hands} hands · biggest win {formatMoney(game.biggestWin)}</p>
-        <button type="button" class="primary" onclick={() => game.restart()}>Buy back in</button>
-      </div>
-    {/if}
+    <SeatOverlay
+      started={game.started}
+      gameOver={game.gameOver}
+      intro="Three cards each. Play if you think yours beat the dealer's — the dealer needs a queen high to qualify."
+      hands={game.hands}
+      biggestWin={game.biggestWin}
+      onSeat={begin}
+      onRules={() => rules?.open()}
+      onRestart={() => game.restart()}
+    />
   {/snippet}
 
   {#snippet action()}
-    <div class="bar">
-      {#if seq.awaiting === 'move' && game.suggestion}
-        <div class="choice" role="group" aria-label="Your move">
-          {#each OPTIONS as option (option.move)}
-            <button
-              type="button"
-              class="act"
-              class:suggested={option.move === game.suggestion}
-              onclick={() => game.choose(option.move)}
-            >
-              {option.label}
-              {#if option.move === 'play'}<small>{formatMoney(game.roundAnte)}</small>{/if}
-              <kbd>{option.key}</kbd>
-            </button>
-          {/each}
-        </div>
-        <p class="hint">Play queen-6-4 or better · folding loses the ante</p>
-      {:else if seq.awaiting === 'deal'}
-        <button type="button" class="act primary" onclick={() => game.deal()}>Deal</button>
-      {:else if game.started && !game.gameOver}
-        <p class="hint">{game.autoPlay ? `Auto playing · ${seq.speed}` : 'Dealing…'}</p>
-        {#if game.autoPlay}
-          <button type="button" onclick={() => seq.togglePause()}>{seq.paused ? 'Resume' : 'Pause'}</button>
-        {/if}
-      {/if}
-    </div>
+    {#if seq.awaiting === 'move' && game.suggestion}
+      <DecisionBar {options} hint="Play queen-6-4 or better · folding loses the ante" />
+    {:else}
+      <BetBar
+        bank={game.bank}
+        total={game.bets.total}
+        canDeal={seq.awaiting === 'deal' && game.bets.canDeal}
+        onDeal={() => game.deal()}
+        onClear={() => game.bets.clearAll()}
+        onDouble={() => game.bets.double()}
+        trailing={game.autoPlay && game.started ? pause : undefined}
+      />
+    {/if}
   {/snippet}
 
   {#snippet panels()}
-    <section class="panel">
-      <h2>Bet <span>applies to the next hand</span></h2>
-      <div class="row">
-        <span>Ante</span>
-        <span class="stepper">
-          <button type="button" onclick={() => game.changeAnte(0.5)} aria-label="Halve ante">−</button>
-          <b>{formatMoney(game.ante)}</b>
-          <button type="button" onclick={() => game.changeAnte(2)} aria-label="Double ante">+</button>
-        </span>
-      </div>
-      <p class="note">
-        Playing adds a bet equal to the ante. Max at risk: {formatMoney(game.ante.mul(2).add(game.side.total))}.
-      </p>
-    </section>
-
-    <section class="panel">
-      <PayTable title="Ante bonus (when you play, win or lose)" rows={ANTE_ROWS} lit={anteLit} />
-    </section>
-
-    <SideBetsPanel stakes={game.side} base={game.ante} results={game.bonusResults} />
-
-    <section class="panel">
-      <h2>Last hand</h2>
-      <Breakdown lines={game.last?.lines ?? []} net={game.last?.net ?? null} ante={game.lastAnte} />
-    </section>
-
-    <section class="panel">
-      <h2>Session</h2>
-      <dl>
-        <dt>Hands</dt>
-        <dd>{game.hands}</dd>
-        <dt>Net</dt>
-        <dd class:win={game.sessionNet.gt(0)} class:loss={game.sessionNet.lt(0)}>{formatMoney(game.sessionNet, true)}</dd>
-        <dt>Biggest win</dt>
-        <dd>{formatMoney(game.biggestWin)}</dd>
-        <dt>Folds</dt>
-        <dd>{game.folds}</dd>
-      </dl>
-      <ol class="history">
-        {#each game.history as h (h.round)}
-          <li>
-            <span class="muted">#{h.round}</span>
-            <span>{h.player}</span>
-            <span class="muted">v {h.dealer}</span>
-            <span class:win={h.net.gt(0)} class:loss={h.net.lt(0)}>{formatMoney(h.net, true)}</span>
-          </li>
-        {/each}
-      </ol>
-    </section>
-
-    <section class="panel">
-      <h2>Table</h2>
-      <div class="speed" role="group" aria-label="Deal speed">
-        {#each SPEEDS as s (s)}
-          <button type="button" aria-pressed={seq.speed === s} onclick={() => (seq.speed = s)}>{s}</button>
-        {/each}
-      </div>
-      <label class="switch">
-        <input type="checkbox" checked={muted} onchange={(e) => (muted = e.currentTarget.checked)} />
-        Mute sound
-      </label>
-      <p class="muted small">Seed {game.runSeed} · hand {game.round}</p>
-      <button type="button" onclick={() => game.restart()}>Restart</button>
-    </section>
+    <TablePanels
+      {seq}
+      {muted}
+      onMute={(m) => (muted = m)}
+      seed={game.runSeed}
+      round={game.round}
+      onRestart={() => game.restart()}
+      last={game.last}
+      lastUnit={game.lastAnte}
+      stats={[
+        ['Hands', String(game.hands)],
+        ['Folds', String(game.folds)],
+        ['Biggest win', formatMoney(game.biggestWin)],
+      ]}
+      sessionNet={game.sessionNet}
+      history={game.history.map((h) => ({ round: h.round, text: h.player, sub: `v ${h.dealer}`, net: h.net }))}
+    >
+      <section class="panel">
+        <PayTable title="Ante bonus (when you play, win or lose)" rows={ANTE_ROWS} lit={anteLit} />
+      </section>
+      <SideBetsPanel stakes={game.side} results={game.bonusResults} />
+    </TablePanels>
   {/snippet}
 </TableShell>
+
+{#snippet pause()}
+  <button type="button" class="pause" onclick={() => seq.togglePause()}>{seq.paused ? 'Resume' : 'Pause'}</button>
+{/snippet}
 
 <style>
   .layout {
     display: grid;
-    gap: inherit;
-    grid-template-areas: 'dealer' 'bets' 'player' 'result';
+    height: 100%;
+    grid-template-rows: auto minmax(36px, 1fr) auto auto;
+    grid-template-areas: 'dealer' 'band' 'spots' 'player';
+    align-items: center;
+    justify-items: center;
+    gap: 6px;
   }
-  .dealer-area {
+  .area {
+    width: 100%;
+  }
+  .dealer {
     grid-area: dealer;
   }
-  .bets {
-    grid-area: bets;
-  }
-  .player-area {
+  .player {
     grid-area: player;
   }
-  .result {
-    grid-area: result;
-  }
-  /* Landscape phones are short: the dealer's cards and the player's sit side by side. */
-  @media (orientation: landscape) and (max-height: 520px) {
-    .layout {
-      grid-template-columns: 1fr 1fr;
-      grid-template-areas:
-        'dealer player'
-        'bets bets'
-        'result result';
-      align-items: center;
-    }
-  }
-  .tag {
-    font: 700 10px/1 var(--font-ui);
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-    padding: 4px 8px;
-    border-radius: 999px;
-    background: var(--chip-bg);
-  }
-  .tag.muted {
-    color: var(--win);
-  }
-  .hand-name {
-    font: 700 15px/1 var(--font-display);
-    text-transform: uppercase;
-    letter-spacing: 0.03em;
-  }
-  .bets {
-    list-style: none;
-    margin: 0;
-    padding: 0;
-    display: flex;
-    flex-wrap: wrap;
-    justify-content: center;
-    gap: 8px;
-  }
-  .bets li {
+  .spots {
+    grid-area: spots;
     display: grid;
     justify-items: center;
     gap: 2px;
-    min-width: 62px;
-    min-height: 54px;
-    padding: 6px 10px;
-    border-radius: 12px;
-    border: 2px dashed var(--line);
-    opacity: 0.55;
   }
-  .bets li.placed {
-    opacity: 1;
-    border-style: solid;
-    border-color: var(--gold);
-  }
-  .bets .name {
-    font: 600 10px/1 var(--font-ui);
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
-    color: var(--muted);
-  }
-  .bets b {
-    font: 700 15px/1.1 var(--font-display);
-    font-variant-numeric: tabular-nums;
-  }
-  .bets small {
-    font: 600 11px/1 var(--font-ui);
-    color: var(--gold);
-  }
-  .bets li.side {
-    border-style: dashed;
-  }
-  .bets li.win {
-    border-style: solid;
-    border-color: var(--win);
-  }
-  .bets li.loss {
-    border-style: solid;
-    border-color: var(--loss);
-  }
-  .bets .win .result-net {
-    color: var(--win);
-  }
-  .bets .loss .result-net {
-    color: var(--loss);
-  }
-  .result {
-    min-height: 26px;
-    display: grid;
-    justify-items: center;
-  }
-  .banner {
-    margin: 0;
-    font: 700 18px/1 var(--font-display);
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-    text-align: center;
-    animation: pop 300ms ease-out;
-  }
-  .banner.win {
-    color: var(--win);
-  }
-  .banner.loss {
-    color: var(--loss);
-  }
-  .banner.big {
-    font-size: 24px;
-    color: var(--gold);
-    text-shadow: 0 0 18px var(--gold);
-  }
-  @keyframes pop {
-    from {
-      transform: scale(0.6);
-      opacity: 0;
-    }
-  }
-  .overlay {
-    position: absolute;
-    inset: 0;
-    z-index: 2;
-    display: grid;
-    place-content: center;
-    justify-items: center;
-    gap: 14px;
-    padding: 16px;
-    text-align: center;
-    background: rgb(5 20 15 / 0.82);
-  }
-  .overlay h2 {
-    margin: 0;
-    font: 700 36px/1 var(--font-display);
-    color: var(--loss);
-    text-transform: uppercase;
-  }
-  .overlay p {
-    margin: 0;
-    max-width: 36ch;
-    color: var(--muted);
-  }
-
-  .bar {
+  .row-spots {
     display: flex;
-    flex-wrap: wrap;
-    align-items: center;
+    align-items: flex-end;
     justify-content: center;
-    gap: 8px 12px;
-    min-height: 58px;
-    padding: 8px 12px calc(8px + env(safe-area-inset-bottom));
+    gap: clamp(18px, 5cqw, 34px);
   }
-  .choice {
-    display: flex;
-    gap: 8px;
-    flex: 1 1 auto;
-    justify-content: center;
-    max-width: 520px;
+  .row-spots.small {
+    gap: clamp(14px, 6cqw, 40px);
   }
-  .act {
-    font: 600 15px/1 var(--font-display);
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
-    padding: 12px 18px;
-    min-height: 48px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: 6px;
+  .pause {
+    min-width: 108px;
+    min-height: 44px;
   }
-  .choice .act {
-    flex: 1 1 0;
-  }
-  /* Short landscape puts the action bar in a narrow side column: stack the choices. */
-  @media (orientation: landscape) and (max-height: 520px) {
-    .bar,
-    .choice {
-      flex-direction: column;
-      align-items: stretch;
-    }
-    .choice {
-      flex: 0 0 auto;
-    }
-    .hint {
-      text-align: center;
-    }
-  }
-  .act small {
-    font: 400 12px/1 var(--font-ui);
-    color: var(--muted);
-  }
-  .act.suggested {
-    border-color: var(--gold);
-    box-shadow: 0 0 0 1px var(--gold);
-  }
-  .hint {
-    margin: 0;
-    font: 13px/1.3 var(--font-ui);
-    color: var(--muted);
-  }
-  kbd {
-    font: 600 10px/1 var(--font-ui);
-    padding: 2px 4px;
-    border: 1px solid var(--line);
-    border-bottom-width: 2px;
-    border-radius: 4px;
-    color: var(--muted);
-  }
-  @media (pointer: coarse) {
-    kbd {
-      display: none;
-    }
-  }
-
   .panel {
     padding: 12px 14px;
     border-radius: 12px;
     background: var(--rail);
-    display: grid;
-    gap: 10px;
   }
-  .panel h2 {
-    margin: 0;
-    font: 600 11px/1 var(--font-ui);
-    letter-spacing: 0.14em;
-    text-transform: uppercase;
-    color: var(--muted);
-    display: flex;
-    justify-content: space-between;
-    gap: 8px;
-  }
-  .panel h2 span {
-    letter-spacing: 0;
-    text-transform: none;
-    font-weight: 400;
-  }
-  .row {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 8px;
-    font: 13px/1.3 var(--font-ui);
-  }
-  .stepper {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-  }
-  .stepper button {
-    width: 36px;
-    height: 36px;
-    padding: 0;
-    font-size: 16px;
-  }
-  .stepper b {
-    min-width: 56px;
-    text-align: center;
-    font: 700 15px/1 var(--font-display);
-    font-variant-numeric: tabular-nums;
-  }
-  .note {
-    margin: 0;
-    font: 12px/1.4 var(--font-ui);
-    color: var(--muted);
-  }
-  dl {
-    display: grid;
-    grid-template-columns: 1fr auto;
-    gap: 4px 12px;
-    margin: 0;
-    font: 13px/1.4 var(--font-ui);
-  }
-  dd {
-    margin: 0;
-    text-align: right;
-    font-variant-numeric: tabular-nums;
-  }
-  .history {
-    list-style: none;
-    margin: 0;
-    padding: 0;
-    display: grid;
-    gap: 3px;
-    font: 12px/1.4 var(--font-ui);
-  }
-  .history li {
-    display: grid;
-    grid-template-columns: 36px 1fr auto auto;
-    gap: 8px;
-    font-variant-numeric: tabular-nums;
-  }
-  .speed {
-    display: flex;
-    border: 1px solid var(--line);
-    border-radius: 8px;
-    overflow: hidden;
-    width: fit-content;
-  }
-  .speed button {
-    border: 0;
-    border-radius: 0;
-    text-transform: capitalize;
-  }
-  .speed button[aria-pressed='true'] {
-    background: var(--gold);
-    color: var(--felt-deep);
-  }
-  .small {
-    font-size: 12px;
-    margin: 0;
-  }
-  .muted {
-    color: var(--muted);
-  }
-  .win {
-    color: var(--win);
-  }
-  .loss {
-    color: var(--loss);
+  /* Landscape phones: dealer and player side by side, bets in a column. */
+  @media (orientation: landscape) and (max-height: 520px) {
+    .layout {
+      --card-w: clamp(30px, min(calc((100cqw - 250px) / 7.4), calc((100cqh - 70px) / 1.5)), 96px);
+      position: relative;
+      grid-template-columns: 1fr 1fr auto;
+      grid-template-rows: 1fr;
+      grid-template-areas: 'dealer player spots';
+      column-gap: 10px;
+    }
+    .row-spots:not(.small) {
+      flex-wrap: wrap;
+      width: 190px;
+    }
   }
 </style>

@@ -1,8 +1,9 @@
 <script lang="ts">
   import type { Snippet } from 'svelte';
   import { MediaQuery } from 'svelte/reactivity';
-  import { formatMoney, type Decimal } from '../lib/money';
+  import type { Decimal } from '../lib/money';
   import { SPEEDS, type SpeedControl } from '../lib/sequencer.svelte';
+  import BankCounter from './BankCounter.svelte';
 
   interface Props {
     /** Shown as two words, the second in gold. */
@@ -17,13 +18,41 @@
     onExit: () => void;
     /** Tapping empty felt: deal, or whatever "next" means for this game. */
     onTapFelt?: () => void;
+    /**
+     * How many cards the widest row holds, how many rows of cards the table has,
+     * and how much height (px) the rest of the layout needs (bet spots, labels),
+     * so cards can be as large as the felt allows without crowding anything.
+     */
+    cards?: { across: number; rows: number; reserve?: number };
     felt: Snippet;
     action: Snippet;
     panels: Snippet;
   }
 
-  let { title, bank, seq, autoPlay, onAuto, muted, onMute, onRules, onExit, onTapFelt, felt, action, panels }: Props =
-    $props();
+  let {
+    title,
+    bank,
+    seq,
+    autoPlay,
+    onAuto,
+    muted,
+    onMute,
+    onRules,
+    onExit,
+    onTapFelt,
+    cards = { across: 5, rows: 3 },
+    felt,
+    action,
+    panels,
+  }: Props = $props();
+
+  /**
+   * Card width from the felt's own size (container units): wide enough to fill
+   * a row, short enough that every row plus the betting spots fits.
+   */
+  const cardWidth = $derived(
+    `clamp(30px, min(calc((100cqw - 28px) / ${cards.across * 1.16}), calc((100cqh - ${cards.rows * 32 + (cards.reserve ?? 230)}px) / ${cards.rows * 1.4})), 104px)`,
+  );
 
   /** Below this the table fits one screen and the panels move into a sheet. */
   const compact = new MediaQuery('(max-width: 899px)');
@@ -51,10 +80,7 @@
   <header class="bar">
     <h1>{title[0]} <span>{title[1]}</span></h1>
 
-    <div class="stat bank">
-      <span class="k">Bank</span>
-      <span class="v">{formatMoney(bank)}</span>
-    </div>
+    <div class="bank"><BankCounter {bank} /></div>
 
     {#if !compact.current}
       <div class="speed" role="group" aria-label="Deal speed">
@@ -82,7 +108,16 @@
 
   <!-- Tapping the felt is a shortcut; every action also has its own button. -->
   <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_noninteractive_element_interactions -->
-  <main class="felt" onclick={tap}>{@render felt()}</main>
+  <main class="table" onclick={tap}>
+    <div class="felt" style:--card-w={cardWidth}>
+      <div class="tray" aria-hidden="true">
+        {#each ['#f2efe8', '#c42332', '#1e8a4f', '#1b1b21', '#6c3fa8', '#1b1b21', '#1e8a4f', '#c42332', '#f2efe8'] as color, i (i)}
+          <span style:--c={color}></span>
+        {/each}
+      </div>
+      {@render felt()}
+    </div>
+  </main>
 
   <div class="act">{@render action()}</div>
 
@@ -138,26 +173,12 @@
   .compact h1 {
     display: none;
   }
-  .stat {
-    display: grid;
-    gap: 2px;
+  /* Wide enough for a growing balance: a new digit never nudges the buttons. */
+  .bank {
+    min-width: 96px;
   }
   .compact .bank {
     margin-right: auto;
-  }
-  .k {
-    font: 600 10px/1 var(--font-ui);
-    letter-spacing: 0.14em;
-    text-transform: uppercase;
-    color: var(--muted);
-  }
-  .v {
-    font: 700 22px/1.1 var(--font-display);
-    color: var(--gold);
-    font-variant-numeric: tabular-nums;
-  }
-  .compact .v {
-    font-size: 18px;
   }
   .speed {
     display: flex;
@@ -182,27 +203,70 @@
     border-color: var(--gold);
     color: var(--gold);
   }
-  .felt {
+  /* The table: a padded leather rail around the felt, curved along the players' side. */
+  .table {
     grid-area: felt;
-    position: relative;
-    display: grid;
-    align-content: center;
-    gap: clamp(10px, 3dvh, 32px);
-    padding: 16px 12px;
-    border-radius: 24px;
-    background: radial-gradient(ellipse at center, var(--felt) 0%, var(--felt-deep) 100%);
+    min-height: 0;
+    padding: 10px;
+    border-radius: 28px 28px 50% 50% / 28px 28px 110px 110px;
+    background:
+      radial-gradient(120% 60% at 50% 0%, rgb(255 255 255 / 0.08), transparent 60%),
+      linear-gradient(#3b2416, #23150d 60%, #170d08);
     box-shadow:
-      inset 0 0 0 10px var(--rail),
-      inset 0 0 60px rgb(0 0 0 / 0.5);
+      0 10px 30px rgb(0 0 0 / 0.55),
+      inset 0 1px 0 rgb(255 255 255 / 0.12),
+      inset 0 -2px 0 rgb(0 0 0 / 0.5);
+  }
+  .felt {
+    --print: rgb(236 216 160 / 0.5);
+    position: relative;
+    height: 100%;
+    container-type: size;
+    display: grid;
+    /* One row the felt's full height, so a table's layout can share it out. */
+    grid-template-rows: minmax(0, 1fr);
+    padding: 22px 12px 26px;
+    border-radius: 20px 20px 50% 50% / 20px 20px 100px 100px;
+    background:
+      url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.09 0'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)'/%3E%3C/svg%3E"),
+      radial-gradient(ellipse 80% 70% at 50% 45%, #1b6a4f 0%, var(--felt) 45%, var(--felt-deep) 100%);
+    box-shadow:
+      inset 0 0 0 2px rgb(0 0 0 / 0.35),
+      inset 0 0 50px rgb(0 0 0 / 0.55);
     overflow: hidden;
   }
+  .compact .table {
+    padding: 6px;
+    border-radius: 22px 22px 50% 50% / 22px 22px 60px 60px;
+  }
   .compact .felt {
-    gap: clamp(6px, 2dvh, 20px);
-    padding: 10px 6px;
-    border-radius: 18px;
-    box-shadow:
-      inset 0 0 0 5px var(--rail),
-      inset 0 0 40px rgb(0 0 0 / 0.5);
+    padding: 16px 6px 18px;
+    border-radius: 16px 16px 50% 50% / 16px 16px 54px 54px;
+  }
+  /* The dealer's chip tray, along the top edge. */
+  .tray {
+    position: absolute;
+    top: 0;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    gap: 2px;
+    padding: 3px 8px 4px;
+    border-radius: 0 0 10px 10px;
+    background: linear-gradient(#120b07, #26170e);
+    box-shadow: 0 2px 4px rgb(0 0 0 / 0.5);
+    pointer-events: none;
+  }
+  .tray span {
+    width: 14px;
+    height: 7px;
+    border-radius: 2px;
+    background: repeating-linear-gradient(90deg, var(--c) 0 3px, rgb(0 0 0 / 0.35) 3px 4px);
+    box-shadow: inset 0 -1px 0 rgb(0 0 0 / 0.4);
+  }
+  .compact .tray span {
+    width: 9px;
+    height: 5px;
   }
   .act {
     grid-area: act;

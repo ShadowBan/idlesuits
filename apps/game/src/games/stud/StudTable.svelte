@@ -1,15 +1,21 @@
 <script lang="ts">
   import { onDestroy } from 'svelte';
-  import { CATEGORY_NAMES, STUD_BONUSES, type StudChoice } from '@idlesuits/sim';
-  import Breakdown from '../../components/Breakdown.svelte';
+  import { CATEGORY_NAMES, handName, type StudChoice } from '@idlesuits/sim';
+  import BetBar from '../../components/BetBar.svelte';
+  import BetSpot from '../../components/BetSpot.svelte';
   import CardRow from '../../components/CardRow.svelte';
+  import DecisionBar from '../../components/DecisionBar.svelte';
+  import FeltBand from '../../components/FeltBand.svelte';
   import PayTable from '../../components/PayTable.svelte';
+  import SeatOverlay from '../../components/SeatOverlay.svelte';
   import SideBetsPanel from '../../components/SideBetsPanel.svelte';
+  import TablePanels from '../../components/TablePanels.svelte';
   import TableShell from '../../components/TableShell.svelte';
+  import { heldValue } from '../../lib/betting.svelte';
   import type { GameProps } from '../../lib/games';
-  import { formatMoney } from '../../lib/money';
-  import { SPEEDS } from '../../lib/sequencer.svelte';
-  import { setMuted, unlockAudio } from '../../lib/sound';
+  import { Decimal, formatMoney } from '../../lib/money';
+  import { setMuted, sfx, unlockAudio } from '../../lib/sound';
+  import { spotView } from '../../lib/stakes.svelte';
   import { StudGame } from './game.svelte';
   import StudRules from './StudRules.svelte';
 
@@ -27,13 +33,24 @@
   const flipMs = $derived(FLIP_MS[seq.speed]);
   const pending = $derived(game.pending);
 
-  const OPTIONS: { label: string; choice: StudChoice; key: string }[] = [
+  const CHOICES: { label: string; choice: StudChoice; key: string }[] = [
     { label: 'Fold', choice: { move: 'fold' }, key: 'F' },
     { label: 'Bet 1×', choice: { move: 'bet', size: 1 }, key: '1' },
     { label: 'Bet 3×', choice: { move: 'bet', size: 3 }, key: '3' },
   ];
   const same = (a: StudChoice, b: StudChoice) =>
     a.move === b.move && (a.move === 'fold' || (b.move === 'bet' && a.size === b.size));
+  const options = $derived(
+    pending
+      ? CHOICES.map((o) => ({
+          label: o.label,
+          key: o.key,
+          sub: o.choice.move === 'bet' ? formatMoney(game.roundAnte.mul(o.choice.size)) : undefined,
+          suggested: same(o.choice, pending.suggestion),
+          pick: () => game.choose(o.choice),
+        }))
+      : [],
+  );
 
   const PAY_ROWS = [
     { label: 'Royal flush', pays: '500:1' },
@@ -58,13 +75,41 @@
     return game.multiplier >= 0 ? CATEGORY_NAMES[game.hand.category] : undefined;
   });
 
-  const sideSpots = $derived(
-    STUD_BONUSES.filter((b) => (game.roundSide[b.id] ?? 0) > 0).map((b) => ({
-      bet: b,
-      units: game.roundSide[b.id]!,
-      result: game.bonusResults[b.id],
-    })),
+  // The spots on the felt. Every bet settles at the hand's one multiplier, or is lost on a fold.
+  const betting = $derived(seq.awaiting === 'deal' && (game.bets.touched || game.hands === 0));
+  const settledAt = $derived(game.folded ? -1 : (game.multiplier ?? undefined));
+  const ante = $derived(spotView(betting, game.roundAnte, 1, game.ante, settledAt));
+  const streets = $derived(
+    game.streetBets.map((units) =>
+      spotView(betting, game.roundAnte, units ?? 0, new Decimal(0), units && settledAt !== undefined ? units * settledAt : undefined),
+    ),
   );
+  const bonus = $derived(
+    spotView(
+      betting,
+      game.roundAnte,
+      game.roundSide.threeCard ?? 0,
+      game.side.amount('threeCard'),
+      game.bonusResults.threeCard?.net,
+    ),
+  );
+  /** The street being bet on now. */
+  const streetNow = $derived(pending ? pending.decision.street - 3 : -1);
+
+  function placeAnte() {
+    if (game.bets.addMain(heldValue(game.bank))) sfx.chip();
+  }
+
+  const result = $derived.by(() => {
+    if (game.net === null || betting) return null;
+    const net = game.roundAnte.mul(game.net);
+    if (game.folded) return { title: 'Folded', net, detail: `${formatMoney(game.roundAnte.mul(game.wagered))} given up`, big: false };
+    const name = game.hand ? handName(game.hand) : '';
+    const m = game.multiplier ?? 0;
+    const title = m > 0 ? `Pays ${m}:1` : m === 0 ? 'Push' : 'No pay';
+    const detail = m > 0 ? `${name} on ${game.wagered} units` : m === 0 ? `${name}: every bet comes back` : name;
+    return { title, net, detail, big: game.net >= 10 };
+  });
 
   function begin() {
     unlockAudio();
@@ -74,8 +119,8 @@
   function onKey(e: KeyboardEvent) {
     const target = e.target as HTMLElement;
     if (target.closest('input, select, textarea, dialog')) return;
-    const option = OPTIONS.find((o) => o.key === e.key.toUpperCase());
-    if (option && seq.awaiting === 'move') return game.choose(option.choice);
+    const option = options.find((o) => o.key === e.key.toUpperCase());
+    if (option && seq.awaiting === 'move') return option.pick();
     if (e.key !== ' ' && e.key !== 'Enter') return;
     if (target.closest('button, a')) return;
     e.preventDefault();
@@ -97,509 +142,186 @@
   onRules={() => rules?.open()}
   {onExit}
   onTapFelt={() => seq.awaiting === 'deal' && game.deal()}
+  cards={{ across: 3, rows: 2, reserve: 236 }}
 >
   {#snippet felt()}
     <div class="layout">
-      <div class="board-area">
+      <div class="area community">
         <CardRow
           title="Community"
           cards={game.community}
           side="board"
           {flipMs}
+          deal={game.deals}
+          dealOrder={1}
           highlight={game.net !== null ? game.best : undefined}
         />
       </div>
 
-      <ul class="bets" aria-label="Your bets">
-        <li class="placed">
-          <span class="name">Ante</span>
-          <b>{formatMoney(game.roundAnte)}</b>
-        </li>
-        {#each game.bets as bet, i (i)}
-          <li class:placed={bet !== null} class:folded={game.folded && bet === null && i === game.bets.indexOf(null)}>
-            <span class="name">{['3rd', '4th', '5th'][i]}</span>
-            <b>{bet !== null ? formatMoney(game.roundAnte.mul(bet)) : game.folded ? '—' : ''}</b>
-            {#if bet !== null}<small>{bet}×</small>{/if}
-          </li>
-        {/each}
-        {#if game.started}
-          {#each sideSpots as spot (spot.bet.id)}
-            {@const net = spot.result?.net}
-            <li class="placed side" class:win={(net ?? 0) > 0} class:loss={(net ?? 0) < 0}>
-              <span class="name">{spot.bet.short}</span>
-              <b>{formatMoney(game.roundAnte.mul(spot.units))}</b>
-              {#if net !== undefined}<small class="result-net">{formatMoney(game.roundAnte.mul(net), true)}</small>{/if}
-            </li>
-          {/each}
-        {/if}
-      </ul>
+      <FeltBand title="Mississippi Stud" lines={['Pair of jacks or better pays', 'Sixes to tens push']} {result} />
 
-      <div class="player-area">
-        <CardRow title="You" cards={game.hole} side="player" {flipMs} highlight={game.net !== null ? game.best : undefined}>
+      <div class="spots">
+        <BetSpot
+          label="3-Card"
+          shape="diamond"
+          size="sm"
+          amount={bonus.amount}
+          net={bonus.net}
+          next={bonus.next}
+          onPlace={() => game.bets.addSide('threeCard', heldValue(game.bank)) && sfx.chip()}
+          onClear={() => game.bets.clearSide('threeCard')}
+        />
+        <BetSpot
+          label="Ante"
+          size="lg"
+          amount={ante.amount}
+          net={ante.net}
+          next={ante.next}
+          onPlace={placeAnte}
+          onClear={() => game.bets.clearMain()}
+        />
+        {#each streets as street, i (i)}
+          <BetSpot
+            label={['3rd', '4th', '5th'][i]!}
+            size="md"
+            hint="1× or 3×"
+            amount={street.amount}
+            net={street.net}
+            active={streetNow === i}
+          />
+        {/each}
+      </div>
+
+      <div class="area player">
+        <CardRow
+          title="You"
+          cards={game.hole}
+          side="player"
+          {flipMs}
+          deal={game.deals}
+          dealOrder={0}
+          highlight={game.net !== null ? game.best : undefined}
+        >
           {#snippet badge()}
-            {#if game.hand}<span class="hand-name">{CATEGORY_NAMES[game.hand.category]}</span>{/if}
+            {#if game.hand}<span class="hand-name">{handName(game.hand)}</span>{/if}
           {/snippet}
         </CardRow>
       </div>
-
-      <div class="result">
-        {#if game.net !== null}
-          <p class="banner" class:win={game.net > 0} class:loss={game.net < 0} class:big={game.net >= 10}>
-            {#if game.folded}
-              Folded
-            {:else if game.multiplier! > 0}
-              Pays {game.multiplier}:1 on {game.wagered} units
-            {:else if game.multiplier === 0}
-              Push
-            {:else}
-              No pay
-            {/if}
-            <b>{formatMoney(game.roundAnte.mul(game.net), true)}</b>
-          </p>
-        {:else if game.started}
-          <p class="stake">On the table: {formatMoney(game.roundAnte.mul(game.wagered))}</p>
-        {/if}
-      </div>
     </div>
 
-    {#if !game.started}
-      <div class="overlay">
-        <p>No dealer to beat — just a pay table. Raise as your hand improves, and every bet is paid at the same odds.</p>
-        <button type="button" class="primary" onclick={begin}>Take a seat</button>
-        <button type="button" onclick={() => rules?.open()}>How to play</button>
-      </div>
-    {:else if game.gameOver}
-      <div class="overlay">
-        <h2>Busted</h2>
-        <p>{game.hands} hands · biggest win {formatMoney(game.biggestWin)}</p>
-        <button type="button" class="primary" onclick={() => game.restart()}>Buy back in</button>
-      </div>
-    {/if}
+    <SeatOverlay
+      started={game.started}
+      gameOver={game.gameOver}
+      intro="No dealer to beat — just a pay table. Raise as your hand improves, and every bet is paid at the same odds."
+      hands={game.hands}
+      biggestWin={game.biggestWin}
+      onSeat={begin}
+      onRules={() => rules?.open()}
+      onRestart={() => game.restart()}
+    />
   {/snippet}
 
   {#snippet action()}
-    <div class="bar">
-      {#if seq.awaiting === 'move' && pending}
-        <div class="choice" role="group" aria-label="Your move">
-          {#each OPTIONS as option (option.label)}
-            <button
-              type="button"
-              class="act"
-              class:suggested={same(option.choice, pending.suggestion)}
-              onclick={() => game.choose(option.choice)}
-            >
-              {option.label}
-              {#if option.choice.move === 'bet'}<small>{formatMoney(game.roundAnte.mul(option.choice.size))}</small>{/if}
-              <kbd>{option.key}</kbd>
-            </button>
-          {/each}
-        </div>
-        <p class="hint">
-          {pending.decision.street === 5 ? 'Last bet before the final card' : 'Bet to see the next card'} · folding loses
-          {formatMoney(game.roundAnte.mul(game.wagered))}
-        </p>
-      {:else if seq.awaiting === 'deal'}
-        <button type="button" class="act primary" onclick={() => game.deal()}>Deal</button>
-      {:else if game.started && !game.gameOver}
-        <p class="hint">{game.autoPlay ? `Auto playing · ${seq.speed}` : 'Dealing…'}</p>
-        {#if game.autoPlay}
-          <button type="button" onclick={() => seq.togglePause()}>{seq.paused ? 'Resume' : 'Pause'}</button>
-        {/if}
-      {/if}
-    </div>
+    {#if seq.awaiting === 'move' && pending}
+      <DecisionBar
+        {options}
+        hint={`${pending.decision.street === 5 ? 'Last bet before the final card' : 'Bet to see the next card'} · folding loses ${formatMoney(game.roundAnte.mul(game.wagered))}`}
+      />
+    {:else}
+      <BetBar
+        bank={game.bank}
+        total={game.bets.total}
+        canDeal={seq.awaiting === 'deal' && game.bets.canDeal}
+        onDeal={() => game.deal()}
+        onClear={() => game.bets.clearAll()}
+        onDouble={() => game.bets.double()}
+        trailing={game.autoPlay && game.started ? pause : undefined}
+      />
+    {/if}
   {/snippet}
 
   {#snippet panels()}
-    <section class="panel">
-      <h2>Bet <span>applies to the next hand</span></h2>
-      <div class="row">
-        <span>Ante</span>
-        <span class="stepper">
-          <button type="button" onclick={() => game.changeAnte(0.5)} aria-label="Halve ante">−</button>
-          <b>{formatMoney(game.ante)}</b>
-          <button type="button" onclick={() => game.changeAnte(2)} aria-label="Double ante">+</button>
-        </span>
-      </div>
-      <p class="note">
-        Each street adds 1× or 3× the ante. Max at risk: {formatMoney(game.ante.mul(10).add(game.side.total))}.
-      </p>
-    </section>
-
-    <section class="panel">
-      <PayTable title="Pays on every bet" rows={PAY_ROWS} {lit} />
-    </section>
-
-    <SideBetsPanel stakes={game.side} base={game.ante} results={game.bonusResults} />
-
-    <section class="panel">
-      <h2>Last hand</h2>
-      <Breakdown lines={game.last?.lines ?? []} net={game.last?.net ?? null} ante={game.lastAnte} />
-    </section>
-
-    <section class="panel">
-      <h2>Session</h2>
-      <dl>
-        <dt>Hands</dt>
-        <dd>{game.hands}</dd>
-        <dt>Net</dt>
-        <dd class:win={game.sessionNet.gt(0)} class:loss={game.sessionNet.lt(0)}>{formatMoney(game.sessionNet, true)}</dd>
-        <dt>Biggest win</dt>
-        <dd>{formatMoney(game.biggestWin)}</dd>
-        <dt>Folds</dt>
-        <dd>{game.folds}</dd>
-      </dl>
-      <ol class="history">
-        {#each game.history as h (h.round)}
-          <li>
-            <span class="muted">#{h.round}</span>
-            <span>{h.hand}</span>
-            <span class:win={h.net.gt(0)} class:loss={h.net.lt(0)}>{formatMoney(h.net, true)}</span>
-          </li>
-        {/each}
-      </ol>
-    </section>
-
-    <section class="panel">
-      <h2>Table</h2>
-      <div class="speed" role="group" aria-label="Deal speed">
-        {#each SPEEDS as s (s)}
-          <button type="button" aria-pressed={seq.speed === s} onclick={() => (seq.speed = s)}>{s}</button>
-        {/each}
-      </div>
-      <label class="switch">
-        <input type="checkbox" checked={muted} onchange={(e) => (muted = e.currentTarget.checked)} />
-        Mute sound
-      </label>
-      <p class="muted small">Seed {game.runSeed} · hand {game.round}</p>
-      <button type="button" onclick={() => game.restart()}>Restart</button>
-    </section>
+    <TablePanels
+      {seq}
+      {muted}
+      onMute={(m) => (muted = m)}
+      seed={game.runSeed}
+      round={game.round}
+      onRestart={() => game.restart()}
+      last={game.last}
+      lastUnit={game.lastAnte}
+      stats={[
+        ['Hands', String(game.hands)],
+        ['Folds', String(game.folds)],
+        ['Biggest win', formatMoney(game.biggestWin)],
+      ]}
+      sessionNet={game.sessionNet}
+      history={game.history.map((h) => ({ round: h.round, text: h.hand, net: h.net }))}
+    >
+      <section class="panel">
+        <PayTable title="Pays on every bet" rows={PAY_ROWS} {lit} />
+      </section>
+      <SideBetsPanel stakes={game.side} results={game.bonusResults} />
+    </TablePanels>
   {/snippet}
 </TableShell>
+
+{#snippet pause()}
+  <button type="button" class="pause" onclick={() => seq.togglePause()}>{seq.paused ? 'Resume' : 'Pause'}</button>
+{/snippet}
 
 <style>
   .layout {
     display: grid;
-    gap: inherit;
-    grid-template-areas: 'board' 'bets' 'player' 'result';
-  }
-  .board-area {
-    grid-area: board;
-  }
-  .bets {
-    grid-area: bets;
-  }
-  .player-area {
-    grid-area: player;
-  }
-  .result {
-    grid-area: result;
-  }
-  /* Landscape phones are short: the community cards and the player's sit side by side. */
-  @media (orientation: landscape) and (max-height: 520px) {
-    .layout {
-      grid-template-columns: 1fr 1fr;
-      grid-template-areas:
-        'board player'
-        'bets bets'
-        'result result';
-      align-items: center;
-    }
-  }
-  .hand-name {
-    font: 700 15px/1 var(--font-display);
-    text-transform: uppercase;
-    letter-spacing: 0.03em;
-  }
-  .bets {
-    list-style: none;
-    margin: 0;
-    padding: 0;
-    display: flex;
-    flex-wrap: wrap;
-    justify-content: center;
-    gap: 8px;
-  }
-  .bets li {
-    display: grid;
-    justify-items: center;
-    gap: 2px;
-    min-width: 62px;
-    min-height: 54px;
-    padding: 6px 10px;
-    border-radius: 12px;
-    border: 2px dashed var(--line);
-    opacity: 0.55;
-  }
-  .bets li.placed {
-    opacity: 1;
-    border-style: solid;
-    border-color: var(--gold);
-  }
-  .bets .name {
-    font: 600 10px/1 var(--font-ui);
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
-    color: var(--muted);
-  }
-  .bets b {
-    font: 700 15px/1.1 var(--font-display);
-    font-variant-numeric: tabular-nums;
-  }
-  .bets small {
-    font: 600 11px/1 var(--font-ui);
-    color: var(--gold);
-  }
-  .bets li.side {
-    border-style: dashed;
-  }
-  .bets li.win {
-    border-style: solid;
-    border-color: var(--win);
-  }
-  .bets li.loss {
-    border-style: solid;
-    border-color: var(--loss);
-  }
-  .bets .win .result-net {
-    color: var(--win);
-  }
-  .bets .loss .result-net {
-    color: var(--loss);
-  }
-  .result {
-    min-height: 26px;
-    display: grid;
-    justify-items: center;
-  }
-  .banner {
-    margin: 0;
-    font: 700 18px/1 var(--font-display);
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-    text-align: center;
-    animation: pop 300ms ease-out;
-  }
-  .banner.win {
-    color: var(--win);
-  }
-  .banner.loss {
-    color: var(--loss);
-  }
-  .banner.big {
-    font-size: 24px;
-    color: var(--gold);
-    text-shadow: 0 0 18px var(--gold);
-  }
-  .stake {
-    margin: 0;
-    font: 500 13px/1 var(--font-ui);
-    color: var(--muted);
-  }
-  @keyframes pop {
-    from {
-      transform: scale(0.6);
-      opacity: 0;
-    }
-  }
-  .overlay {
-    position: absolute;
-    inset: 0;
-    z-index: 2;
-    display: grid;
-    place-content: center;
-    justify-items: center;
-    gap: 14px;
-    padding: 16px;
-    text-align: center;
-    background: rgb(5 20 15 / 0.82);
-  }
-  .overlay h2 {
-    margin: 0;
-    font: 700 36px/1 var(--font-display);
-    color: var(--loss);
-    text-transform: uppercase;
-  }
-  .overlay p {
-    margin: 0;
-    max-width: 36ch;
-    color: var(--muted);
-  }
-
-  .bar {
-    display: flex;
-    flex-wrap: wrap;
+    height: 100%;
+    grid-template-rows: auto minmax(36px, 1fr) auto auto;
+    grid-template-areas: 'community' 'band' 'spots' 'player';
     align-items: center;
-    justify-content: center;
-    gap: 8px 12px;
-    min-height: 58px;
-    padding: 8px 12px calc(8px + env(safe-area-inset-bottom));
-  }
-  .choice {
-    display: flex;
-    gap: 8px;
-    flex: 1 1 auto;
-    justify-content: center;
-    max-width: 520px;
-  }
-  .act {
-    font: 600 15px/1 var(--font-display);
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
-    padding: 12px 18px;
-    min-height: 48px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
+    justify-items: center;
     gap: 6px;
   }
-  .choice .act {
-    flex: 1 1 0;
+  .area {
+    width: 100%;
   }
-  /* Short landscape puts the action bar in a narrow side column: stack the choices. */
-  @media (orientation: landscape) and (max-height: 520px) {
-    .bar,
-    .choice {
-      flex-direction: column;
-      align-items: stretch;
-    }
-    .choice {
-      flex: 0 0 auto;
-    }
-    .hint {
-      text-align: center;
-    }
+  .community {
+    grid-area: community;
   }
-  .act small {
-    font: 400 12px/1 var(--font-ui);
-    color: var(--muted);
+  .player {
+    grid-area: player;
   }
-  .act.suggested {
-    border-color: var(--gold);
-    box-shadow: 0 0 0 1px var(--gold);
+  .spots {
+    grid-area: spots;
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+    gap: clamp(8px, 2.6cqw, 22px);
   }
-  .hint {
-    margin: 0;
-    font: 13px/1.3 var(--font-ui);
-    color: var(--muted);
+  .pause {
+    min-width: 108px;
+    min-height: 44px;
   }
-  kbd {
-    font: 600 10px/1 var(--font-ui);
-    padding: 2px 4px;
-    border: 1px solid var(--line);
-    border-bottom-width: 2px;
-    border-radius: 4px;
-    color: var(--muted);
-  }
-  @media (pointer: coarse) {
-    kbd {
-      display: none;
-    }
-  }
-
   .panel {
     padding: 12px 14px;
     border-radius: 12px;
     background: var(--rail);
-    display: grid;
-    gap: 10px;
   }
-  .panel h2 {
-    margin: 0;
-    font: 600 11px/1 var(--font-ui);
-    letter-spacing: 0.14em;
-    text-transform: uppercase;
-    color: var(--muted);
-    display: flex;
-    justify-content: space-between;
-    gap: 8px;
-  }
-  .panel h2 span {
-    letter-spacing: 0;
-    text-transform: none;
-    font-weight: 400;
-  }
-  .row {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 8px;
-    font: 13px/1.3 var(--font-ui);
-  }
-  .stepper {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-  }
-  .stepper button {
-    width: 36px;
-    height: 36px;
-    padding: 0;
-    font-size: 16px;
-  }
-  .stepper b {
-    min-width: 56px;
-    text-align: center;
-    font: 700 15px/1 var(--font-display);
-    font-variant-numeric: tabular-nums;
-  }
-  .note {
-    margin: 0;
-    font: 12px/1.4 var(--font-ui);
-    color: var(--muted);
-  }
-  dl {
-    display: grid;
-    grid-template-columns: 1fr auto;
-    gap: 4px 12px;
-    margin: 0;
-    font: 13px/1.4 var(--font-ui);
-  }
-  dd {
-    margin: 0;
-    text-align: right;
-    font-variant-numeric: tabular-nums;
-  }
-  .history {
-    list-style: none;
-    margin: 0;
-    padding: 0;
-    display: grid;
-    gap: 3px;
-    font: 12px/1.4 var(--font-ui);
-  }
-  .history li {
-    display: grid;
-    grid-template-columns: 36px 1fr auto;
-    gap: 8px;
-    font-variant-numeric: tabular-nums;
-  }
-  .speed {
-    display: flex;
-    border: 1px solid var(--line);
-    border-radius: 8px;
-    overflow: hidden;
-    width: fit-content;
-  }
-  .speed button {
-    border: 0;
-    border-radius: 0;
-    text-transform: capitalize;
-  }
-  .speed button[aria-pressed='true'] {
-    background: var(--gold);
-    color: var(--felt-deep);
-  }
-  .small {
-    font-size: 12px;
-    margin: 0;
-  }
-  .muted {
-    color: var(--muted);
-  }
-  .win {
-    color: var(--win);
-  }
-  .loss {
-    color: var(--loss);
+  /* Landscape phones: community over your cards on the left, the bets in a column on the right. */
+  @media (orientation: landscape) and (max-height: 520px) {
+    .layout {
+      --card-w: clamp(30px, min(calc((100cqw - 200px) / 3.6), calc((100cqh - 84px) / 2.8)), 96px);
+      position: relative;
+      grid-template-columns: 1fr auto;
+      grid-template-rows: 1fr 1fr;
+      grid-template-areas:
+        'community spots'
+        'player spots';
+      column-gap: 12px;
+    }
+    .spots {
+      flex-wrap: wrap;
+      width: 190px;
+      align-content: center;
+      row-gap: 4px;
+    }
   }
 </style>

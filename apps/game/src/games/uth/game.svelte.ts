@@ -22,6 +22,7 @@ import { bankroll } from '../../lib/casino.svelte';
 import { Decimal } from '../../lib/money';
 import { Sequencer } from '../../lib/sequencer.svelte';
 import { bonusLine, SideStakes } from '../../lib/sidebets.svelte';
+import { ChipBets } from '../../lib/stakes.svelte';
 import { sfx } from '../../lib/sound';
 
 type Choice = { move: UthMove; raise?: number };
@@ -78,6 +79,18 @@ export class UthGame {
   ante = $state(new Decimal(STARTING_ANTE));
   /** Side bets for the next hand, in dollars. */
   readonly side = new SideStakes(UTH_BONUSES);
+  /** Chips on the spots for the next hand: Ante (with its matching Blind) and side bets. */
+  readonly bets = new ChipBets(
+    () => this.ante,
+    (v) => (this.ante = v),
+    this.side,
+    () => this.bank,
+    2,
+  );
+  /** Counts deals, so the table can throw each new hand in from the shoe. */
+  deals = $state(0);
+  /** The dealer card about to turn, for a moment of suspense. */
+  dealerFocus = $state(-1);
   roundAnte = $state(new Decimal(STARTING_ANTE));
   lastAnte = $state(new Decimal(STARTING_ANTE));
   started = $state(false);
@@ -133,7 +146,7 @@ export class UthGame {
     this.autoPlay = on;
     if (!on) return;
     if (this.seq.awaiting === 'move') this.seq.answer(this.pending!.suggestion);
-    else if (this.seq.awaiting === 'deal') this.seq.answer({ move: 'check' });
+    else if (this.seq.awaiting === 'deal' && this.bets.canDeal) this.seq.answer({ move: 'check' });
   }
 
   choose(choice: Choice) {
@@ -141,7 +154,7 @@ export class UthGame {
   }
 
   deal() {
-    if (this.seq.awaiting === 'deal') this.seq.answer({ move: 'check' });
+    if (this.seq.awaiting === 'deal' && this.bets.canDeal) this.seq.answer({ move: 'check' });
   }
 
   /** Space: take the suggestion, or deal. */
@@ -150,10 +163,6 @@ export class UthGame {
     else this.deal();
   }
 
-  changeAnte(factor: number) {
-    const next = this.ante.mul(factor).floor().max(1);
-    this.ante = next.gt(this.bank) ? this.bank.floor().max(1) : next;
-  }
 
 
   dispose() {
@@ -179,12 +188,14 @@ export class UthGame {
     this.start();
   }
 
+  /** Bets go down before every hand; auto play deals on its own once there is a bet. */
   private async loop() {
     while (this.started && !this.gameOver && !this.seq.disposed) {
-      if (!(await this.playRound())) return;
-      if (this.gameOver) return;
-      const ok = this.autoPlay ? await this.seq.wait(RESULT_HOLD_MS) : (await this.seq.ask('deal')) !== null;
+      const auto = this.autoPlay && this.bets.canDeal && this.hands > 0;
+      const ok = auto ? await this.seq.wait(RESULT_HOLD_MS) : (await this.seq.ask('deal')) !== null;
       if (!ok) return;
+      if (!this.bets.canDeal) continue;
+      if (!(await this.playRound())) return;
     }
   }
 
@@ -234,6 +245,15 @@ export class UthGame {
         }
         continue;
       }
+      if (event.type === 'DealerRevealed') {
+        // The dealer turns over one card at a time; the next one lifts first.
+        for (let i = 0; i < event.cards.length; i++) {
+          this.dealerFocus = i;
+          if (!(await this.seq.wait(BASE_MS.DealerRevealed * 0.55))) return false;
+          this.dealer[i] = event.cards[i]!;
+          sfx.flip();
+        }
+      }
       if (!(await this.seq.wait(this.delay(event)))) return false;
       this.apply(event);
     }
@@ -253,6 +273,9 @@ export class UthGame {
   private apply(event: UthEvent) {
     switch (event.type) {
       case 'RoundStarted':
+        this.deals++;
+        this.bets.touched = false;
+        this.dealerFocus = -1;
         this.hole = [null, null];
         this.dealer = [null, null];
         this.board = [null, null, null, null, null];
@@ -291,10 +314,10 @@ export class UthGame {
         this.playerHand = event.hand;
         break;
       case 'DealerRevealed':
+        this.dealerFocus = -1;
         this.dealer = [...event.cards];
         this.dealerHand = event.hand;
         this.dealerQualified = event.qualified;
-        sfx.flip();
         break;
       case 'Settled':
         this.results[event.part] = { net: event.net, note: event.note };
@@ -340,7 +363,7 @@ export class UthGame {
     this.history = [entry, ...this.history].slice(0, 12);
 
     if (this.bank.lte(0)) this.gameOver = true;
-    else if (this.ante.gt(this.bank)) this.ante = this.bank.floor().max(1);
+    else this.bets.fitToBank();
   }
 }
 

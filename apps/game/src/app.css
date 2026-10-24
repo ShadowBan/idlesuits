@@ -163,6 +163,33 @@ button.primary:hover {
   }
 }
 
+/* A hand's name and status tags, shown beside a card row's title. */
+.hand-name {
+  font: 700 15px/1 var(--font-display);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.hand-tag {
+  flex: none;
+  font: 700 10px/1 var(--font-ui);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: var(--chip-bg);
+}
+.hand-tag.good {
+  color: var(--win);
+}
+/* Landscape phones put dealer and player side by side: room for the hand, not the tag. */
+@media (orientation: landscape) and (max-height: 520px) {
+  .hand-tag {
+    display: none;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
