@@ -45,6 +45,11 @@ export function standardDeck(source: CardSource, uidPrefix: string = source): Ca
   return deck;
 }
 
+/** A standard deck plus one joker, as Pai Gow Poker and DJ Wild deal. */
+export function deckWithJoker(): Card[] {
+  return [...standardDeck('player'), { uid: 'player:joker', suit: 'S', rank: 14, source: 'player', joker: true }];
+}
+
 /** Combines every contribution into the shared shoe. */
 export function buildShoe(...contributions: readonly Card[][]): Card[] {
   const shoe = contributions.flat();

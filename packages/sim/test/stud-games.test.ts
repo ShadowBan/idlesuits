@@ -5,6 +5,13 @@ import {
   decideC4p,
   decideCsp,
   decideLir,
+  decideDj,
+  DJ_CATEGORY_NAMES,
+  DJ_RULES,
+  djCategoryOf,
+  djIsNatural,
+  djScore,
+  simulateDjRound,
   fourCardScore,
   fourCategoryOf,
   FourCategory,
@@ -19,12 +26,16 @@ import {
 
 const RANKS: Record<string, number> = { T: 10, J: 11, Q: 12, K: 13, A: 14 };
 const cards = (spec: string): Card[] =>
-  spec.split(' ').map((c, i) => ({
-    uid: `t${i}${c}`,
-    rank: RANKS[c.slice(0, -1)] ?? Number(c.slice(0, -1)),
-    suit: c.slice(-1) as Suit,
-    source: 'player' as const,
-  }));
+  spec.split(' ').map((c, i) =>
+    c === 'W'
+      ? { uid: `t${i}W`, rank: 14, suit: 'S' as Suit, source: 'player' as const, joker: true }
+      : {
+          uid: `t${i}${c}`,
+          rank: RANKS[c.slice(0, -1)] ?? Number(c.slice(0, -1)),
+          suit: c.slice(-1) as Suit,
+          source: 'player' as const,
+        },
+  );
 
 describe('four-card hands', () => {
   const category = (spec: string) => fourCategoryOf(fourCardScore(cards(spec)));
@@ -116,5 +127,41 @@ describe('Let It Ride', () => {
   it('the 5-Card Bonus is paid for one: tens or better is a push', () => {
     const row = LIR_FIVE_CARD.resolve({ hole: cards('TS TD 4H'), community: cards('7C 2S') });
     expect(LIR_FIVE_CARD.rows[row]!.pays).toBe(0);
+  });
+});
+
+describe('DJ Wild', () => {
+  const score = (spec: string) => djScore(cards(spec));
+  const name = (spec: string) => DJ_CATEGORY_NAMES[djCategoryOf(score(spec))];
+  it('plays deuces and the joker wild', () => {
+    expect(name('2S 2D 2H 2C W')).toBe('Five wilds');
+    expect(name('KS 2D 2H 2C W')).toBe('Royal flush'); // a lone ten-or-better plus four wilds
+    expect(name('9S 2D 2H 2C W')).toBe('Five of a kind');
+    expect(name('9S 9D 2H 7C 4S')).toBe('Three of a kind');
+    expect(name('9S 8D 2H 6C 5S')).toBe('Straight');
+    expect(name('9S 9D 5H 5C 2S')).toBe('Full house');
+  });
+  it('ranks a royal above five of a kind, and five wilds above both', () => {
+    expect(score('AS 2D 2H 2C W')).toBeGreaterThan(score('AS AD 2H 2C W'));
+    expect(score('2S 2D 2H 2C W')).toBeGreaterThan(score('AS KS QS JS TS'));
+  });
+  it('calls a hand natural only when no wild had to stand in', () => {
+    expect(djIsNatural(cards('AS 2D 3H 4C 5S'))).toBe(true); // the deuce plays as itself
+    expect(djIsNatural(cards('9S 9D 2H 7C 4S'))).toBe(false);
+    expect(djIsNatural(cards('3S 4S 5S 6S 2D'))).toBe(false); // the deuce makes it a straight flush
+  });
+  it('plays a pair of fours or better, but not two fours with a three', () => {
+    expect(decideDj(cards('4S 4D 9H 7C 5S'))).toBe('play');
+    expect(decideDj(cards('4S 4D 3H 7C 5S'))).toBe('fold');
+    expect(decideDj(cards('3S 3D 9H 7C 5S'))).toBe('fold');
+    expect(decideDj(cards('KS 2D 9H 7C 5S'))).toBe('play'); // a wild pairs the king
+  });
+  it('pays the Blind only on a winning straight or better', () => {
+    for (let round = 0; round < 3000; round++) {
+      const r = simulateDjRound({ seed: { run: 'dj-test', round }, decide: (d) => decideDj(d.cards) });
+      if (r.folded) expect(r.parts).toMatchObject({ ante: -1, blind: -1, play: 0 });
+      else if (r.playerScore < r.dealerScore) expect(r.parts).toMatchObject({ ante: -1, blind: -1, play: -2 });
+      else if (r.playerScore > r.dealerScore) expect(r.parts.blind).toBe(DJ_RULES.blindPays[djCategoryOf(r.playerScore)] ?? 0);
+    }
   });
 });

@@ -1,4 +1,4 @@
-import { standardDeck, type Card } from '../cards';
+import { deckWithJoker, type Card } from '../cards';
 
 /**
  * Pai Gow Poker hands. The 53rd card is a joker that is only partly wild: it
@@ -36,7 +36,7 @@ export const PG_CATEGORY_NAMES: Record<PgCategory, string> = {
 
 /** A 53-card Pai Gow deck: the standard 52 plus the joker. */
 export function paiGowDeck(): Card[] {
-  return [...standardDeck('player'), { uid: 'player:joker', suit: 'S', rank: 14, source: 'player', joker: true }];
+  return deckWithJoker();
 }
 
 const SUIT = { S: 0, H: 1, D: 2, C: 3 } as const;
