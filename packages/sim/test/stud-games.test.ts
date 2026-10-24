@@ -6,6 +6,7 @@ import {
   decideCsp,
   decideLir,
   decideDj,
+  DJ_BAD_BEAT,
   DJ_CATEGORY_NAMES,
   DJ_RULES,
   djCategoryOf,
@@ -155,6 +156,17 @@ describe('DJ Wild', () => {
     expect(decideDj(cards('4S 4D 3H 7C 5S'))).toBe('fold');
     expect(decideDj(cards('3S 3D 9H 7C 5S'))).toBe('fold');
     expect(decideDj(cards('KS 2D 9H 7C 5S'))).toBe('play'); // a wild pairs the king
+  });
+  it('Two-Way Bad Beat pays on the losing hand when both make three of a kind', () => {
+    const bb = (player: string, dealer: string, folded = false) => {
+      const row = DJ_BAD_BEAT.resolve({ player: cards(player), dealer: cards(dealer), folded });
+      return row < 0 ? 'loses' : DJ_BAD_BEAT.rows[row]!.label;
+    };
+    expect(bb('9S 9D 9H 7C 4S', 'KS KD KH 7D 4D')).toBe('Three of a kind'); // the player's trips lose
+    expect(bb('KS QS JS TS 8S', '9S 9D 9H 7C 4S')).toBe('Three of a kind'); // the dealer's trips lose
+    expect(bb('KS KD 5H 7C 4S', 'AS AD AH 7D 4D')).toBe('loses'); // a pair does not qualify
+    expect(bb('9S 9D 9H 7C 4S', '9C 2D 2H 7D 4D')).toBe('loses'); // trips of nines both ways: a tie loses
+    expect(bb('9S 9D 9H 7C 4S', 'KS KD KH 7D 4D', true)).toBe('loses'); // so does a fold
   });
   it('pays the Blind only on a winning straight or better', () => {
     for (let round = 0; round < 3000; round++) {

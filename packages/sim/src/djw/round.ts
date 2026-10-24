@@ -104,7 +104,7 @@ export function simulateDjRound(input: DjRoundInput): DjRoundResult {
     settle('blind', 0, 'tie');
   }
 
-  const bonuses = settleBonuses(DJ_BONUSES, stakes, { player });
+  const bonuses = settleBonuses(DJ_BONUSES, stakes, { player, dealer, folded });
   for (const result of bonuses) {
     parts.bonus += result.net;
     emit({ type: 'BonusSettled', result });

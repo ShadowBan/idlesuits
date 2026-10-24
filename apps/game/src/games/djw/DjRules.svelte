@@ -38,7 +38,8 @@
       {#each BONUSES as bet (bet.id)}
         <li><b>{bet.name}</b>: {bet.blurb.charAt(0).toLowerCase() + bet.blurb.slice(1)} House edge {formatEdge(bet.edge)}.</li>
       {/each}
-      <li>A deuce that plays as itself, as in A-2-3-4-5, still counts as natural. It is optional, starts off, and pays even if you fold.</li>
+      <li>For Trips, a deuce that plays as itself, as in A-2-3-4-5, still counts as natural.</li>
+      <li>Both are optional and start off. Trips pays even if you fold; folding forfeits the Bad Beat.</li>
     </ul>
   </details>
 

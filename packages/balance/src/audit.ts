@@ -7,6 +7,7 @@ import {
   BJ_POT_OF_GOLD,
   C4P_QUEENS_UP,
   CSP_FIVE_PLUS_ONE,
+  DJ_BAD_BEAT,
   DJ_TRIPS,
   LIR_FIVE_CARD,
   LIR_THREE_CARD,
@@ -429,6 +430,8 @@ const djTripsEdge = edgeOfBonus(DJ_TRIPS as BonusBet<never>, djTrips);
 exactRow('DJ Wild', 'Trips', djTripsEdge, PUBLISHED.djTrips, djTrips,
   'all 2,869,685 hands, deuces and the joker wild, natural and wild lines apart');
 simRow('DJ Wild', 'Trips, dealt through the table', acc('dj', 'trips'), djTripsEdge, 'exact, above');
+simRow('DJ Wild', 'Two-Way Bad Beat', acc('dj', 'badBeat'), DJ_BAD_BEAT.edge, 'no published figure: held to the 13.9% the game shows',
+  'Pennsylvania pay table DJWBB-03; both hands need three of a kind or better');
 
 // Side bets show their house edge in the game; it must be the one measured here.
 const shown: [string, number, number][] = [
@@ -454,6 +457,7 @@ const simShown: [string, number, Acc][] = [
   ['Pot of Gold', BJ_POT_OF_GOLD.edge, acc('blackjack', 'potOfGold')],
   ['Push 22', BJ_PUSH_22.edge, acc('blackjack', 'push22')],
   ['Bad Beat', UTH_BAD_BEAT.edge, acc('uth', 'badBeat')],
+  ['Two-Way Bad Beat', DJ_BAD_BEAT.edge, acc('dj', 'badBeat')],
 ];
 const label: string[] = [];
 for (const [name, claimed, measured] of shown) {

@@ -479,7 +479,7 @@ export function djTripsCounts(): Counts {
   const deck = deckWithJoker();
   const counts: Counts = {};
   const hand = new Array<Card>(5);
-  const ctx = { player: hand };
+  const ctx = { player: hand, dealer: [], folded: false };
   for (let a = 0; a < 49; a++) {
     hand[0] = deck[a]!;
     for (let b = a + 1; b < 50; b++) {
