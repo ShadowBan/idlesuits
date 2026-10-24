@@ -94,6 +94,39 @@ export const GAMES: GameEntry[] = [
     load: () => import('../games/paigow/PaiGowTable.svelte'),
   },
   {
+    id: 'lir',
+    name: 'Let It Ride',
+    tagline: 'Three bets down. Take some back.',
+    blurb:
+      'Three cards of your own and two shared. Pull back a bet before each shared card, or let it ride to the pay table.',
+    facts: ['No dealer', 'Pull bets back', 'Royal pays 1000:1'],
+    motif: ['10', '♠', '10'],
+    accent: '#9be36d',
+    load: () => import('../games/lir/LirTable.svelte'),
+  },
+  {
+    id: 'csp',
+    name: 'Caribbean Stud',
+    tagline: 'Five cards. One dealer card showing.',
+    blurb:
+      'Five cards each, with one of the dealer’s face up. Raise to play on; a royal flush pays the raise 100:1.',
+    facts: ['Raise 2×', 'Ace-king qualifies', 'Up card strategy'],
+    motif: ['A', '♥', 'K'],
+    accent: '#5fd3f0',
+    load: () => import('../games/csp/CspTable.svelte'),
+  },
+  {
+    id: 'c4p',
+    name: 'Crazy 4 Poker',
+    tagline: 'Best four of five.',
+    blurb:
+      'Five cards each, best four play. Bet up to 3× with aces or better, and the Super Bonus pays any straight or better.',
+    facts: ['Best 4 of 5', 'Super Bonus', 'Up to 3× play'],
+    motif: ['4', '♦', '4'],
+    accent: '#f78fb3',
+    load: () => import('../games/c4p/C4pTable.svelte'),
+  },
+  {
     id: 'draw',
     name: 'Draw Poker',
     tagline: 'Keep what you like, redraw the rest.',

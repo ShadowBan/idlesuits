@@ -48,7 +48,10 @@ export class SideStakes {
 export function bonusLine(bets: readonly AnyBonus[], result: BonusResult): BreakdownLine {
   const bet = bets.find((b) => b.id === result.id)!;
   const row = result.row >= 0 ? bet.rows[result.row]! : null;
-  return { label: `${bet.name} · ${row ? `${row.label} pays ${row.pays}:1` : 'miss'}`, amount: result.net };
+  let pays = 'miss';
+  if (row && !bet.forOne) pays = `${row.label} pays ${row.pays}:1`;
+  else if (row) pays = row.pays === 0 ? `${row.label}, push` : `${row.label} pays ${row.pays + 1} for 1`;
+  return { label: `${bet.name} · ${pays}`, amount: result.net };
 }
 
 export function formatEdge(edge: number): string {

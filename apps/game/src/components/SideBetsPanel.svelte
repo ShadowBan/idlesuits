@@ -14,7 +14,9 @@
 
   let { stakes, base, results }: Props = $props();
 
-  const ratio = (n: number) => `${n.toLocaleString('en-US')}:1`;
+  /** "8:1", or for a bet quoted for one, "9 for 1" (the stake is not returned on top). */
+  const ratio = (n: number, forOne?: boolean) =>
+    forOne ? (n === 0 ? 'push' : `${(n + 1).toLocaleString('en-US')} for 1`) : `${n.toLocaleString('en-US')}:1`;
 </script>
 
 <section class="panel">
@@ -35,7 +37,7 @@
       <details open={stake.gt(0) || (result?.row ?? -1) >= 0}>
         <summary>Pay table</summary>
         <PayTable
-          rows={bet.rows.map((r) => ({ label: r.label, pays: ratio(r.pays) }))}
+          rows={bet.rows.map((r) => ({ label: r.label, pays: ratio(r.pays, bet.forOne) }))}
           lit={result && result.row >= 0 ? bet.rows[result.row]!.label : undefined}
         />
       </details>
