@@ -146,7 +146,21 @@ export function comparePoker(a: PokerHand, b: PokerHand): number {
   return a.score - b.score;
 }
 
+const RANK_WORDS: Record<number, [string, string]> = {
+  11: ['Jack', 'jacks'],
+  12: ['Queen', 'queens'],
+  13: ['King', 'kings'],
+  14: ['Ace', 'aces'],
+};
+
+/** "Pair of jacks", "Ace-king", "Queen high", or the category name for anything bigger. */
 export function handName(hand: PokerHand): string {
+  const [first = 0, second = 0] = hand.ranks;
+  if (hand.category === Category.Pair) return `Pair of ${RANK_WORDS[first]?.[1] ?? `${first}s`}`;
+  if (hand.category === Category.HighCard) {
+    if (first === 14 && second === 13) return 'Ace-king';
+    return `${RANK_WORDS[first]?.[0] ?? first} high`;
+  }
   return CATEGORY_NAMES[hand.category];
 }
 

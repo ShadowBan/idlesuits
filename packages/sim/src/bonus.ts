@@ -21,6 +21,8 @@ export interface BonusBet<Ctx> {
   rows: readonly BonusRow[];
   /** House edge of this pay table as published; the audit holds the simulator to it. */
   edge: number;
+  /** Quoted "for one": a win returns `pays + 1`, stake included, so `pays` is still the net. */
+  forOne?: boolean;
   /** The winning row's index, or -1 when the bet loses. */
   resolve: (ctx: Ctx) => number;
 }
