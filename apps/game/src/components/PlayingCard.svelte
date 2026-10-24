@@ -10,9 +10,11 @@
     /** The face-down card the director is building tension on. */
     focus?: boolean;
     flipMs?: number;
+    /** Marks a wild card with a small tag. */
+    wild?: boolean;
   }
 
-  let { card, highlight = false, dim = false, focus = false, flipMs = 260 }: Props = $props();
+  let { card, highlight = false, dim = false, focus = false, flipMs = 260, wild = false }: Props = $props();
 
   const SUIT_NAME = { S: 'spades', H: 'hearts', D: 'diamonds', C: 'clubs' } as const;
   const red = $derived(!card?.joker && (card?.suit === 'H' || card?.suit === 'D'));
@@ -38,10 +40,12 @@
         <span class="corner">★</span>
         <span class="joker">Joker</span>
         <span class="corner flip">★</span>
+        {#if wild}<span class="wild">Wild</span>{/if}
       {:else if card}
         <span class="corner">{rankLabel(card.rank)}<br />{SUIT_SYMBOL[card.suit]}</span>
         <span class="pip">{SUIT_SYMBOL[card.suit]}</span>
         <span class="corner flip">{rankLabel(card.rank)}<br />{SUIT_SYMBOL[card.suit]}</span>
+        {#if wild}<span class="wild">Wild</span>{/if}
       {/if}
     </div>
   </div>
@@ -113,6 +117,19 @@
   }
   .pip {
     font-size: calc(var(--card-w) * 0.5);
+  }
+  .wild {
+    position: absolute;
+    left: 50%;
+    bottom: 14%;
+    transform: translateX(-50%);
+    padding: 1px 4px;
+    border-radius: 3px;
+    background: var(--gold);
+    color: var(--felt-deep);
+    font: 700 calc(var(--card-w) * 0.14) / 1 var(--font-ui);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
   }
   .joker {
     font-size: calc(var(--card-w) * 0.19);

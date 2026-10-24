@@ -13,9 +13,11 @@
     flipMs?: number;
     /** Hand name, results, badges — whatever the game wants beside the title. */
     badge?: Snippet;
+    /** Which cards are wild, for games that have them. */
+    wild?: (card: Card) => boolean;
   }
 
-  let { title, cards, highlight, side = 'player', flipMs = 260, badge }: Props = $props();
+  let { title, cards, highlight, side = 'player', flipMs = 260, badge, wild }: Props = $props();
 </script>
 
 <section class="row {side}">
@@ -32,6 +34,7 @@
         {flipMs}
         highlight={!!card && !!highlight?.has(card.uid)}
         dim={!!card && !!highlight && highlight.size > 0 && !highlight.has(card.uid)}
+        wild={!!card && !!wild?.(card)}
       />
     {/each}
   </div>

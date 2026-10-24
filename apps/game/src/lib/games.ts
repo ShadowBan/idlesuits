@@ -127,6 +127,17 @@ export const GAMES: GameEntry[] = [
     load: () => import('../games/c4p/C4pTable.svelte'),
   },
   {
+    id: 'djwild',
+    name: 'DJ Wild',
+    tagline: 'Deuces and the joker are wild.',
+    blurb:
+      'Five cards each from 53, with five wild cards in the deck. Play 2× or fold; a winning straight or better pays the Blind.',
+    facts: ['5 wild cards', 'No qualifier', 'Blind up to 1000:1'],
+    motif: ['2', '★', '2'],
+    accent: '#c3a6ff',
+    load: () => import('../games/djw/DjTable.svelte'),
+  },
+  {
     id: 'draw',
     name: 'Draw Poker',
     tagline: 'Keep what you like, redraw the rest.',
