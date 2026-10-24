@@ -3,6 +3,9 @@ import {
   C4P_BONUSES,
   CSP_BONUSES,
   decideC4p,
+  decideDj,
+  DJ_BONUSES,
+  simulateDjRound,
   decideCsp,
   decideLir,
   LIR_BONUSES,
@@ -219,6 +222,19 @@ export function simC4p(seed: string, start: number, rounds: number): SimSums {
   return sums;
 }
 
+export function simDj(seed: string, start: number, rounds: number): SimSums {
+  const sums: SimSums = {};
+  const bonuses = all(DJ_BONUSES);
+  for (let round = start; round < start + rounds; round++) {
+    const r = simulateDjRound({ seed: { run: seed, round }, decide: (d) => decideDj(d.cards), bonuses });
+    for (const bonus of r.bonuses) acc(sums, bonus.id, bonus.net);
+    acc(sums, 'main', r.parts.ante + r.parts.blind + r.parts.play);
+    if (r.folded) count(sums, 'fold');
+    else if (r.playerScore === r.dealerScore) count(sums, 'tie');
+  }
+  return sums;
+}
+
 export const SIMULATIONS = {
   suits: simSuits,
   blackjack: simBlackjack,
@@ -229,5 +245,6 @@ export const SIMULATIONS = {
   lir: simLir,
   csp: simCsp,
   c4p: simC4p,
+  dj: simDj,
 } as const;
 export type SimGame = keyof typeof SIMULATIONS;

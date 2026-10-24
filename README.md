@@ -19,6 +19,8 @@ An idle casino. Pick a table from the floor and the same bankroll follows you fr
   pays the raise up to 100:1. Side bet: 5+1 Bonus.
 - **Crazy 4 Poker** — best four of five; play up to 3× with aces, and the Super Bonus pays any
   straight or better. Side bet: Queens Up.
+- **DJ Wild** — five cards from 53 with deuces and the joker wild; play 2× or fold, and a winning
+  straight or better pays the Blind. Side bet: Trips, which pays more for natural hands.
 
 See
 [docs/idle_suits_game_concept_v0_2.md](docs/idle_suits_game_concept_v0_2.md) for the design concept and
@@ -90,6 +92,8 @@ engines with a 95% margin, and so is every exact bet, to prove the table settles
 | 5+1 Bonus | 8.56% | 8.56% | exact |
 | Crazy 4 Poker | 3.44% ±0.10% per ante | 3.42% | 40M rounds |
 | Queens Up | 6.78% | 6.78% | exact |
+| DJ Wild | 3.43% ±0.11% per ante | 3.47% | 40M rounds |
+| Trips (DJ Wild) | 6.16% | 6.16% | exact |
 
 Two differ from their source, for known reasons. Wizard of Odds' Super Flush Rush table counts 124
 fewer straight flushes than the progressive table on the same page; the simulator matches the

@@ -7,6 +7,7 @@ import {
   BJ_POT_OF_GOLD,
   C4P_QUEENS_UP,
   CSP_FIVE_PLUS_ONE,
+  DJ_TRIPS,
   LIR_FIVE_CARD,
   LIR_THREE_CARD,
   BJ_PUSH_22,
@@ -29,6 +30,7 @@ import {
 } from '@idlesuits/sim';
 import { chanceOfFreeBet } from './audit/blackjack-exact';
 import {
+  djTripsCounts,
   fiveCardCounts,
   holeCardCounts,
   lirCounts,
@@ -69,7 +71,7 @@ const EXACT_JOBS = {
   lir: lirCounts,
 } as const;
 
-const ROUNDS: Record<SimGame, number> = { suits: 8e6, blackjack: 40e6, uth: 8e6, stud: 40e6, tcp: 20e6, paigow: 16e6, lir: 20e6, csp: 40e6, c4p: 40e6 };
+const ROUNDS: Record<SimGame, number> = { suits: 8e6, blackjack: 40e6, uth: 8e6, stud: 40e6, tcp: 20e6, paigow: 16e6, lir: 20e6, csp: 40e6, c4p: 40e6, dj: 40e6 };
 
 const { values } = parseArgs({
   options: {
@@ -416,6 +418,18 @@ const queensUpEdge = edgeOfBonus(C4P_QUEENS_UP as BonusBet<never>, queensUp);
 exactRow('Crazy 4 Poker', 'Queens Up', queensUpEdge, PUBLISHED.queensUp, queensUp, 'scored on the best four of five cards');
 simRow('Crazy 4 Poker', 'Queens Up, dealt through the table', acc('c4p', 'queensUp'), queensUpEdge, 'exact, above');
 
+// DJ Wild
+{
+  const n = acc('dj', 'main').n;
+  simRow('DJ Wild', 'Ante, Blind and Play, per ante', acc('dj', 'main'), PUBLISHED.djMain.edge, PUBLISHED.djMain.source,
+    `folds ${pct(tally('dj', 'fold') / n, 2)} (30.68%), ties ${pct(tally('dj', 'tie') / n, 4)} (0.0114%)`);
+}
+const djTrips = djTripsCounts();
+const djTripsEdge = edgeOfBonus(DJ_TRIPS as BonusBet<never>, djTrips);
+exactRow('DJ Wild', 'Trips', djTripsEdge, PUBLISHED.djTrips, djTrips,
+  'all 2,869,685 hands, deuces and the joker wild, natural and wild lines apart');
+simRow('DJ Wild', 'Trips, dealt through the table', acc('dj', 'trips'), djTripsEdge, 'exact, above');
+
 // Side bets show their house edge in the game; it must be the one measured here.
 const shown: [string, number, number][] = [
   ['Flush Rush', FLUSH_RUSH.edge, flushRushEdge],
@@ -434,6 +448,7 @@ const shown: [string, number, number][] = [
   ['5-Card Bonus', LIR_FIVE_CARD.edge, lirFiveEdge],
   ['5+1 Bonus', CSP_FIVE_PLUS_ONE.edge, cspSixEdge],
   ['Queens Up', C4P_QUEENS_UP.edge, queensUpEdge],
+  ['Trips (DJ Wild)', DJ_TRIPS.edge, djTripsEdge],
 ];
 const simShown: [string, number, Acc][] = [
   ['Pot of Gold', BJ_POT_OF_GOLD.edge, acc('blackjack', 'potOfGold')],

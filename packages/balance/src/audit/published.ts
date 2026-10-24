@@ -272,6 +272,33 @@ export const PUBLISHED = {
       loses: 1954716,
     },
   },
+  djMain: {
+    edge: 0.03467361,
+    source: `${WOO}/games/dj-wild (raise a pair of fours or better, except two fours with a three)`,
+  },
+  djTrips: {
+    edge: 0.061569,
+    source: `${WOO}/games/dj-wild (Trips, the 60-25-6 table Wizard believes most common)`,
+    combos: {
+      'Five wilds': 1,
+      'Royal flush, natural': 4,
+      'Straight flush, natural': 36,
+      'Royal flush, wild': 1000,
+      'Five of a kind': 1400,
+      'Four of a kind, natural': 528,
+      'Full house, natural': 3168,
+      'Flush, natural': 4980,
+      'Straight flush, wild': 3612,
+      'Straight, natural': 10176,
+      'Three of a kind, natural': 42240,
+      'Four of a kind, wild': 51160,
+      'Full house, wild': 11880,
+      'Flush, wild': 13976,
+      'Straight, wild': 73824,
+      'Three of a kind, wild': 415800,
+      loses: 2235900,
+    },
+  },
 } satisfies Record<string, Reference>;
 
 /**

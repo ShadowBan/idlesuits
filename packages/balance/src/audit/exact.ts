@@ -6,6 +6,8 @@ import {
   standardDeck,
   STUD_RULES,
   decideLir,
+  deckWithJoker,
+  DJ_TRIPS,
   LIR_RULES,
   paiGowDeck,
   PG_BONUSES,
@@ -469,6 +471,31 @@ export function fiveCardCounts(bet: BonusBet<never>, ctx: (cards: Card[]) => unk
     }
   }
   byRow.forEach((n, i) => n && add(counts, rowKey(bet, i - 1), n));
+  return counts;
+}
+
+/** DJ Wild's Trips: every five-card hand from 53, by the line it pays, natural or wild. */
+export function djTripsCounts(): Counts {
+  const deck = deckWithJoker();
+  const counts: Counts = {};
+  const hand = new Array<Card>(5);
+  const ctx = { player: hand };
+  for (let a = 0; a < 49; a++) {
+    hand[0] = deck[a]!;
+    for (let b = a + 1; b < 50; b++) {
+      hand[1] = deck[b]!;
+      for (let c = b + 1; c < 51; c++) {
+        hand[2] = deck[c]!;
+        for (let d = c + 1; d < 52; d++) {
+          hand[3] = deck[d]!;
+          for (let e = d + 1; e < 53; e++) {
+            hand[4] = deck[e]!;
+            add(counts, rowKey(DJ_TRIPS as BonusBet<never>, DJ_TRIPS.resolve(ctx)));
+          }
+        }
+      }
+    }
+  }
   return counts;
 }
 
