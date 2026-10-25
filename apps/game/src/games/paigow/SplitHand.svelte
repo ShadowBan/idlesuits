@@ -161,6 +161,11 @@
     gap: var(--card-gap);
     padding-top: 8px;
   }
+  /* Flex boxes, so wrapping a card in a button to pick it never adds a baseline gap. */
+  .slot,
+  .pick {
+    display: flex;
+  }
   .slot.gap {
     margin-left: var(--split);
   }

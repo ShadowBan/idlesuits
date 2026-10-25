@@ -2,6 +2,7 @@
   import { onDestroy } from 'svelte';
   import { handName, rankLabel, SUIT_SYMBOL, UTH_BONUSES } from '@idlesuits/sim';
   import BetBar from '../../components/BetBar.svelte';
+  import DecisionBar from '../../components/DecisionBar.svelte';
   import BetSpot from '../../components/BetSpot.svelte';
   import CardRow from '../../components/CardRow.svelte';
   import FeltPrint from '../../components/FeltPrint.svelte';
@@ -252,29 +253,18 @@
 
   {#snippet action()}
     {#if seq.awaiting === 'move' && pending}
-      <div class="bar">
-        <div class="choice" role="group" aria-label="Your move">
-          {#each options as option (option.label)}
-            <button
-              type="button"
-              class="act"
-              class:suggested={option.suggested}
-              onclick={() => game.choose(option.choice)}
-            >
-              {option.label}
-              {#if option.choice.raise}<small>{formatMoney(game.roundAnte.mul(option.choice.raise))}</small>{/if}
-              <kbd>{option.key}</kbd>
-            </button>
-          {/each}
-        </div>
-        <p class="hint">
-          {#if pending.odds}
-            The dealer beats you {Math.round(pending.odds.beats * 100)}% of the time
-          {:else}
-            {STREET_HINT[pending.decision.street]}
-          {/if}
-        </p>
-      </div>
+      <DecisionBar
+        options={options.map((o) => ({
+          label: o.label,
+          key: o.key,
+          sub: o.choice.raise ? formatMoney(game.roundAnte.mul(o.choice.raise)) : undefined,
+          suggested: o.suggested,
+          pick: () => game.choose(o.choice),
+        }))}
+        hint={pending.odds
+          ? `The dealer beats you ${Math.round(pending.odds.beats * 100)}% of the time`
+          : STREET_HINT[pending.decision.street]}
+      />
     {:else}
       <BetBar
         bank={game.bank}
@@ -433,82 +423,8 @@
     color: var(--muted);
   }
 
-  .bar {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    justify-content: center;
-    gap: 8px 12px;
-    min-height: 58px;
-    padding: 8px 12px calc(8px + env(safe-area-inset-bottom));
-  }
-  .choice {
-    display: flex;
-    gap: 8px;
-    flex: 1 1 auto;
-    justify-content: center;
-    max-width: 560px;
-  }
-  .act {
-    font: 600 15px/1 var(--font-display);
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
-    padding: 12px 18px;
-    min-height: 48px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: 6px;
-  }
-  .choice .act {
-    flex: 1 1 0;
-  }
-  .act small {
-    font: 400 12px/1 var(--font-ui);
-    color: var(--muted);
-  }
-  .act.suggested {
-    border-color: var(--gold);
-    box-shadow: 0 0 0 1px var(--gold);
-  }
-  .hint {
-    margin: 0;
-    height: 17px;
-    font: 13px/17px var(--font-ui);
-    color: var(--muted);
-    white-space: nowrap;
-  }
   .pause {
     min-width: 108px;
     min-height: 44px;
-  }
-  kbd {
-    font: 600 10px/1 var(--font-ui);
-    padding: 2px 4px;
-    border: 1px solid var(--line);
-    border-bottom-width: 2px;
-    border-radius: 4px;
-    color: var(--muted);
-  }
-  @media (pointer: coarse) {
-    kbd {
-      display: none;
-    }
-  }
-  /* Short landscape puts the action bar in a narrow side column: stack the choices. */
-  @media (orientation: landscape) and (max-height: 520px) {
-    .bar,
-    .choice {
-      flex-direction: column;
-      align-items: stretch;
-    }
-    .choice {
-      flex: 0 0 auto;
-    }
-    .hint {
-      text-align: center;
-      white-space: normal;
-      height: auto;
-    }
   }
 </style>

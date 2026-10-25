@@ -109,13 +109,14 @@
   <!-- Tapping the felt is a shortcut; every action also has its own button. -->
   <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_noninteractive_element_interactions -->
   <main class="table" onclick={tap}>
-    <div class="felt" style:--card-w={cardWidth}>
+    <div class="felt">
       <div class="tray" aria-hidden="true">
         {#each ['#f2efe8', '#c42332', '#1e8a4f', '#1b1b21', '#6c3fa8', '#1b1b21', '#1e8a4f', '#c42332', '#f2efe8'] as color, i (i)}
           <span style:--c={color}></span>
         {/each}
       </div>
-      {@render felt()}
+      <!-- Inside the felt so its container units measure the felt; no box of its own. -->
+      <div class="surface" style:--card-w={cardWidth}>{@render felt()}</div>
     </div>
   </main>
 
@@ -239,6 +240,9 @@
     padding: 6px;
     border-radius: 22px 22px 50% 50% / 22px 22px 60px 60px;
   }
+  .surface {
+    display: contents;
+  }
   .compact .felt {
     padding: 16px 6px 18px;
     border-radius: 16px 16px 50% 50% / 16px 16px 54px 54px;
@@ -268,10 +272,18 @@
     width: 9px;
     height: 5px;
   }
+  /*
+   * A fixed height, tall enough for the chip rack: switching between betting
+   * and deciding swaps what is in the bar, never the size of the felt above it.
+   */
   .act {
     grid-area: act;
+    display: grid;
+    align-content: center;
+    height: 92px;
   }
   .compact .act {
+    height: calc(132px + env(safe-area-inset-bottom));
     background: var(--rail);
     border-radius: 14px 14px 0 0;
   }
@@ -332,8 +344,7 @@
       padding-bottom: 8px;
     }
     .compact .act {
-      display: grid;
-      align-content: center;
+      height: auto;
       border-radius: 14px;
     }
   }

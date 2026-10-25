@@ -286,6 +286,7 @@
     height: 100%;
     grid-template-rows: auto minmax(36px, 1fr) auto auto;
     grid-template-areas: 'dealer' 'band' 'hands' 'spots';
+    transition: --card-w 320ms cubic-bezier(0.2, 0.8, 0.3, 1);
     align-items: center;
     justify-items: center;
     gap: 6px;

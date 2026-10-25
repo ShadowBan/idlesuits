@@ -19,8 +19,12 @@
   let { options, hint }: Props = $props();
 </script>
 
+<!--
+  Every button is the same fixed size, label over sub-line, and the hint is one
+  fixed line: whatever the choices say, the bar keeps its height.
+-->
 <div class="bar">
-  <div class="choice" role="group" aria-label="Your move">
+  <div class="choice" class:many={options.length >= 4} role="group" aria-label="Your move">
     {#each options as option (option.label)}
       <button
         type="button"
@@ -29,7 +33,7 @@
         disabled={option.disabled}
         onclick={option.pick}
       >
-        {option.label}
+        <span class="label">{option.label}</span>
         {#if option.sub}<small>{option.sub}</small>{/if}
         <kbd>{option.key}</kbd>
       </button>
@@ -43,7 +47,6 @@
     display: grid;
     justify-items: center;
     gap: 6px;
-    min-height: 58px;
     padding: 8px 12px calc(8px + env(safe-area-inset-bottom));
   }
   .choice {
@@ -54,19 +57,32 @@
     max-width: 560px;
   }
   .act {
+    position: relative;
     flex: 1 1 0;
+    min-width: 0;
+    height: 52px;
+    min-height: 0;
+    padding: 4px 8px;
+    display: grid;
+    place-content: center;
+    justify-items: center;
+    gap: 3px;
+    white-space: nowrap;
+  }
+  .label {
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
     font: 600 15px/1 var(--font-display);
     letter-spacing: 0.04em;
     text-transform: uppercase;
-    padding: 12px 14px;
-    min-height: 48px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: 6px;
+  }
+  .many .label {
+    font-size: 13px;
+    letter-spacing: 0.02em;
   }
   .act small {
-    font: 400 12px/1 var(--font-ui);
+    font: 400 11px/1 var(--font-ui);
     color: var(--muted);
   }
   .act.suggested {
@@ -88,9 +104,13 @@
     overflow: hidden;
     text-overflow: ellipsis;
   }
+  /* The key, tucked into the corner so it never takes room from the label. */
   kbd {
-    font: 600 10px/1 var(--font-ui);
-    padding: 2px 4px;
+    position: absolute;
+    top: 4px;
+    right: 5px;
+    font: 600 9px/1 var(--font-ui);
+    padding: 1px 3px;
     border: 1px solid var(--line);
     border-bottom-width: 2px;
     border-radius: 4px;
@@ -101,6 +121,12 @@
       display: none;
     }
   }
+  /* Phones: taller buttons for thumbs, filling the space the chip rack uses. */
+  @media (max-width: 899px) {
+    .act {
+      height: 60px;
+    }
+  }
   /* Short landscape puts the action bar in a narrow side column: stack the choices. */
   @media (orientation: landscape) and (max-height: 520px) {
     .choice {
@@ -108,9 +134,10 @@
     }
     .act {
       flex: 0 0 auto;
+      height: 44px;
     }
     .hint {
-      height: auto;
+      height: 34px;
       white-space: normal;
       text-align: center;
     }

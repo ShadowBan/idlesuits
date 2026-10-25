@@ -171,6 +171,16 @@ button.primary:hover {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+/*
+ * Card width is a typed length, so a table can let it glide: Blackjack's cards
+ * shrink smoothly to make room for a split rather than snapping.
+ */
+@property --card-w {
+  syntax: '<length>';
+  inherits: true;
+  initial-value: 72px;
+}
+
 .hand-tag {
   flex: none;
   font: 700 10px/1 var(--font-ui);

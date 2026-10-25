@@ -220,14 +220,19 @@
   }
   .slot {
     all: unset;
-    display: block;
+    position: relative;
+    display: flex;
     border-radius: calc(var(--card-w) * 0.1);
   }
   .slot.clickable {
     cursor: pointer;
     transition: transform 150ms ease;
-    padding: 4px;
-    margin: -4px;
+  }
+  /* A slightly larger target for thumbs, drawn outside the card so it takes no room. */
+  .slot.clickable::before {
+    content: '';
+    position: absolute;
+    inset: -4px;
   }
   .slot.clickable:hover {
     transform: translateY(-6px);
