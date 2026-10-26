@@ -43,11 +43,6 @@
       {#if label}
         <span class="total" class:bust={total?.bust} class:best={total?.total === 21}>{label}</span>
       {/if}
-      {#if hand?.outcome}
-        <span class="outcome">{outcomeLabel(hand.outcome)}</span>
-      {:else if note}
-        <span class="outcome note">{note}</span>
-      {/if}
     </span>
   </header>
 
@@ -63,6 +58,12 @@
         </div>
       </div>
     {/each}
+    <!-- The result is stamped across the cards, as a dealer marks a hand: it needs no room in the header. -->
+    {#if hand?.outcome}
+      <span class="stamp">{outcomeLabel(hand.outcome)}</span>
+    {:else if note}
+      <span class="stamp note">{note}</span>
+    {/if}
   </div>
 
   {#if side === 'player'}
@@ -141,27 +142,40 @@
   .total.bust {
     color: var(--loss);
   }
-  .outcome {
-    flex: none;
-    font: 700 10px/1 var(--font-ui);
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    padding: 4px 7px;
-    border-radius: 999px;
-    background: var(--chip-bg);
+  .stamp {
+    position: absolute;
+    left: 50%;
+    bottom: 10%;
+    z-index: 20;
+    transform: translateX(-50%) rotate(-6deg);
+    padding: 4px 9px;
+    border-radius: 6px;
+    border: 2px solid currentColor;
+    background: rgb(11 44 34 / 0.88);
     color: var(--muted);
-    animation: pop 260ms ease-out;
+    font: 700 max(11px, calc(var(--card-w) * 0.15)) / 1 var(--font-display);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    white-space: nowrap;
+    box-shadow: 0 3px 10px rgb(0 0 0 / 0.45);
+    pointer-events: none;
+    animation: stamp 300ms cubic-bezier(0.2, 0.9, 0.3, 1.3);
   }
-  .win .outcome {
-    background: var(--win);
-    color: var(--felt-deep);
+  .win .stamp {
+    color: var(--win);
   }
-  .loss .outcome {
-    background: color-mix(in srgb, var(--loss) 85%, black);
-    color: var(--felt-deep);
+  .loss .stamp {
+    color: var(--loss);
   }
-  .note {
+  .push .stamp,
+  .stamp.note {
     color: var(--gold);
+  }
+  @keyframes stamp {
+    from {
+      transform: translateX(-50%) rotate(-6deg) scale(1.8);
+      opacity: 0;
+    }
   }
   .fan {
     position: relative;
@@ -179,8 +193,9 @@
     );
     transition: transform 240ms cubic-bezier(0.2, 0.8, 0.3, 1);
   }
-  .loss .fan {
-    opacity: 0.8;
+  /* Darkened, not faded: faded cards in a fan would show through each other. */
+  .loss .place {
+    filter: brightness(0.8);
   }
   .stakes {
     display: flex;

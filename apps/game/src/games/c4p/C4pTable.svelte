@@ -170,10 +170,10 @@
           highlight={keep(game.dealer, game.dealerDiscard)}
         >
           {#snippet badge()}
-            {#if game.dealerScore !== null}
-              <span class="hand-name">{fourName(game.dealerScore)}</span>
-              <span class="hand-tag" class:good={!game.opens}>{game.opens ? 'Opens' : 'No open'}</span>
-            {/if}
+            {#if game.dealerScore !== null}<span class="hand-name">{fourName(game.dealerScore)}</span>{/if}
+          {/snippet}
+          {#snippet tag()}
+            {#if game.dealerScore !== null}<span class="hand-tag" class:good={!game.opens}>{game.opens ? 'Opens' : 'No open'}</span>{/if}
           {/snippet}
         </CardRow>
       </div>

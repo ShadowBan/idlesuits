@@ -244,7 +244,8 @@
     display: contents;
   }
   .compact .felt {
-    padding: 16px 6px 18px;
+    /* The bottom corners curve in: enough room that the outer cards of a low row clear them. */
+    padding: 16px 6px 30px;
     border-radius: 16px 16px 50% 50% / 16px 16px 54px 54px;
   }
   /* The dealer's chip tray, along the top edge. */

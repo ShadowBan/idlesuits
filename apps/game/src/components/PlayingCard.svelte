@@ -198,8 +198,28 @@
     font-size: calc(var(--card-w) * 0.58);
     line-height: 1;
   }
+  /*
+   * The joker has no rank to blow up: a big star in the corner and the word
+   * across the foot, where a suit would be. The wild tag moves up out of its way.
+   */
+  :global([data-cards='jumbo']) .joker-face .rank {
+    font-size: calc(var(--card-w) * 0.46);
+    color: var(--gold);
+  }
   :global([data-cards='jumbo']) .joker {
-    font-size: calc(var(--card-w) * 0.24);
+    position: absolute;
+    left: 50%;
+    bottom: 7%;
+    transform: translateX(-50%);
+    writing-mode: horizontal-tb;
+    font-size: calc(var(--card-w) * 0.2);
+  }
+  :global([data-cards='jumbo']) .wild {
+    left: auto;
+    right: 6%;
+    top: 6%;
+    bottom: auto;
+    transform: none;
   }
   .wild {
     position: absolute;

@@ -12,8 +12,10 @@
     highlight?: Set<string>;
     side?: 'player' | 'dealer' | 'board';
     flipMs?: number;
-    /** Hand name, results, badges — whatever the game wants beside the title. */
+    /** The hand's name, after the centre line. */
     badge?: Snippet;
+    /** A short status pill ("Qualifies"), before the title: the left half has room the right half lacks. */
+    tag?: Snippet;
     /** Which cards are wild, for games that have them. */
     wild?: (card: Card) => boolean;
     /** Changes with every new deal; the cards are then thrown in from the shoe, one by one. */
@@ -31,6 +33,7 @@
     side = 'player',
     flipMs = 260,
     badge,
+    tag,
     wild,
     deal = 0,
     dealOrder = 0,
@@ -43,7 +46,7 @@
   {#if title || badge}
     <!-- Two fixed halves: the title ends at the centre line and the hand's name starts there, so neither moves the other. -->
     <header>
-      <h2>{title ?? ''}</h2>
+      <span class="who">{@render tag?.()}<h2>{title ?? ''}</h2></span>
       <span class="badge">{@render badge?.()}</span>
     </header>
   {/if}
@@ -86,8 +89,13 @@
     height: 24px;
     white-space: nowrap;
   }
-  h2 {
-    justify-self: end;
+  .who {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
+    min-width: 0;
+    overflow: hidden;
   }
   .badge {
     display: flex;
@@ -97,6 +105,7 @@
     overflow: hidden;
   }
   h2 {
+    flex: none;
     margin: 0;
     font: 600 12px/1 var(--font-ui);
     letter-spacing: 0.14em;

@@ -207,6 +207,7 @@ button.primary:hover {
 
 /* A hand's name and status tags, shown beside a card row's title. */
 .hand-name {
+  min-width: 0;
   font: 700 15px/1 var(--font-display);
   text-transform: uppercase;
   letter-spacing: 0.03em;

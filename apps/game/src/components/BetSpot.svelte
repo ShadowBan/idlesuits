@@ -174,11 +174,6 @@
   .diamond.win .ring::before {
     border-color: var(--win);
   }
-  .diamond .ring:hover,
-  .diamond.win .ring,
-  .diamond.active .ring {
-    box-shadow: none;
-  }
   .placeable .ring {
     cursor: pointer;
   }
@@ -198,6 +193,20 @@
   .win .ring {
     border-color: var(--win);
     box-shadow: 0 0 16px rgb(107 224 143 / 0.45);
+  }
+  /* After the circle's states, so a diamond's square box never lights up: its turned square glows instead. */
+  .diamond .ring,
+  .diamond .ring:hover,
+  .diamond.win .ring,
+  .diamond.active .ring {
+    border-color: transparent;
+    box-shadow: none;
+  }
+  .diamond.win .ring::before {
+    box-shadow: 0 0 14px rgb(107 224 143 / 0.45);
+  }
+  .diamond.active .ring::before {
+    box-shadow: 0 0 14px rgb(232 182 76 / 0.45);
   }
   .print {
     position: absolute;

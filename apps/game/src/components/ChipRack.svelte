@@ -56,10 +56,16 @@
     display: flex;
     gap: 4px;
   }
+  /* Sized to the chip on both axes (phones give buttons a minimum width), so the ring stays round. */
   .pick {
     --chip: 40px;
-    padding: 2px;
+    width: calc(var(--chip) + 4px);
+    height: calc(var(--chip) + 4px);
+    min-width: 0;
     min-height: 0;
+    padding: 2px;
+    display: grid;
+    place-items: center;
     border: 0;
     border-radius: 50%;
     background: none;

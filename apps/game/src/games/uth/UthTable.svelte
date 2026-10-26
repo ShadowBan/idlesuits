@@ -143,10 +143,10 @@
         focus={game.dealerFocus}
       >
         {#snippet badge()}
-          {#if game.dealerHand}
-            <span class="hand-name">{handName(game.dealerHand)}</span>
-            <span class="hand-tag" class:good={!game.dealerQualified}>{game.dealerQualified ? 'Opens' : 'Does not open'}</span>
-          {/if}
+          {#if game.dealerHand}<span class="hand-name">{handName(game.dealerHand)}</span>{/if}
+        {/snippet}
+        {#snippet tag()}
+          {#if game.dealerHand}<span class="hand-tag" class:good={!game.dealerQualified}>{game.dealerQualified ? 'Opens' : 'No open'}</span>{/if}
         {/snippet}
       </CardRow></div>
 
