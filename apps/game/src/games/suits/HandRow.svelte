@@ -113,7 +113,7 @@
   <ul class="counters" aria-label="Suit counts">
     {#each SUITS as suit (suit)}
       {@const n = hand.eval?.suitCounts[suit] ?? 0}
-      <li class:lead={lead === suit} class:red={suit === 'H' || suit === 'D'}>
+      <li class:lead={lead === suit} style:--soft="var(--suit-{suit}-soft)">
         {SUIT_SYMBOL[suit]}
         {#key n}<b class="n">{n}</b>{/key}
       </li>
@@ -262,8 +262,8 @@
       color 200ms,
       transform 200ms;
   }
-  .counters li.red {
-    color: var(--suit-red-soft);
+  .counters li:not(.lead) {
+    color: var(--soft);
   }
   .counters li.lead {
     background: var(--side);

@@ -24,6 +24,23 @@
   --card-red: #c62f3a;
   --card-black: #1d1d22;
   --suit-red-soft: #f08a91;
+  /* Drawn round a card's face; only the high-contrast cards use it. */
+  --card-edge: transparent;
+
+  /*
+   * Each suit's colour, on a card and (soft) on the dark felt. The player picks
+   * the scheme (lib/cardStyle): two-colour, four-colour or high contrast.
+   */
+  --suit-S: var(--card-black);
+  --suit-H: var(--card-red);
+  --suit-D: var(--card-red);
+  --suit-C: var(--card-black);
+  --suit-S-soft: var(--muted);
+  --suit-H-soft: var(--suit-red-soft);
+  --suit-D-soft: var(--suit-red-soft);
+  --suit-C-soft: var(--muted);
+  /* How far each card in an overlapping fan shows past the one before it, in card widths. */
+  --fan-step: 0.36;
 
   /*
    * Sized from both axes so a hand always fits, however short or narrow the
@@ -34,6 +51,31 @@
   --card-gap: clamp(3px, 1vw, 10px);
 
   color-scheme: dark;
+}
+
+/* Four-colour deck: every suit tells itself apart at a glance, as on most online poker tables. */
+:root[data-suits='four'] {
+  --suit-D: #1f5fc8;
+  --suit-C: #14823d;
+  --suit-D-soft: #8db6ff;
+  --suit-C-soft: #7fdf9c;
+}
+/* High contrast: pure white faces with a black edge, and the darkest colours that still read as red. */
+:root[data-suits='contrast'] {
+  --card-face: #ffffff;
+  --card-black: #000000;
+  --card-red: #b0001a;
+  --card-edge: #000000;
+  --suit-S-soft: #ffffff;
+  --suit-C-soft: #ffffff;
+  --suit-red-soft: #ff9aa2;
+}
+/* Bigger indices need a wider slice of each card showing in a fan. */
+:root[data-cards='large'] {
+  --fan-step: 0.42;
+}
+:root[data-cards='jumbo'] {
+  --fan-step: 0.52;
 }
 
 * {

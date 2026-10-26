@@ -22,7 +22,7 @@
 {#snippet cards(list: { rank: string; suit: Suit }[], dim = false)}
   <span class="mini-hand" class:dim>
     {#each list as c, i (i)}
-      <span class="mini" class:red={c.suit === 'H' || c.suit === 'D'}>{c.rank}{SUIT_SYMBOL[c.suit]}</span>
+      <span class="mini" style:color="var(--suit-{c.suit})">{c.rank}{SUIT_SYMBOL[c.suit]}</span>
     {/each}
   </span>
 {/snippet}
@@ -204,9 +204,6 @@
     background: var(--card-face);
     color: var(--card-black);
     font: 700 11px/1 var(--font-display);
-  }
-  .mini.red {
-    color: var(--card-red);
   }
   .mini-hand.dim .mini {
     filter: saturate(0.35) brightness(0.62);

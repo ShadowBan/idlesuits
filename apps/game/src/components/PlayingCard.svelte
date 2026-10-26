@@ -17,8 +17,13 @@
   let { card, highlight = false, dim = false, focus = false, flipMs = 260, wild = false }: Props = $props();
 
   const SUIT_NAME = { S: 'spades', H: 'hearts', D: 'diamonds', C: 'clubs' } as const;
-  const red = $derived(!card?.joker && (card?.suit === 'H' || card?.suit === 'D'));
 </script>
+
+<!--
+  The face's layout and colours come from the player's card style (lib/cardStyle),
+  set as attributes on <html>: classic, large index or jumbo faces, in two
+  colours, four colours or high contrast.
+-->
 
 <div
   class="card"
@@ -32,19 +37,18 @@
     <div class="face back" aria-hidden="true"></div>
     <!-- The front is empty while face down, so no old face can ever show through. -->
     <div
-      class="face front"
-      class:red
+      class="face front {card && !card.joker ? `suit-${card.suit}` : 'joker-face'}"
       aria-label={card ? (card.joker ? 'Joker' : `${rankLabel(card.rank)} of ${SUIT_NAME[card.suit]}`) : undefined}
     >
       {#if card?.joker}
-        <span class="corner">★</span>
+        <span class="corner"><b class="rank">★</b></span>
         <span class="joker">Joker</span>
-        <span class="corner flip">★</span>
+        <span class="corner flip"><b class="rank">★</b></span>
         {#if wild}<span class="wild">Wild</span>{/if}
       {:else if card}
-        <span class="corner">{rankLabel(card.rank)}<br />{SUIT_SYMBOL[card.suit]}</span>
+        <span class="corner"><b class="rank">{rankLabel(card.rank)}</b><span class="suit">{SUIT_SYMBOL[card.suit]}</span></span>
         <span class="pip">{SUIT_SYMBOL[card.suit]}</span>
-        <span class="corner flip">{rankLabel(card.rank)}<br />{SUIT_SYMBOL[card.suit]}</span>
+        <span class="corner flip"><b class="rank">{rankLabel(card.rank)}</b><span class="suit">{SUIT_SYMBOL[card.suit]}</span></span>
         {#if wild}<span class="wild">Wild</span>{/if}
       {/if}
     </div>
@@ -95,18 +99,36 @@
     display: grid;
     place-items: center;
     font-family: var(--font-display);
+    box-shadow:
+      inset 0 0 0 calc(var(--card-w) * 0.03) var(--card-edge),
+      0 2px 6px rgb(0 0 0 / 0.35);
   }
-  .front.red {
-    color: var(--card-red);
+  .suit-S {
+    color: var(--suit-S);
   }
+  .suit-H {
+    color: var(--suit-H);
+  }
+  .suit-D {
+    color: var(--suit-D);
+  }
+  .suit-C {
+    color: var(--suit-C);
+  }
+
+  /* Classic: a small index in two corners and the suit in the middle. */
   .corner {
     position: absolute;
     top: 5%;
     left: 8%;
+    display: grid;
+    justify-items: center;
     font-size: calc(var(--card-w) * 0.2);
     line-height: 0.95;
-    font-weight: 700;
     text-align: center;
+  }
+  .rank {
+    font-weight: 700;
   }
   .corner.flip {
     top: auto;
@@ -117,6 +139,67 @@
   }
   .pip {
     font-size: calc(var(--card-w) * 0.5);
+  }
+
+  /*
+   * Large index: the corner is most of what shows in a fan or on a phone, so
+   * make it nearly twice the size. The upside-down corner goes; the suit in
+   * the middle steps down and aside.
+   */
+  :global([data-cards='large']) .corner {
+    top: 4%;
+    left: 6%;
+    gap: 2px;
+  }
+  :global([data-cards='large']) .rank {
+    font-size: calc(var(--card-w) * 0.38);
+    line-height: 0.9;
+    letter-spacing: -0.04em;
+  }
+  :global([data-cards='large']) .suit {
+    font-size: calc(var(--card-w) * 0.3);
+    line-height: 1;
+  }
+  :global([data-cards='large']) .corner.flip {
+    display: none;
+  }
+  :global([data-cards='large']) .pip {
+    font-size: calc(var(--card-w) * 0.44);
+    transform: translate(22%, 34%);
+  }
+
+  /*
+   * Jumbo: the rank as big as the card is wide, the suit under it, and the
+   * suit again filling the opposite corner. Nothing else.
+   */
+  :global([data-cards='jumbo']) .corner {
+    top: 2%;
+    left: 5%;
+    justify-items: start;
+    gap: 0;
+  }
+  :global([data-cards='jumbo']) .rank {
+    font-size: calc(var(--card-w) * 0.6);
+    line-height: 0.88;
+    letter-spacing: -0.06em;
+  }
+  :global([data-cards='jumbo']) .suit {
+    font-size: calc(var(--card-w) * 0.4);
+    line-height: 1;
+    margin-left: 0.04em;
+  }
+  :global([data-cards='jumbo']) .corner.flip {
+    display: none;
+  }
+  :global([data-cards='jumbo']) .pip {
+    position: absolute;
+    right: 6%;
+    bottom: 1%;
+    font-size: calc(var(--card-w) * 0.58);
+    line-height: 1;
+  }
+  :global([data-cards='jumbo']) .joker {
+    font-size: calc(var(--card-w) * 0.24);
   }
   .wild {
     position: absolute;
@@ -150,6 +233,10 @@
   }
   .dim .front {
     filter: saturate(0.35) brightness(0.62);
+  }
+  /* High contrast keeps set-aside cards readable: pushed back, but only a little darker. */
+  :global([data-suits='contrast']) .dim .front {
+    filter: brightness(0.82);
   }
   .focus {
     transform: translateY(-14px) scale(1.08);

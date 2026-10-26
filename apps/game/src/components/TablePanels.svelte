@@ -4,6 +4,7 @@
   import { formatMoney, type Decimal } from '../lib/money';
   import { SPEEDS, type SpeedControl } from '../lib/sequencer.svelte';
   import Breakdown from './Breakdown.svelte';
+  import CardStylePicker from './CardStylePicker.svelte';
 
   interface Props {
     seq: SpeedControl;
@@ -54,6 +55,11 @@
       </li>
     {/each}
   </ol>
+</section>
+
+<section class="panel">
+  <h2>Cards</h2>
+  <CardStylePicker />
 </section>
 
 <section class="panel">

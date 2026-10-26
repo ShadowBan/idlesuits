@@ -82,7 +82,7 @@
 
 <style>
   .hand {
-    --step: min(calc(var(--card-w) * 0.36), calc(var(--card-w) * 1.44 / max(var(--n) - 1, 1)));
+    --step: min(calc(var(--card-w) * var(--fan-step)), calc(var(--card-w) * 1.44 / max(var(--n) - 1, 1)));
     --fan: calc(var(--card-w) * 2.44);
     display: grid;
     justify-items: center;

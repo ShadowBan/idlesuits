@@ -2,9 +2,23 @@
   import { bankroll } from '../lib/casino.svelte';
   import { GAMES, type GameEntry } from '../lib/games';
   import { formatMoney } from '../lib/money';
+  import CardStylePicker from './CardStylePicker.svelte';
 
   let { onPlay }: { onPlay: (game: GameEntry) => void } = $props();
+
+  let cards = $state<HTMLDialogElement>();
 </script>
+
+<dialog bind:this={cards} class="cards-dialog" aria-labelledby="cards-title" onclick={(e) => e.target === cards && cards.close()}>
+  <div class="dialog-body">
+    <header>
+      <h2 id="cards-title">Card faces</h2>
+      <button type="button" onclick={() => cards?.close()} aria-label="Close">✕</button>
+    </header>
+    <p class="note">Pick what is easiest to read. It applies at every table, and you can change it any time from a table's panel.</p>
+    <CardStylePicker />
+  </div>
+</dialog>
 
 <div class="lobby">
   <header>
@@ -12,9 +26,12 @@
       <h1>The Floor</h1>
       <p class="sub">Pick a table. Your money follows you from game to game.</p>
     </div>
-    <div class="bank">
-      <span class="k">Bank</span>
-      <span class="v">{formatMoney(bankroll.balance)}</span>
+    <div class="corner">
+      <button type="button" class="faces" onclick={() => cards?.showModal()}>Card faces</button>
+      <div class="bank">
+        <span class="k">Bank</span>
+        <span class="v">{formatMoney(bankroll.balance)}</span>
+      </div>
     </div>
   </header>
 
@@ -50,6 +67,47 @@
 </div>
 
 <style>
+  .corner {
+    display: flex;
+    align-items: end;
+    gap: 16px;
+  }
+  .faces {
+    min-height: 40px;
+  }
+  .cards-dialog {
+    width: min(420px, calc(100vw - 24px));
+    padding: 0;
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    background: var(--rail);
+    color: var(--ink);
+  }
+  .cards-dialog::backdrop {
+    background: rgb(0 0 0 / 0.6);
+  }
+  .dialog-body {
+    display: grid;
+    gap: 12px;
+    padding: 14px 16px 18px;
+  }
+  .dialog-body header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .dialog-body h2 {
+    margin: 0;
+    font: 700 18px/1 var(--font-display);
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--gold);
+  }
+  .note {
+    margin: 0;
+    font: 13px/1.4 var(--font-ui);
+    color: var(--muted);
+  }
   .lobby {
     min-height: 100dvh;
     padding: 24px 16px calc(32px + env(safe-area-inset-bottom));

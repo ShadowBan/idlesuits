@@ -31,7 +31,7 @@ const OUTCOME_LABEL: Record<HandOutcome, string> = {
   win: 'Win',
   lose: 'Lose',
   push: 'Push',
-  push22: 'Push · dealer 22',
+  push22: 'Push 22',
   bust: 'Bust',
   dealerBlackjack: 'Dealer blackjack',
 };

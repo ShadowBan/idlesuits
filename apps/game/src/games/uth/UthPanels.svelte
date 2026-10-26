@@ -1,6 +1,7 @@
 <script lang="ts">
   import { Category, CATEGORY_NAMES } from '@idlesuits/sim';
   import Breakdown from '../../components/Breakdown.svelte';
+  import CardStylePicker from '../../components/CardStylePicker.svelte';
   import PayTable from '../../components/PayTable.svelte';
   import SideBetsPanel from '../../components/SideBetsPanel.svelte';
   import { formatMoney } from '../../lib/money';
@@ -68,6 +69,11 @@
       </li>
     {/each}
   </ol>
+</section>
+
+<section class="panel">
+  <h2>Cards</h2>
+  <CardStylePicker />
 </section>
 
 <section class="panel">

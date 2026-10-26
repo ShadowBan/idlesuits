@@ -207,7 +207,7 @@
           {#if game.bonusCards.length}
             <span class="bonus-label">6-Card Bonus</span>
             {#each game.bonusCards as card (card.uid)}
-              <span class="pc" class:red={card.suit === 'H' || card.suit === 'D'}>{rankLabel(card.rank)}{SUIT_SYMBOL[card.suit]}</span>
+              <span class="pc" style:color="var(--suit-{card.suit})">{rankLabel(card.rank)}{SUIT_SYMBOL[card.suit]}</span>
             {/each}
           {/if}
         </p>
@@ -395,9 +395,6 @@
     color: var(--card-black);
     font: 700 12px/1 var(--font-display);
     letter-spacing: 0;
-  }
-  .pc.red {
-    color: var(--card-red);
   }
   .overlay {
     position: absolute;
