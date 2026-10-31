@@ -2,6 +2,7 @@
   import { Category, CATEGORY_NAMES } from '@idlesuits/sim';
   import Breakdown from '../../components/Breakdown.svelte';
   import CardStylePicker from '../../components/CardStylePicker.svelte';
+  import CharmsPanel from '../../components/charms/CharmsPanel.svelte';
   import PayTable from '../../components/PayTable.svelte';
   import SideBetsPanel from '../../components/SideBetsPanel.svelte';
   import { formatMoney } from '../../lib/money';
@@ -27,6 +28,8 @@
     game.playerHand && game.net !== null && !game.folded ? CATEGORY_NAMES[game.playerHand.category] : undefined,
   );
 </script>
+
+<CharmsPanel />
 
 <section class="panel">
   <h2>Your bets <span>set with chips on the felt</span></h2>

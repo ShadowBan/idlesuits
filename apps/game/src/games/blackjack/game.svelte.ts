@@ -9,10 +9,13 @@ import {
   type BjRules,
   type Decision,
   type Move,
+  type RoundReport,
   type StrategyTables,
 } from '@idlesuits/sim';
 import { bankroll } from '../../lib/casino.svelte';
 import { Decimal } from '../../lib/money';
+import { meta } from '../../lib/meta.svelte';
+import { mainBet, outcomeOf, sideBets } from '../../lib/report';
 import { Sequencer } from '../../lib/sequencer.svelte';
 import { SideStakes } from '../../lib/sidebets.svelte';
 import { sfx } from '../../lib/sound';
@@ -91,6 +94,12 @@ export class BjGame {
   freeWins = $state(new Decimal(0));
   push22s = $state(0);
   history = $state<HistoryEntry[]>([]);
+
+  constructor() {
+    // Sit back down and the chips and the speed are as you left them.
+    this.bets.remember('blackjack');
+    this.seq.remember('blackjack');
+  }
 
   get bank(): Decimal {
     return bankroll.balance;
@@ -253,9 +262,27 @@ export class BjGame {
   }
 
   private settle(result: BjRoundResult, bet: Decimal) {
-    const net = bet.mul(result.net);
+    const mainNet = result.hands.reduce((sum, h) => sum + (h.net ?? 0), 0);
+    const report: RoundReport = {
+      game: 'blackjack',
+      seed: { run: this.runSeed, round: this.round },
+      bets: [
+        // The house's free money counts toward the odds a hand paid, so a free double still pays 1:1.
+        ...result.hands.flatMap((h) => mainBet(h.bet + h.free, h.net ?? 0)),
+        ...sideBets(result.bonuses, this.roundSide),
+      ],
+      outcome: outcomeOf(false, mainNet),
+      blackjack: result.hands.some((h) => h.outcome === 'blackjack'),
+    };
+    // Charms act on the settled hand; the bankroll is paid the hand and whatever they add.
+    const charms = meta.settleRound(report, bet, result.net);
+    const units = result.net + charms.extra;
+    if (charms.lines.length) {
+      this.view.net = units;
+      this.view.last = { lines: [...(this.view.last?.lines ?? []), ...charms.lines], net: units };
+    }
+    const net = bet.mul(units);
     this.lastBet = bet;
-    bankroll.settle(net);
     this.sessionNet = this.sessionNet.add(net);
     if (net.gt(this.biggestWin)) this.biggestWin = net;
     this.hands += result.hands.length;

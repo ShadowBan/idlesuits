@@ -4,7 +4,9 @@ import { zzfx, ZZFX } from 'zzfx';
 // shapeCurve, slide, deltaSlide, pitchJump, pitchJumpTime, repeatTime, noise, ...
 // Shapes: 0 sine, 1 triangle, 2 saw, 3 tan, 4 noise, 5 square.
 
-let muted = false;
+import { load, save } from './save';
+
+let muted = load('muted', false);
 ZZFX.volume = 0.25;
 
 function play(...params: (number | undefined)[]) {
@@ -18,6 +20,12 @@ function play(...params: (number | undefined)[]) {
 
 export function setMuted(value: boolean) {
   muted = value;
+  save('muted', value);
+}
+
+/** The saved sound setting, for a table's mute switch to start from. */
+export function isMuted(): boolean {
+  return muted;
 }
 
 /** Browsers only allow audio after a user gesture; call from a click handler. */

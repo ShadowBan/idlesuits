@@ -4,6 +4,7 @@
   import type { Decimal } from '../lib/money';
   import { SPEEDS, type SpeedControl } from '../lib/sequencer.svelte';
   import BankCounter from './BankCounter.svelte';
+  import TokenCounter from './charms/TokenCounter.svelte';
 
   interface Props {
     /** Shown as two words, the second in gold. */
@@ -81,6 +82,7 @@
     <h1>{title[0]} <span>{title[1]}</span></h1>
 
     <div class="bank"><BankCounter {bank} /></div>
+    <TokenCounter />
 
     {#if !compact.current}
       <div class="speed" role="group" aria-label="Deal speed">
@@ -179,6 +181,9 @@
     min-width: 96px;
   }
   .compact .bank {
+    min-width: 64px;
+  }
+  .compact :global(.tokens) {
     margin-right: auto;
   }
   .speed {

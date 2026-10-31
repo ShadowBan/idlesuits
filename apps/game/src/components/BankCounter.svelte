@@ -64,13 +64,14 @@
   :global(.compact) .v {
     font-size: 18px;
   }
+
   /* Floats up off the counter and fades: never part of the layout. */
+  /* Floats up over the label: Tokens sit right beside the bank, so there is no room to the side. */
   .delta {
     position: absolute;
-    left: 100%;
-    bottom: 2px;
-    margin-left: 6px;
-    font: 700 14px/1 var(--font-display);
+    left: 36px;
+    top: -4px;
+    font: 700 13px/1 var(--font-display);
     font-variant-numeric: tabular-nums;
     color: var(--win);
     white-space: nowrap;

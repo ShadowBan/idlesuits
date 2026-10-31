@@ -117,6 +117,21 @@ shows the measured edge beside every side bet.
 The simulator produces an event log; the UI only plays that log back. Any hand can be reproduced
 exactly from its seed.
 
+## Tokens and lucky charms
+
+Winning at any table earns **Tokens**: each winning bet earns its pay odds, whatever its stake.
+Tokens are never lost; they're spent at the **Charm Machine** (`#/charms`), a capsule machine of
+collectible lucky charms. Duplicates level a charm up, up to five are equipped at once, and
+Rare-or-better charms form sets. The design is in [docs/charms_v0_1.md](docs/charms_v0_1.md).
+
+The catalog, levels, the machine's draws and every effect are pure and seeded, in
+`packages/sim/src/charms/`. Each table reports a settled hand to `meta.settleRound`
+(`apps/game/src/lib/meta.svelte.ts`) with a `RoundReport`: each bet's stake and result, the
+outcome and the hand made. That one call applies the charms and pays the bankroll and the Tokens.
+
+Everything is saved in the browser (`lib/save.ts`): the bankroll, Tokens, charms, each table's
+bets and speed, sound and card style.
+
 ## Adding a game
 
 Each game is a folder under `src/games/` and one entry in [`src/lib/games.ts`](apps/game/src/lib/games.ts).
@@ -140,6 +155,9 @@ Nothing else in the shell needs to know it exists.
    a `resolve` from the dealt cards) and settle them with `settleBonuses`. On the table,
    `SideStakes` holds the stakes and [`SideBetsPanel`](apps/game/src/components/SideBetsPanel.svelte)
    shows the pay tables. Then add the bet to `npm run audit`.
+6. When a hand settles, build a `RoundReport` (`lib/report.ts` has helpers) and call
+   `meta.settleRound` instead of paying the bankroll directly, so charms and Tokens work at the
+   new table. Call `bets.remember(id)` and `seq.remember(id)` so its bets and speed are saved.
 5. Bets are chips on the felt. `ChipBets` (in `lib/stakes.svelte.ts`) holds the next hand's main bet
    and side bets and keeps them within the bankroll; `spotView` tells each `BetSpot` what to show
    between hands and once the hand settles. Deal only when `bets.canDeal`.

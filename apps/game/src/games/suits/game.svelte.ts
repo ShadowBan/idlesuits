@@ -9,12 +9,16 @@ import {
   type RaisePolicy,
   type SeatConfig,
   type Suit,
+  type RoundReport,
   type TableRules,
 } from '@idlesuits/sim';
 import { bankroll } from '../../lib/casino.svelte';
 import { Clock } from '../../lib/clock';
 import { beatDelay, direct, resultHold, type Beat, type Drama, type SpeedMode } from './director';
 import { Decimal } from '../../lib/money';
+import { meta } from '../../lib/meta.svelte';
+import { mainBet } from '../../lib/report';
+import { load, save } from '../../lib/save';
 import { SideStakes } from '../../lib/sidebets.svelte';
 import { sfx } from '../../lib/sound';
 import { ChipBets } from '../../lib/stakes.svelte';
@@ -71,7 +75,16 @@ export class Game {
   started = $state(false);
   paused = $state(false);
   gameOver = $state(false);
-  speed = $state<SpeedMode>('smart');
+  #speed = $state<SpeedMode>(load<SpeedMode>('speed.suits', 'smart'));
+
+  get speed(): SpeedMode {
+    return this.#speed;
+  }
+
+  set speed(value: SpeedMode) {
+    this.#speed = value;
+    save('speed.suits', value);
+  }
   /** Dollar stake per side bet for the next hand; zero means not claimed. Independent of the ante. */
   readonly side = new SideStakes(this.rules.sideBets);
   /** Chips on the spots for the next hand. */
@@ -84,10 +97,10 @@ export class Game {
   );
   /** Counts deals, so the table can throw each new hand in from the shoe. */
   deals = $state(0);
-  raisePlan = $state<RaisePlan>(structuredClone(DEFAULT_PLAN));
+  raisePlan = $state<RaisePlan>(load('plan.suits', structuredClone(DEFAULT_PLAN)));
   estimate = $state<Estimate | null>(null);
   /** Dev toggle: the dealer takes any side bet the player leaves open. */
-  dealerClaims = $state(false);
+  dealerClaims = $state(load('dealerClaims.suits', false));
 
   hands = $state(0);
   sessionNet = $state(new Decimal(0));
@@ -113,6 +126,8 @@ export class Game {
 
   constructor() {
     this.side.stakes = { ...this.side.stakes, flushRush: new Decimal(STARTING_ANTE) };
+    // Sit back down and the chips are as you left them.
+    this.bets.remember('suits');
     this.view.apply({ type: 'RoundStarted', round: 0, shoeSize: this.shoe.length, seats: 1 });
   }
 
@@ -364,9 +379,28 @@ export class Game {
     }
 
     const seat = result.seats[0]!;
-    const net = ante.mul(seat.net);
+    const report: RoundReport = {
+      game: 'suits',
+      seed: { run: this.runSeed, round: this.round },
+      bets: [
+        ...mainBet(1 + seat.raise, seat.mainNet),
+        ...Object.values(seat.sideBets)
+          .filter((b) => b.owner === 'player')
+          .flatMap((b) => (b.stake > 0 ? [{ kind: 'side' as const, stake: b.stake, net: b.net }] : [])),
+      ],
+      outcome: seat.outcome === 'dealerNoQualify' ? 'win' : seat.outcome,
+      // Every hand here is a flush; a charm's "flush" is a big one.
+      flush: seat.hand.size >= 6,
+    };
+    // Charms act on the settled hand; the bankroll is paid the hand and whatever they add.
+    const charms = meta.settleRound(report, ante, seat.net);
+    const units = seat.net + charms.extra;
+    if (charms.lines.length) {
+      this.view.net = units;
+      this.view.last = { lines: [...(this.view.last?.lines ?? []), ...charms.lines], net: units };
+    }
+    const net = ante.mul(units);
     this.lastAnte = ante;
-    bankroll.settle(net);
     this.sessionNet = this.sessionNet.add(net);
     if (net.gt(this.biggestWin)) this.biggestWin = net;
     this.hands++;

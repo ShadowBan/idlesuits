@@ -2,6 +2,7 @@
   import { chipIndexAtMost } from '../lib/chips';
   import { formatMoney, type Decimal } from '../lib/money';
   import Chip from './Chip.svelte';
+  import CharmFlash from './charms/CharmFlash.svelte';
 
   interface Props {
     /** "You win", "Dealer wins", "Push", "Folded". */
@@ -46,6 +47,7 @@
   {/if}
   <p class="title">{heading} <b>{formatMoney(net, true)}</b></p>
   {#if line}<p class="detail">{line}</p>{/if}
+  <CharmFlash />
 </div>
 
 <style>

@@ -15,10 +15,14 @@ import {
   type PaiGowRoundResult,
   type PaiGowSet,
   type SetHands,
+  pgCategoryOf,
+  type RoundReport,
 } from '@idlesuits/sim';
 import type { BreakdownLine } from '../../lib/breakdown';
 import { bankroll } from '../../lib/casino.svelte';
 import { Decimal } from '../../lib/money';
+import { meta } from '../../lib/meta.svelte';
+import { mainBet, outcomeOf, sideBets } from '../../lib/report';
 import { Sequencer } from '../../lib/sequencer.svelte';
 import { bonusLine, SideStakes } from '../../lib/sidebets.svelte';
 import { ChipBets } from '../../lib/stakes.svelte';
@@ -108,6 +112,12 @@ export class PaiGowGame {
   biggestWin = $state(new Decimal(0));
   outcomes = $state<Record<PaiGowOutcome, number>>({ win: 0, push: 0, lose: 0 });
   history = $state<HistoryEntry[]>([]);
+
+  constructor() {
+    // Sit back down and the chips and the speed are as you left them.
+    this.bets.remember('paigow');
+    this.seq.remember('paigow');
+  }
 
   get bank(): Decimal {
     return bankroll.balance;
@@ -314,9 +324,22 @@ export class PaiGowGame {
   }
 
   private settle(result: PaiGowRoundResult, bet: Decimal) {
-    const net = bet.mul(result.net);
+    const report: RoundReport = {
+      game: 'paigow',
+      seed: { run: this.runSeed, round: this.round },
+      bets: [...mainBet(1, result.main), ...sideBets(result.bonuses, this.roundSide)],
+      outcome: result.outcome,
+      tier: Math.min(9, pgCategoryOf(result.playerSet.highScore)),
+    };
+    // Charms act on the settled hand; the bankroll is paid the hand and whatever they add.
+    const charms = meta.settleRound(report, bet, result.net);
+    const units = result.net + charms.extra;
+    if (charms.lines.length) {
+      this.net = units;
+      this.last = { lines: [...(this.last?.lines ?? []), ...charms.lines], net: units };
+    }
+    const net = bet.mul(units);
     this.lastBet = bet;
-    bankroll.settle(net);
     this.sessionNet = this.sessionNet.add(net);
     if (net.gt(this.biggestWin)) this.biggestWin = net;
     this.outcomes = { ...this.outcomes, [result.outcome]: this.outcomes[result.outcome] + 1 };

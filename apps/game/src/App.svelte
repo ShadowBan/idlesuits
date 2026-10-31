@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { Component } from 'svelte';
+  import CharmsPage from './components/charms/CharmsPage.svelte';
   import Lobby from './components/Lobby.svelte';
   import { findGame, type GameEntry, type GameProps } from './lib/games';
   import { route } from './lib/route.svelte';
@@ -35,7 +36,9 @@
   }
 </script>
 
-{#if !openGame}
+{#if route.current === 'charms'}
+  <CharmsPage onExit={exit} />
+{:else if !openGame}
   <Lobby onPlay={play} />
 {:else if loaded?.id === openGame.id}
   {@const Table = loaded.component}

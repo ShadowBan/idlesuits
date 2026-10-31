@@ -12,7 +12,7 @@
   import { heldValue } from '../../lib/betting.svelte';
   import type { GameProps } from '../../lib/games';
   import { formatMoney } from '../../lib/money';
-  import { setMuted, sfx, unlockAudio } from '../../lib/sound';
+  import { isMuted, setMuted, sfx, unlockAudio } from '../../lib/sound';
   import { spotView } from '../../lib/stakes.svelte';
   import { PaiGowGame } from './game.svelte';
   import PaiGowRules from './PaiGowRules.svelte';
@@ -24,7 +24,7 @@
   const seq = game.seq;
   onDestroy(() => game.dispose());
 
-  let muted = $state(false);
+  let muted = $state(isMuted());
   let rules = $state<PaiGowRules>();
   $effect(() => setMuted(muted));
 

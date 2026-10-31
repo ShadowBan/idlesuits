@@ -11,7 +11,8 @@
   import { heldValue } from '../../lib/betting.svelte';
   import type { GameProps } from '../../lib/games';
   import { Decimal, formatMoney } from '../../lib/money';
-  import { setMuted, sfx, unlockAudio } from '../../lib/sound';
+  import { save } from '../../lib/save';
+  import { isMuted, setMuted, sfx, unlockAudio } from '../../lib/sound';
   import { spotView } from '../../lib/stakes.svelte';
   import BetPanel from './BetPanel.svelte';
   import type { SpeedMode } from './director';
@@ -28,7 +29,7 @@
 
   const FLIP_MS: Record<SpeedMode, number> = { smart: 280, '1x': 320, '2x': 200, '5x': 90 };
 
-  let muted = $state(false);
+  let muted = $state(isMuted());
   let rulesDialog = $state<RulesDialog>();
   $effect(() => setMuted(muted));
 
@@ -53,6 +54,10 @@
     const timer = setTimeout(() => key && game.refreshEstimate(), 250);
     return () => clearTimeout(timer);
   });
+
+  // The raise plan and the dealer toggle are kept across visits.
+  $effect(() => save('plan.suits', $state.snapshot(game.raisePlan)));
+  $effect(() => save('dealerClaims.suits', game.dealerClaims));
 
   // The spots on the felt.
   const betting = $derived(game.awaiting === 'deal' && (game.bets.touched || game.hands === 0));

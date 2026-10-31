@@ -14,7 +14,7 @@
   import { heldValue } from '../../lib/betting.svelte';
   import type { GameProps } from '../../lib/games';
   import { Decimal, formatMoney } from '../../lib/money';
-  import { setMuted, sfx, unlockAudio } from '../../lib/sound';
+  import { isMuted, setMuted, sfx, unlockAudio } from '../../lib/sound';
   import { spotView } from '../../lib/stakes.svelte';
   import { handPhrase, showdownLine } from '../../lib/verdict';
   import C4pRules from './C4pRules.svelte';
@@ -26,7 +26,7 @@
   const seq = game.seq;
   onDestroy(() => game.dispose());
 
-  let muted = $state(false);
+  let muted = $state(isMuted());
   let rules = $state<C4pRules>();
   $effect(() => setMuted(muted));
 

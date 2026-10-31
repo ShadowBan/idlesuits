@@ -1,4 +1,5 @@
 import { Clock } from './clock';
+import { load, save } from './save';
 
 export type SpeedMode = 'smart' | '1x' | '2x' | '5x';
 export const SPEEDS: SpeedMode[] = ['smart', '1x', '2x', '5x'];
@@ -15,7 +16,25 @@ const FACTOR: Record<SpeedMode, number> = { smart: 1, '1x': 1, '2x': 2, '5x': 5 
  * so a game can be abandoned mid-round without leaving a loop behind.
  */
 export class Sequencer<Answer> {
-  speed = $state<SpeedMode>('smart');
+  #speed = $state<SpeedMode>('smart');
+  /** Where the speed is saved, once `remember` has been called. */
+  private key: string | null = null;
+
+  get speed(): SpeedMode {
+    return this.#speed;
+  }
+
+  set speed(value: SpeedMode) {
+    this.#speed = value;
+    if (this.key) save(`speed.${this.key}`, value);
+  }
+
+  /** Saves this table's speed in the browser, and brings back the last one. */
+  remember(key: string) {
+    this.key = key;
+    const saved = load<SpeedMode | null>(`speed.${key}`, null);
+    if (saved && SPEEDS.includes(saved)) this.#speed = saved;
+  }
   paused = $state(false);
   /** What the table is waiting on the player for, if anything. */
   awaiting = $state<string | null>(null);

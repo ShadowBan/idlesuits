@@ -1,4 +1,5 @@
 import { Decimal } from './money';
+import { load, saveSoon } from './save';
 import type { SideStakes } from './sidebets.svelte';
 
 /**
@@ -10,6 +11,8 @@ import type { SideStakes } from './sidebets.svelte';
 export class ChipBets {
   /** The player has moved chips since the last hand, so the felt shows the next bet, not the last result. */
   touched = $state(false);
+  /** Where this table's bets are saved, once `remember` has been called. */
+  private key: string | null = null;
 
   constructor(
     private readonly getMain: () => Decimal,
@@ -39,12 +42,14 @@ export class ChipBets {
     if (add.lte(0)) return false;
     this.setMain(this.getMain().add(add));
     this.touched = true;
+    this.persist();
     return true;
   }
 
   clearMain() {
     this.setMain(new Decimal(0));
     this.touched = true;
+    this.persist();
   }
 
   addSide(id: string, amount: Decimal): boolean {
@@ -52,18 +57,21 @@ export class ChipBets {
     if (add.lte(0)) return false;
     this.side.add(id, add);
     this.touched = true;
+    this.persist();
     return true;
   }
 
   clearSide(id: string) {
     this.side.clear(id);
     this.touched = true;
+    this.persist();
   }
 
   clearAll() {
     this.setMain(new Decimal(0));
     this.side.reset();
     this.touched = true;
+    this.persist();
   }
 
   /** Doubles every bet, if the bankroll covers it. */
@@ -72,6 +80,7 @@ export class ChipBets {
     this.setMain(this.getMain().mul(2));
     this.side.double();
     this.touched = true;
+    this.persist();
     return true;
   }
 
@@ -84,6 +93,37 @@ export class ChipBets {
       this.side.clear(id);
       this.side.add(id, s.mul(scale).floor());
     }
+    this.persist();
+  }
+
+  /**
+   * Saves this table's bets in the browser under `key`, and brings back the
+   * ones saved last time: sit back down and the chips are where you left them.
+   */
+  remember(key: string) {
+    this.key = key;
+    const saved = load<{ main: string; sides: Record<string, string> } | null>(`table.${key}`, null);
+    if (!saved) return;
+    try {
+      this.setMain(new Decimal(saved.main).floor().max(0));
+      for (const [id, amount] of Object.entries(saved.sides)) {
+        if (!(id in this.side.stakes)) continue;
+        this.side.clear(id);
+        this.side.add(id, new Decimal(amount).floor().max(0));
+      }
+    } catch {
+      return;
+    }
+    this.fitToBank();
+  }
+
+  private persist() {
+    const key = this.key;
+    if (!key) return;
+    saveSoon(`table.${key}`, () => ({
+      main: this.getMain().toString(),
+      sides: Object.fromEntries(Object.entries(this.side.stakes).map(([id, s]) => [id, s.toString()])),
+    }));
   }
 }
 

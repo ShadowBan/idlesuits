@@ -12,10 +12,13 @@ import {
   type TcpMove,
   type TcpRoundResult,
   type ThreeCardHand,
+  type RoundReport,
 } from '@idlesuits/sim';
 import type { BreakdownLine } from '../../lib/breakdown';
 import { bankroll } from '../../lib/casino.svelte';
 import { Decimal } from '../../lib/money';
+import { meta } from '../../lib/meta.svelte';
+import { mainBet, outcomeOf, sideBets } from '../../lib/report';
 import { Sequencer } from '../../lib/sequencer.svelte';
 import { bonusLine, SideStakes } from '../../lib/sidebets.svelte';
 import { ChipBets } from '../../lib/stakes.svelte';
@@ -100,6 +103,12 @@ export class TcpGame {
   biggestWin = $state(new Decimal(0));
   folds = $state(0);
   history = $state<HistoryEntry[]>([]);
+
+  constructor() {
+    // Sit back down and the chips and the speed are as you left them.
+    this.bets.remember('tcp');
+    this.seq.remember('tcp');
+  }
 
   get bank(): Decimal {
     return bankroll.balance;
@@ -285,9 +294,27 @@ export class TcpGame {
   }
 
   private settle(result: TcpRoundResult, ante: Decimal) {
-    const net = ante.mul(result.net);
+    const report: RoundReport = {
+      game: 'tcp',
+      seed: { run: this.runSeed, round: this.round },
+      bets: [
+        ...mainBet(1, result.parts.ante),
+        ...mainBet(result.folded ? 0 : 1, result.parts.play),
+        ...(result.parts.anteBonus > 0 ? mainBet(1, result.parts.anteBonus) : []),
+        ...sideBets(result.bonuses, this.roundSide),
+      ],
+      outcome: outcomeOf(result.folded, result.parts.ante + result.parts.play),
+      tier: ({ high: 0, pair: 1, straight: 4, flush: 5, trips: 3, straightFlush: 8, miniRoyal: 9 } as const)[result.playerHand],
+    };
+    // Charms act on the settled hand; the bankroll is paid the hand and whatever they add.
+    const charms = meta.settleRound(report, ante, result.net);
+    const units = result.net + charms.extra;
+    if (charms.lines.length) {
+      this.net = units;
+      this.last = { lines: [...(this.last?.lines ?? []), ...charms.lines], net: units };
+    }
+    const net = ante.mul(units);
     this.lastAnte = ante;
-    bankroll.settle(net);
     this.sessionNet = this.sessionNet.add(net);
     if (net.gt(this.biggestWin)) this.biggestWin = net;
     if (result.folded) this.folds++;

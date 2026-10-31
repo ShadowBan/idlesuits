@@ -3,6 +3,10 @@
   import { GAMES, type GameEntry } from '../lib/games';
   import { formatMoney } from '../lib/money';
   import CardStylePicker from './CardStylePicker.svelte';
+  import { CHARMS, PULL_COST } from '@idlesuits/sim';
+  import { meta } from '../lib/meta.svelte';
+  import CharmArt from './charms/CharmArt.svelte';
+  import TokenCounter from './charms/TokenCounter.svelte';
 
   let { onPlay }: { onPlay: (game: GameEntry) => void } = $props();
 
@@ -32,8 +36,26 @@
         <span class="k">Bank</span>
         <span class="v">{formatMoney(bankroll.balance)}</span>
       </div>
+      <TokenCounter />
     </div>
   </header>
+
+  <!-- The meta layer's front door: what's on, what's found, and whether there's a pull waiting. -->
+  <a class="charms" href="#/charms">
+    <span class="shelf" aria-hidden="true">
+      {#each meta.equipped.length ? meta.equipped.map((e) => e.id) : ['horseshoe', 'four-leaf-clover', 'maneki-neko'] as id (id)}
+        <CharmArt {id} hidden={!meta.equipped.length} />
+      {/each}
+    </span>
+    <span class="charms-text">
+      <b>Charm Machine</b>
+      <span>
+        {CHARMS.filter((c) => meta.collection[c.id]).length} of {CHARMS.length} charms found
+        {#if meta.tokens >= PULL_COST}· <em>{Math.floor(meta.tokens / PULL_COST)} pulls ready</em>{/if}
+      </span>
+    </span>
+    <span class="go">Open ›</span>
+  </a>
 
   <ul class="games">
     {#each GAMES as game (game.id)}
@@ -67,6 +89,50 @@
 </div>
 
 <style>
+  .charms {
+    --art: 40px;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 12px 16px;
+    border-radius: 14px;
+    border: 1px solid rgb(242 198 78 / 0.35);
+    background: radial-gradient(circle at 10% 50%, rgb(242 198 78 / 0.16), transparent 50%), var(--rail);
+    color: var(--ink);
+    text-decoration: none;
+    transition: border-color 150ms ease;
+  }
+  .charms:hover {
+    border-color: var(--gold);
+  }
+  .shelf {
+    display: flex;
+    gap: 2px;
+  }
+  .charms-text {
+    display: grid;
+    gap: 3px;
+    margin-right: auto;
+    font: 13px/1.3 var(--font-ui);
+    color: var(--muted);
+  }
+  .charms-text b {
+    font: 700 18px/1 var(--font-display);
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--gold);
+  }
+  .charms-text em {
+    font-style: normal;
+    color: #f2d27a;
+    font-weight: 600;
+  }
+  .go {
+    font: 700 14px/1 var(--font-display);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--gold);
+  }
   .corner {
     display: flex;
     align-items: end;

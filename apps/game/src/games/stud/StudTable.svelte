@@ -14,7 +14,7 @@
   import { heldValue } from '../../lib/betting.svelte';
   import type { GameProps } from '../../lib/games';
   import { Decimal, formatMoney } from '../../lib/money';
-  import { setMuted, sfx, unlockAudio } from '../../lib/sound';
+  import { isMuted, setMuted, sfx, unlockAudio } from '../../lib/sound';
   import { spotView } from '../../lib/stakes.svelte';
   import { StudGame } from './game.svelte';
   import StudRules from './StudRules.svelte';
@@ -25,7 +25,7 @@
   const seq = game.seq;
   onDestroy(() => game.dispose());
 
-  let muted = $state(false);
+  let muted = $state(isMuted());
   let rules = $state<StudRules>();
   $effect(() => setMuted(muted));
 

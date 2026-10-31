@@ -5,6 +5,7 @@
   import { SPEEDS, type SpeedControl } from '../lib/sequencer.svelte';
   import Breakdown from './Breakdown.svelte';
   import CardStylePicker from './CardStylePicker.svelte';
+  import CharmsPanel from './charms/CharmsPanel.svelte';
 
   interface Props {
     seq: SpeedControl;
@@ -27,6 +28,8 @@
   let { seq, muted, onMute, seed, round, onRestart, last, lastUnit, stats, sessionNet, history, children }: Props =
     $props();
 </script>
+
+<CharmsPanel />
 
 {@render children?.()}
 

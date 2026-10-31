@@ -12,10 +12,13 @@ import {
   type DjEvent,
   type DjMove,
   type DjRoundResult,
+  type RoundReport,
 } from '@idlesuits/sim';
 import type { BreakdownLine } from '../../lib/breakdown';
 import { bankroll } from '../../lib/casino.svelte';
 import { Decimal } from '../../lib/money';
+import { meta } from '../../lib/meta.svelte';
+import { mainBet, outcomeOf, sideBets } from '../../lib/report';
 import { Sequencer } from '../../lib/sequencer.svelte';
 import { bonusLine, SideStakes } from '../../lib/sidebets.svelte';
 import { ChipBets } from '../../lib/stakes.svelte';
@@ -98,6 +101,12 @@ export class DjGame {
   biggestWin = $state(new Decimal(0));
   folds = $state(0);
   history = $state<HistoryEntry[]>([]);
+
+  constructor() {
+    // Sit back down and the chips and the speed are as you left them.
+    this.bets.remember('djw');
+    this.seq.remember('djw');
+  }
 
   get bank(): Decimal {
     return bankroll.balance;
@@ -280,9 +289,27 @@ export class DjGame {
   }
 
   private settle(result: DjRoundResult, ante: Decimal) {
-    const net = ante.mul(result.net);
+    const report: RoundReport = {
+      game: 'djw',
+      seed: { run: this.runSeed, round: this.round },
+      bets: [
+        ...mainBet(1, result.parts.ante),
+        ...mainBet(1, result.parts.blind),
+        ...mainBet(result.folded ? 0 : this.rules.play, result.parts.play),
+        ...sideBets(result.bonuses, this.roundSide),
+      ],
+      outcome: outcomeOf(result.folded, result.parts.ante + result.parts.play),
+      tier: Math.min(9, djCategoryOf(result.playerScore)),
+    };
+    // Charms act on the settled hand; the bankroll is paid the hand and whatever they add.
+    const charms = meta.settleRound(report, ante, result.net);
+    const units = result.net + charms.extra;
+    if (charms.lines.length) {
+      this.net = units;
+      this.last = { lines: [...(this.last?.lines ?? []), ...charms.lines], net: units };
+    }
+    const net = ante.mul(units);
     this.lastAnte = ante;
-    bankroll.settle(net);
     this.sessionNet = this.sessionNet.add(net);
     if (net.gt(this.biggestWin)) this.biggestWin = net;
     if (result.folded) this.folds++;
