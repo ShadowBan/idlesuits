@@ -155,12 +155,12 @@ Nothing else in the shell needs to know it exists.
    a `resolve` from the dealt cards) and settle them with `settleBonuses`. On the table,
    `SideStakes` holds the stakes and [`SideBetsPanel`](apps/game/src/components/SideBetsPanel.svelte)
    shows the pay tables. Then add the bet to `npm run audit`.
-6. When a hand settles, build a `RoundReport` (`lib/report.ts` has helpers) and call
-   `meta.settleRound` instead of paying the bankroll directly, so charms and Tokens work at the
-   new table. Call `bets.remember(id)` and `seq.remember(id)` so its bets and speed are saved.
 5. Bets are chips on the felt. `ChipBets` (in `lib/stakes.svelte.ts`) holds the next hand's main bet
    and side bets and keeps them within the bankroll; `spotView` tells each `BetSpot` what to show
    between hands and once the hand settles. Deal only when `bets.canDeal`.
+6. When a hand settles, build a `RoundReport` (`lib/report.ts` has helpers) and call
+   `meta.settleRound` instead of paying the bankroll directly, so charms and Tokens work at the
+   new table. Call `bets.remember(id)` and `seq.remember(id)` so its bets and speed are saved.
 
 Games are loaded only when opened, so an unplayed table costs nothing at startup. The route is
 `#/<id>`, which makes tables deep-linkable and keeps the browser's back button working.
