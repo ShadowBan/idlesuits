@@ -2,12 +2,14 @@ import { Decimal } from './money';
 import { load, saveSoon } from './save';
 
 const STARTING_BANK = 500;
+/** The smallest chip: below this a player can't place a bet anywhere. */
+export const MIN_BET = 1;
 
 function saved(): Decimal {
   try {
     const value = new Decimal(load('bank', String(STARTING_BANK)));
-    // A save left at zero would sit every table at "Busted": start that player afresh.
-    return value.gt(0) && value.isFinite() ? value : new Decimal(STARTING_BANK);
+    // A save too small to bet with would sit every table at "Busted": start that player afresh.
+    return value.gte(MIN_BET) && value.isFinite() ? value : new Decimal(STARTING_BANK);
   } catch {
     return new Decimal(STARTING_BANK);
   }
@@ -19,8 +21,11 @@ function saved(): Decimal {
  */
 export class Bankroll {
   balance = $state(saved());
-  /** True once the balance hits zero and the player has to buy back in. */
-  broke = $derived(this.balance.lte(0));
+  /**
+   * Too little left for even the smallest chip, and the player has to buy
+   * back in. Not just zero: Pai Gow's commission and charm payouts leave cents.
+   */
+  broke = $derived(this.balance.lt(MIN_BET));
 
   /** Applies a round's result. Returns the new balance. */
   settle(amount: Decimal): Decimal {

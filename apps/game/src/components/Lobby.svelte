@@ -36,6 +36,10 @@
         <span class="k">Bank</span>
         <span class="v">{formatMoney(bankroll.balance)}</span>
       </div>
+      {#if bankroll.broke}
+        <!-- Too little to bet anywhere: back in at the starting stake. Tokens and charms are never lost. -->
+        <button type="button" class="primary rebuy" onclick={() => bankroll.buyIn()}>Buy back in</button>
+      {/if}
       <TokenCounter />
     </div>
   </header>
@@ -138,7 +142,8 @@
     align-items: end;
     gap: 16px;
   }
-  .faces {
+  .faces,
+  .rebuy {
     min-height: 40px;
   }
   .cards-dialog {

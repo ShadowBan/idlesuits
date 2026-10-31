@@ -23,6 +23,11 @@ export class ChipBets {
     private readonly mainUnits = 1,
   ) {}
 
+  /** The least the bankroll needs to deal a hand here: one dollar for each bet that must go down. */
+  get minimum(): Decimal {
+    return new Decimal(this.mainUnits);
+  }
+
   /** Everything the next hand puts down before any cards. */
   get total(): Decimal {
     return this.getMain().mul(this.mainUnits).add(this.side.total);

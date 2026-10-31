@@ -119,6 +119,11 @@ export class PaiGowGame {
     this.seq.remember('paigow');
   }
 
+  /** Too little left to deal a hand at this table, even at the smallest bet. */
+  get broke(): boolean {
+    return this.bank.lt(this.bets.minimum);
+  }
+
   get bank(): Decimal {
     return bankroll.balance;
   }
@@ -138,6 +143,8 @@ export class PaiGowGame {
   start() {
     if (this.started || this.seq.disposed) return;
     this.started = true;
+    // Sitting down with too little to bet goes straight to the buy-back.
+    if (this.broke) this.gameOver = true;
     void this.loop();
   }
 
@@ -353,7 +360,7 @@ export class PaiGowGame {
       net,
     };
     this.history = [entry, ...this.history].slice(0, 12);
-    if (this.bank.lte(0)) this.gameOver = true;
+    if (this.broke) this.gameOver = true;
     else this.bets.fitToBank();
   }
 }
