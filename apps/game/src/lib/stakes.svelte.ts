@@ -122,6 +122,12 @@ export class ChipBets {
     this.fitToBank();
   }
 
+  /** Writes the bets to the save now, after a table sets them itself (a buy-back's fresh stake). */
+  save() {
+    this.touched = false;
+    this.persist();
+  }
+
   private persist() {
     const key = this.key;
     if (!key) return;

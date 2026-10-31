@@ -128,7 +128,11 @@ export class C4pGame {
     if (this.started || this.seq.disposed) return;
     this.started = true;
     // Sitting down with too little to bet goes straight to the buy-back.
-    if (this.broke) this.gameOver = true;
+    if (this.broke) {
+      // Losing it all is the penalty for running unattended: auto play stops until it's pressed again.
+      this.gameOver = true;
+      this.autoPlay = false;
+    }
     void this.loop();
   }
 
@@ -165,6 +169,9 @@ export class C4pGame {
     bankroll.buyIn();
     this.ante = new Decimal(STARTING_ANTE);
     this.side.reset();
+    // A buy-back starts from the table's opening bets, with auto play off.
+    this.bets.save();
+    this.autoPlay = false;
     this.hands = 0;
     this.folds = 0;
     this.sessionNet = new Decimal(0);
@@ -344,7 +351,11 @@ export class C4pGame {
       net,
     };
     this.history = [entry, ...this.history].slice(0, 12);
-    if (this.broke) this.gameOver = true;
+    if (this.broke) {
+      // Losing it all is the penalty for running unattended: auto play stops until it's pressed again.
+      this.gameOver = true;
+      this.autoPlay = false;
+    }
     else this.bets.fitToBank();
   }
 }
