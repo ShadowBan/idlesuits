@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { findCharm, MAX_LEVEL, nextLevel } from '@idlesuits/sim';
+  import { findCharm, maxLevelOf, nextLevel } from '@idlesuits/sim';
   import { RARITY_COLOR } from './art';
   import CharmArt from './CharmArt.svelte';
 
@@ -17,7 +17,7 @@
 
   const def = $derived(findCharm(id)!);
   const owned = $derived(copies > 0);
-  const progress = $derived(nextLevel(copies));
+  const progress = $derived(nextLevel(copies, maxLevelOf(id)));
 </script>
 
 <button
@@ -32,7 +32,7 @@
   <span class="art"><CharmArt {id} hidden={!owned} /></span>
   {#if owned}
     <span class="name">{def.name}</span>
-    <span class="level">{level >= MAX_LEVEL ? 'Max' : `Lv ${level}`}</span>
+    <span class="level">{level >= maxLevelOf(id) ? 'Max' : `Lv ${level}`}</span>
     <span class="bar" aria-hidden="true">
       <span class="fill" style:width="{progress ? (progress.have / progress.need) * 100 : 100}%"></span>
     </span>

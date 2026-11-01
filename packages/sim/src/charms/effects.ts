@@ -1,7 +1,7 @@
 import { Rng } from '../rng';
 import { CHARM_SETS, findCharm } from './catalog';
 import { MAX_LEVEL } from './machine';
-import type { CharmOutcome, CharmRunState, CharmTrigger, Effect, Equipped, RoundReport, Scale } from './types';
+import type { CharmOutcome, CharmRunState, CharmTrigger, Effect, Equipped, RoundReport, RuleEffect, Scale } from './types';
 
 export const FRESH_RUN: CharmRunState = { winStreak: 0, lossStreak: 0, lastOutcome: null };
 
@@ -9,6 +9,23 @@ export const FRESH_RUN: CharmRunState = { winStreak: 0, lossStreak: 0, lastOutco
 export function valueAt(scale: Scale, level: number): number {
   const t = (Math.min(Math.max(level, 1), MAX_LEVEL) - 1) / (MAX_LEVEL - 1);
   return scale.min + (scale.max - scale.min) * t;
+}
+
+/** A rule effect's whole-number value at a level. */
+export function ruleValue(effect: RuleEffect, level: number): number {
+  if (level <= 0) return 0;
+  return effect.perLevel[Math.min(level, effect.perLevel.length) - 1]!;
+}
+
+/** The total of one rule effect across a loadout: extra hands, decks removed. */
+export function ruleTotal(equipped: readonly Equipped[], kind: RuleEffect['kind']): number {
+  let total = 0;
+  for (const e of equipped) {
+    for (const effect of findCharm(e.id)?.effects ?? []) {
+      if (effect.kind === kind) total += ruleValue(effect, e.level);
+    }
+  }
+  return total;
 }
 
 /** Each winning bet earns its pay odds in Tokens, whatever its stake. */
@@ -64,6 +81,8 @@ export function applyCharms(report: RoundReport, equipped: readonly Equipped[], 
     let c = 0;
     let t = 0;
     for (const effect of source.effects) {
+      // Rule effects change how the table deals, not what a settled hand pays.
+      if (!('v' in effect)) continue;
       const v = valueAt(effect.v, source.level);
       switch (effect.kind) {
         case 'tokenPct':
@@ -151,6 +170,12 @@ const TIER_NAMES: Record<number, string> = { 1: 'A pair', 2: 'Two pair', 3: 'Thr
 
 /** What an effect does at a level, in a line a player can read. */
 export function describeEffect(effect: Effect, level: number): string {
+  if (effect.kind === 'extraHands') {
+    const n = ruleValue(effect, level);
+    const hands = n === 1 ? 'a second hand' : n === 2 ? 'a second and a third hand' : `${n} more hands`;
+    return `Play ${hands} blind at the poker tables, all in`;
+  }
+  if (effect.kind === 'fewerDecks') return `${ruleValue(effect, level)} fewer decks in the Blackjack shoe`;
   const v = valueAt(effect.v, level);
   switch (effect.kind) {
     case 'tokenPct':

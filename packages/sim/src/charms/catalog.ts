@@ -230,6 +230,25 @@ export const CHARMS: readonly CharmDef[] = [
       { kind: 'tokenPerHand', v: s(0.2, 1) },
     ],
   },
+  // Secret: they change the game itself. Each is drawn at its own odds (SECRET_ODDS), far rarer than a Legendary.
+  {
+    id: 'lucky-seat',
+    name: 'The Lucky Seat',
+    rarity: 'secret',
+    flavor: 'The empty chair beside you just won. Sit down in it too.',
+    effects: [{ kind: 'extraHands', perLevel: [1, 2] }],
+    where: 'Poker tables',
+    maxLevel: 2,
+  },
+  {
+    id: 'thin-shoe',
+    name: 'The Thin Shoe',
+    rarity: 'secret',
+    flavor: "A dealer's shoe with half the decks missing. Nobody at the pit has noticed.",
+    effects: [{ kind: 'fewerDecks', perLevel: [2, 4, 5] }],
+    where: 'Blackjack',
+    maxLevel: 3,
+  },
 ];
 
 export const CHARM_SETS: readonly CharmSet[] = [

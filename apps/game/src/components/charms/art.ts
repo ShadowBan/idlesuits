@@ -264,6 +264,29 @@ export const CHARM_ART: Record<string, string> = {
     <path d="M61 22c3 0 3 4 1 5M58 27c2 3 0 6-3 6" fill="none" stroke="#e8b64c" stroke-width="1.6" stroke-linecap="round"/>
     <circle cx="52" cy="19" r="2" fill="#2a1a12"/><circle cx="52.6" cy="18.4" r=".6" fill="#fff"/>
     <path d="M17 12l-4-6M5 22l-3 4" stroke="#fff" stroke-opacity=".6" stroke-width="1.6" stroke-linecap="round"/>`,
+
+  // A casino stool, gold-studded, with its lucky star: the seat beside yours.
+  'lucky-seat': `
+    <path d="M20 38l-5 20M44 38l5 20M26 40l-2 18M38 40l2 18" fill="none" ${O}/>
+    <path d="M17 50h30" fill="none" ${T}/>
+    <ellipse cx="32" cy="36" rx="18" ry="6" fill="#6b2a1e" ${O}/>
+    <path d="M14 30c0-4 8-7 18-7s18 3 18 7v6c0 3-8 6-18 6s-18-3-18-6z" fill="#b8333a" ${O}/>
+    <ellipse cx="32" cy="30" rx="18" ry="6" fill="#d6454c" ${T}/>
+    ${[18, 25, 32, 39, 46].map((x) => `<circle cx="${x}" cy="${x === 32 ? 37.5 : x === 25 || x === 39 ? 37 : 35.5}" r="1.4" fill="#f2c64e"/>`).join('')}
+    <path d="M32 3l3.4 7 7.6 1-5.5 5.3 1.3 7.6L32 20.3l-6.8 3.6 1.3-7.6L21 11l7.6-1z" fill="#ffd34d" ${O}/>
+    ${shine('M20 28c3-2 7-3 11-3')}`,
+
+  // A dealing shoe with only a sliver of cards left in it.
+  'thin-shoe': `
+    <path d="M8 46l6-26h34l8 26z" fill="#3a2416" ${O}/>
+    <path d="M14 20l-6 26h48" fill="none" ${T}/>
+    <path d="M40 22l6 22H30l-4-22z" fill="#f2efe8" ${T}/>
+    <path d="M42 22l6 22M44 22l6 22" stroke="#b8333a" stroke-width="1.4" fill="none"/>
+    <path d="M47 30l3 12" stroke="#f2d22e" stroke-width="2.4" stroke-linecap="round"/>
+    <path d="M34 47l-2 8h22l-3-8" fill="#f2efe8" ${O}/>
+    <path d="M38 50h10" stroke="#b8333a" stroke-width="1.4"/>
+    <path d="M10 46h46v4H10z" fill="#24160d" ${T}/>
+    ${shine('M17 24l-4 17')}`,
 };
 
 /** Rarity colours: the frame, glow and label for each tier. */
@@ -273,4 +296,5 @@ export const RARITY_COLOR: Record<string, string> = {
   rare: '#5cb6ff',
   epic: '#c27bff',
   legendary: '#ffbf3c',
+  secret: '#ff7ad9',
 };

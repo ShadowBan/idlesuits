@@ -1,5 +1,5 @@
-export type Rarity = 'common' | 'uncommon' | 'rare' | 'epic' | 'legendary';
-export const RARITIES: readonly Rarity[] = ['common', 'uncommon', 'rare', 'epic', 'legendary'];
+export type Rarity = 'common' | 'uncommon' | 'rare' | 'epic' | 'legendary' | 'secret';
+export const RARITIES: readonly Rarity[] = ['common', 'uncommon', 'rare', 'epic', 'legendary', 'secret'];
 
 /** A value that grows with a charm's level, from level 1 to the top level. */
 export interface Scale {
@@ -46,7 +46,18 @@ export type Effect =
   /** Winning bets at minOdds or longer pay v of their winnings again. */
   | { kind: 'bigHit'; minOdds: number; v: Scale }
   /** Chance v that a winning hand's winnings are paid twice. */
-  | { kind: 'doubleWin'; v: Scale };
+  | { kind: 'doubleWin'; v: Scale }
+  /**
+   * Rule-bending effects, read by the tables rather than when a hand settles.
+   * Their values are whole numbers by level, not a scale.
+   */
+  /** Extra hands dealt blind beside the player's own at the poker tables. */
+  | { kind: 'extraHands'; perLevel: number[] }
+  /** Decks taken out of a multi-deck shoe: fewer decks, better odds. */
+  | { kind: 'fewerDecks'; perLevel: number[] };
+
+/** The effects a table reads for its rules. */
+export type RuleEffect = Extract<Effect, { perLevel: number[] }>;
 
 export interface CharmDef {
   id: string;
@@ -57,6 +68,8 @@ export interface CharmDef {
   effects: Effect[];
   /** Only where the condition can happen: "Poker games", "Blackjack". */
   where?: string;
+  /** Below the usual ten: a Secret charm tops out after a level or two. */
+  maxLevel?: number;
 }
 
 export interface CharmSet {

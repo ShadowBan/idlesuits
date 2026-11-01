@@ -4,6 +4,8 @@ import {
   findCharm,
   FRESH_RUN,
   levelOf,
+  maxLevelOf,
+  ruleTotal,
   MAX_SLOTS,
   PULL_COST,
   SLOT_COSTS,
@@ -105,11 +107,21 @@ class Meta {
   }
 
   levelOf(id: string): number {
-    return levelOf(this.collection[id] ?? 0);
+    return levelOf(this.collection[id] ?? 0, maxLevelOf(id));
   }
 
   get equipped(): Equipped[] {
     return this.loadout.filter((id): id is string => id !== null).map((id) => ({ id, level: this.levelOf(id) }));
+  }
+
+  /** Blind hands the poker tables deal beside the player's own, from Secret charms. */
+  get extraHands(): number {
+    return ruleTotal(this.equipped, 'extraHands');
+  }
+
+  /** Decks the Blackjack shoe goes without, from Secret charms. */
+  get fewerDecks(): number {
+    return ruleTotal(this.equipped, 'fewerDecks');
   }
 
   isEquipped(id: string): boolean {
@@ -158,8 +170,8 @@ class Meta {
       const id = drawCharm(this.seed, this.pulls++);
       const before = collection[id] ?? 0;
       collection[id] = before + 1;
-      const level = levelOf(before + 1);
-      capsules.push({ id, isNew: before === 0, level, levelUp: before > 0 && level > levelOf(before) });
+      const level = levelOf(before + 1, maxLevelOf(id));
+      capsules.push({ id, isNew: before === 0, level, levelUp: before > 0 && level > levelOf(before, maxLevelOf(id)) });
     }
     this.collection = collection;
     this.persist();

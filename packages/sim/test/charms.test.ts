@@ -12,6 +12,9 @@ import {
   levelOf,
   nextLevel,
   RARITY_WEIGHTS,
+  ruleTotal,
+  SECRET_ODDS,
+  maxLevelOf,
   valueAt,
   type RoundReport,
 } from '../src';
@@ -48,7 +51,7 @@ describe('charm catalog', () => {
 
 describe('levels', () => {
   it('doubles the copies needed for each level, to 512 at level 10', () => {
-    expect([1, 2, 3, 4, 7, 8, 511, 512, 5000].map(levelOf)).toEqual([1, 2, 2, 3, 3, 4, 9, 10, 10]);
+    expect([1, 2, 3, 4, 7, 8, 511, 512, 5000].map((c) => levelOf(c))).toEqual([1, 2, 2, 3, 3, 4, 9, 10, 10]);
     expect(copiesFor(10)).toBe(512);
     expect(nextLevel(5)).toEqual({ need: 4, have: 1 });
     expect(nextLevel(512)).toBeNull();
@@ -74,6 +77,33 @@ describe('the machine', () => {
       const seen = (counts[rarity] ?? 0) / n;
       expect(Math.abs(seen - weight), rarity).toBeLessThan(4 * Math.sqrt((weight * (1 - weight)) / n) + 1e-4);
     }
+  });
+});
+
+describe('secret charms', () => {
+  it('turn up at their own odds, apart from the ordinary draw', () => {
+    // Find the first secret pull for a seed, then check the draws around it are ordinary.
+    let found = -1;
+    for (let i = 0; i < 2_000_000 && found < 0; i++) if (SECRET_ODDS[drawCharm('secret-hunt', i)]) found = i;
+    expect(found).toBeGreaterThan(0);
+    expect(findCharm(drawCharm('secret-hunt', found))!.rarity).toBe('secret');
+    expect(Object.values(SECRET_ODDS).every((odds) => odds > 0 && odds < 0.0001)).toBe(true);
+  });
+
+  it('top out after a level or two, and add up across a loadout', () => {
+    expect(maxLevelOf('lucky-seat')).toBe(2);
+    expect(maxLevelOf('horseshoe')).toBe(10);
+    expect(levelOf(4, maxLevelOf('lucky-seat'))).toBe(2);
+    expect(nextLevel(2, 2)).toBeNull();
+    expect(ruleTotal([{ id: 'lucky-seat', level: 1 }], 'extraHands')).toBe(1);
+    expect(ruleTotal([{ id: 'lucky-seat', level: 2 }, { id: 'horseshoe', level: 5 }], 'extraHands')).toBe(2);
+    expect(ruleTotal([{ id: 'thin-shoe', level: 3 }], 'fewerDecks')).toBe(5);
+  });
+
+  it('pay nothing themselves when a hand settles', () => {
+    const out = applyCharms(report(), [{ id: 'lucky-seat', level: 2 }], FRESH_RUN);
+    expect(out.triggers).toEqual([]);
+    expect(out.tokens).toBe(baseTokens(report()));
   });
 });
 

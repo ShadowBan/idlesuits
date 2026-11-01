@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { describeEffect, findCharm, MAX_LEVEL, nextLevel, setOf } from '@idlesuits/sim';
+  import { describeEffect, findCharm, maxLevelOf, nextLevel, setOf } from '@idlesuits/sim';
   import { meta } from '../../lib/meta.svelte';
   import { RARITY_COLOR } from './art';
   import CharmArt from './CharmArt.svelte';
@@ -16,7 +16,8 @@
   const def = $derived(id ? findCharm(id) : undefined);
   const copies = $derived(id ? (meta.collection[id] ?? 0) : 0);
   const level = $derived(id ? meta.levelOf(id) : 0);
-  const progress = $derived(nextLevel(copies));
+  const maxLevel = $derived(id ? maxLevelOf(id) : 10);
+  const progress = $derived(nextLevel(copies, maxLevel));
   const set = $derived(id ? setOf(id) : undefined);
   const equipped = $derived(id ? meta.isEquipped(id) : false);
   const full = $derived(!meta.loadout.includes(null));
@@ -33,14 +34,14 @@
       <div class="art"><CharmArt {id} hidden={copies === 0} /></div>
       {#if copies > 0}
         <h2>{def.name}</h2>
-        <p class="rarity">{def.rarity} · {level >= MAX_LEVEL ? 'max level' : `level ${level}`}</p>
+        <p class="rarity">{def.rarity} · {level >= maxLevel ? 'max level' : `level ${level}`}</p>
         <p class="flavor">“{def.flavor}”</p>
 
         <ul class="effects">
           {#each def.effects as effect, i (i)}
             <li>
               <span>{describeEffect(effect, level)}</span>
-              {#if level < MAX_LEVEL}<small>Next level: {describeEffect(effect, level + 1)}</small>{/if}
+              {#if level < maxLevel}<small>Next level: {describeEffect(effect, level + 1)}</small>{/if}
             </li>
           {/each}
         </ul>

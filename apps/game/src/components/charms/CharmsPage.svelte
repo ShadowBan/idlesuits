@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { CHARM_SETS, CHARMS, describeEffect, RARITIES, RARITY_WEIGHTS } from '@idlesuits/sim';
+  import { CHARM_SETS, CHARMS, describeEffect, RARITIES, RARITY_WEIGHTS, SECRET_ODDS } from '@idlesuits/sim';
   import { meta } from '../../lib/meta.svelte';
   import BankCounter from '../BankCounter.svelte';
   import { bankroll } from '../../lib/casino.svelte';
@@ -54,7 +54,11 @@
         <ul>
           {#each RARITIES as r (r)}
             <li style:color={RARITY_COLOR[r]}>
-              <span>{r}</span><span>{+(RARITY_WEIGHTS[r] * 100).toFixed(1)}%</span>
+              {#if r === 'secret'}
+                <span>{r}</span><span>{+(Math.max(...Object.values(SECRET_ODDS)) * 100).toPrecision(2)}% each</span>
+              {:else}
+                <span>{r}</span><span>{+(RARITY_WEIGHTS[r] * 100).toFixed(1)}%</span>
+              {/if}
             </li>
           {/each}
         </ul>

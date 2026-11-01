@@ -73,6 +73,8 @@ export class BjGame {
   private shoe: Shoe;
   private shoeSeed: string;
   private shoeNumber: number;
+  /** Decks in the shoe being dealt: six, fewer with the Thin Shoe charm, changed only at a shuffle. */
+  private shoeDecks: number;
   /** What the table shows of the shoe: cards left, where the cut card sits, the discards. */
   shoeView = $state({ size: 0, next: 0, cut: 0 });
   /** The dealer is shuffling a new shoe. */
@@ -116,17 +118,28 @@ export class BjGame {
     // Sit back down and the chips and the speed are as you left them.
     this.bets.remember('blackjack');
     this.seq.remember('blackjack');
-    const saved = load<{ seed: string; number: number; next: number } | null>('shoe.blackjack', null);
+    const saved = load<{ seed: string; number: number; next: number; decks?: number } | null>('shoe.blackjack', null);
     this.shoeSeed = saved?.seed ?? newSeed();
     this.shoeNumber = saved?.number ?? 0;
-    this.shoe = shuffleShoe(this.rules.decks, this.shoeSeed, this.shoeNumber);
+    this.shoeDecks = saved?.decks ?? this.decksWanted();
+    this.shoe = shuffleShoe(this.shoeDecks, this.shoeSeed, this.shoeNumber);
     if (saved && saved.next > this.shoe.next && saved.next < this.shoe.cards.length) this.shoe.next = saved.next;
     this.refreshShoe();
   }
 
   private refreshShoe() {
     this.shoeView = { size: this.shoe.cards.length, next: this.shoe.next, cut: this.shoe.cut };
-    saveSoon('shoe.blackjack', () => ({ seed: this.shoeSeed, number: this.shoeNumber, next: this.shoe.next }));
+    saveSoon('shoe.blackjack', () => ({
+      seed: this.shoeSeed,
+      number: this.shoeNumber,
+      next: this.shoe.next,
+      decks: this.shoeDecks,
+    }));
+  }
+
+  /** The decks the next shoe should hold. */
+  private decksWanted(): number {
+    return Math.max(1, this.rules.decks - meta.fewerDecks);
   }
 
   /** Insurance costs half the bet on top of everything else down; the bankroll must cover it. */
@@ -231,7 +244,8 @@ export class BjGame {
       this.shuffling = true;
       sfx.shuffle();
       const ok = await this.seq.wait(SHUFFLE_MS);
-      this.shoe = shuffleShoe(this.rules.decks, this.shoeSeed, ++this.shoeNumber);
+      this.shoeDecks = this.decksWanted();
+      this.shoe = shuffleShoe(this.shoeDecks, this.shoeSeed, ++this.shoeNumber);
       this.refreshShoe();
       this.shuffling = false;
       if (!ok) return false;
