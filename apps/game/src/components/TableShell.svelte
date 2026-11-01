@@ -109,6 +109,10 @@
           <span style:--c={color}></span>
         {/each}
       </div>
+      {#if ui.admin}
+        <!-- The pit boss's marker, left of the tray: only there once the pit boss is switched on. -->
+        <button type="button" class="marker" onclick={() => (ui.adminOpen = !ui.adminOpen)} aria-label="Pit boss">PB</button>
+      {/if}
       <!-- The table's limit sign, beside the tray; it flashes when a short bankroll moves the player down a room. -->
       {#key floor.moves}
         <div class="limits" class:moved={floor.moves > movesAtSit} title="{floor.room.name}: main bet {formatLimit(floor.room.min)} to {formatLimit(floor.room.max)}, side bets up to {formatLimit(floor.room.sideMax)}">
@@ -261,6 +265,39 @@
   .compact .tray span {
     width: 9px;
     height: 5px;
+  }
+  /* A pit boss's lammer: a small marker disc on the felt, mirroring the limit sign across the tray. */
+  .marker {
+    position: absolute;
+    z-index: 2;
+    top: 3px;
+    right: calc(50% + 90px);
+    width: 22px;
+    height: 22px;
+    min-width: 0;
+    min-height: 0;
+    padding: 0;
+    display: grid;
+    place-items: center;
+    border: 2px dashed #fff3fb;
+    border-radius: 50%;
+    background: radial-gradient(circle, #ff7ad9 55%, #c2409c 56%);
+    box-shadow:
+      0 0 0 1px #8a2a6e,
+      0 2px 3px rgb(0 0 0 / 0.5);
+    color: #3a0d2c;
+    font: 800 8px/1 var(--font-ui);
+    letter-spacing: 0.02em;
+  }
+  .marker:hover:not(:disabled) {
+    background: radial-gradient(circle, #ff9be4 55%, #c2409c 56%);
+  }
+  .compact .marker {
+    top: 1px;
+    right: calc(50% + 64px);
+    width: 18px;
+    height: 18px;
+    font-size: 7px;
   }
   /* A small acrylic sign on the felt's top edge, right of the tray: inside the felt's padding, clear of the cards. */
   .limits {

@@ -78,13 +78,10 @@
 
 <!--
   The pit boss: a testing drawer on the right edge, switched on in secret from
-  the Settings panel (seven taps on its title) or by typing the word. Not
-  modal, so the table keeps playing while numbers change. Not part of the game.
+  the Settings panel (seven taps on its title) or by typing the word, and
+  opened from the marker on each table's felt. Not modal, so the table keeps
+  playing while numbers change. Not part of the game.
 -->
-{#if !ui.adminOpen}
-  <button type="button" class="handle" onclick={() => (ui.adminOpen = true)} aria-label="Open the pit boss panel">Pit boss</button>
-{/if}
-
 <aside class="admin" class:open={ui.adminOpen} aria-labelledby="admin-title" inert={!ui.adminOpen}>
   <header>
     <h2 id="admin-title">Pit boss</h2>
@@ -263,29 +260,6 @@
     transform: none;
     visibility: visible;
     transition: transform 240ms cubic-bezier(0.2, 0.8, 0.3, 1);
-  }
-  .handle {
-    position: fixed;
-    z-index: 49;
-    right: 0;
-    top: 50%;
-    padding: 10px 6px;
-    border: 1px solid #ff7ad9;
-    border-right: 0;
-    border-radius: 8px 0 0 8px;
-    background: var(--rail);
-    color: #ff7ad9;
-    font: 700 11px/1 var(--font-ui);
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
-    writing-mode: vertical-rl;
-    /* Separate properties, so a pressed button's scale doesn't knock it out of place. */
-    translate: 0 -50%;
-    rotate: 180deg;
-    opacity: 0.75;
-  }
-  .handle:hover {
-    opacity: 1;
   }
   header {
     display: flex;
