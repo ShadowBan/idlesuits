@@ -1,4 +1,5 @@
 import {
+  BACCARAT_RULES,
   C4P_RULES,
   CATEGORY_NAMES,
   CSP_RULES,
@@ -67,6 +68,7 @@ export const GAME_RULES: Record<string, GameRules> = {
   lir: { base: LIR_RULES, name: category },
   csp: { base: CSP_RULES, name: category },
   c4p: { base: C4P_RULES, name: (k) => (k in C4P_RULES.superBonus ? humanize(k) : undefined) },
+  baccarat: { base: BACCARAT_RULES, extra: [PENETRATION] },
   djwild: { base: DJ_RULES, name: (k) => DJ_CATEGORY_NAMES[Number(k) as keyof typeof DJ_CATEGORY_NAMES] },
 };
 

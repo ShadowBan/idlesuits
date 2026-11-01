@@ -28,6 +28,8 @@
     automation?: Snippet;
     /** The table's own options, in the Table tab. */
     options?: Snippet;
+    /** A record of the table's own, at the top of the Stats tab (a baccarat scoreboard). */
+    record?: Snippet;
   }
 
   let {
@@ -44,6 +46,7 @@
     children,
     automation,
     options,
+    record,
   }: Props = $props();
 
   const TABS: { id: PanelTab; label: string }[] = [
@@ -97,6 +100,7 @@
   {#if ui.tab === 'pays'}
     {@render children?.()}
   {:else if ui.tab === 'stats'}
+    {@render record?.()}
     <section class="panel">
       <h2>Last hand</h2>
       <Breakdown lines={last?.lines ?? []} net={last?.net ?? null} ante={lastUnit} />

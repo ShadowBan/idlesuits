@@ -24,3 +24,4 @@ export * from './charms';
 export * from './shoe';
 export * from './seats';
 export * from './blind';
+export * from './baccarat';

@@ -20,6 +20,9 @@ An idle casino. Pick a table from the floor and the same bankroll follows you fr
   pays the raise up to 100:1. Side bet: 5+1 Bonus.
 - **Crazy 4 Poker** — best four of five; play up to 3× with aces, and the Super Bonus pays any
   straight or better. Side bet: Queens Up.
+- **Baccarat** — Punto Banco from an eight-deck shoe: back the Player or the Banker, and the hand closest
+  to nine wins by the fixed drawing rules. Banker pays less 5% commission. Side bets: Tie, Player
+  Pair, Banker Pair. A bead-plate scoreboard keeps the shoe's coups.
 - **DJ Wild** — five cards from 53 with deuces and the joker wild; play 2× or fold, and a winning
   straight or better pays the Blind. Side bets: Trips, which pays more for natural hands, and the
   Two-Way Bad Beat.
@@ -97,6 +100,14 @@ engines with a 95% margin, and so is every exact bet, to prove the table settles
 | DJ Wild | 3.43% ±0.11% per ante | 3.47% | 40M rounds |
 | Trips (DJ Wild) | 6.16% | 6.16% | exact |
 | Two-Way Bad Beat | 13.9% ±0.2% | none published | 64M rounds |
+| Baccarat: Banker | 1.0579% | 1.0579% (8 decks) | exact (test) |
+| Baccarat: Player | 1.2351% | 1.2351% | exact (test) |
+| Tie (8:1) | 14.36% | 14.36% | exact (test) |
+| Player / Banker Pair (11:1) | 10.36% | 10.36% | exact (test) |
+
+Baccarat's rows are checked in `packages/sim/test/baccarat.test.ts`, which walks every way the cards
+can fall from an eight-deck shoe and holds the round engine's winners to those odds; it isn't in
+`npm run audit` yet.
 
 Two differ from their source, for known reasons. Wizard of Odds' Super Flush Rush table counts 124
 fewer straight flushes than the progressive table on the same page; the simulator matches the

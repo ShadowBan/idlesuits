@@ -158,6 +158,18 @@ export const GAMES: GameEntry[] = [
     load: () => import('../games/djw/DjTable.svelte'),
   },
   {
+    id: 'baccarat',
+    decks: 8,
+    name: 'Baccarat',
+    tagline: 'Player or Banker. Closest to nine.',
+    blurb:
+      'Back the Player or the Banker. The cards are dealt by fixed rules, and the hand closest to nine wins. Banker pays a little less but wins more often.',
+    facts: ['No decisions', 'Banker 1.06% edge', 'Scoreboard'],
+    motif: ['P', '9', 'B'],
+    accent: '#ff9f6e',
+    load: () => import('../games/baccarat/BaccaratTable.svelte'),
+  },
+  {
     id: 'draw',
     decks: 1,
     name: 'Draw Poker',
