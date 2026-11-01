@@ -4,7 +4,7 @@
   import { floor } from '../lib/floor.svelte';
   import type { Decimal } from '../lib/money';
   import { formatLimit } from '../lib/rooms';
-  import { SPEEDS, type SpeedControl } from '../lib/sequencer.svelte';
+  import { ui } from '../lib/ui.svelte';
   import BankCounter from './BankCounter.svelte';
   import TokenCounter from './charms/TokenCounter.svelte';
 
@@ -12,11 +12,8 @@
     /** Shown as two words, the second in gold. */
     title: [string, string];
     bank: Decimal;
-    seq: SpeedControl;
     autoPlay: boolean;
     onAuto: (on: boolean) => void;
-    muted: boolean;
-    onMute: (muted: boolean) => void;
     onRules: () => void;
     onExit: () => void;
     /** Tapping empty felt: deal, or whatever "next" means for this game. */
@@ -35,11 +32,8 @@
   let {
     title,
     bank,
-    seq,
     autoPlay,
     onAuto,
-    muted,
-    onMute,
     onRules,
     onExit,
     onTapFelt,
@@ -75,6 +69,7 @@
     <div class="sheet-body">
       <header>
         <h2>Table</h2>
+        <button type="button" class="gear" onclick={() => (ui.settingsOpen = true)}>Settings</button>
         <button type="button" onclick={() => sheet?.close()} aria-label="Close">✕</button>
       </header>
       <div class="sheet-content">{@render panels()}</div>
@@ -89,14 +84,6 @@
     <div class="bank"><BankCounter {bank} /></div>
     <TokenCounter />
 
-    {#if !compact.current}
-      <div class="speed" role="group" aria-label="Deal speed">
-        {#each SPEEDS as s (s)}
-          <button type="button" aria-pressed={seq.speed === s} onclick={() => (seq.speed = s)}>{s}</button>
-        {/each}
-      </div>
-    {/if}
-
     <div class="actions">
       <button type="button" class="auto" aria-pressed={autoPlay} onclick={() => onAuto(!autoPlay)}>
         Auto {autoPlay ? 'on' : 'off'}
@@ -106,7 +93,7 @@
         <button type="button" onclick={() => sheet?.showModal()} aria-label="Bets and session">⋯</button>
         <button type="button" onclick={onRules} aria-label="How to play">?</button>
       {:else}
-        <button type="button" onclick={() => onMute(!muted)} aria-pressed={muted}>{muted ? 'Unmute' : 'Mute'}</button>
+        <button type="button" onclick={() => (ui.settingsOpen = true)}>Settings</button>
         <button type="button" onclick={onRules}>How to play</button>
         <button type="button" onclick={onExit}>Leave table</button>
       {/if}
@@ -197,21 +184,6 @@
   }
   .compact :global(.tokens) {
     margin-right: auto;
-  }
-  .speed {
-    display: flex;
-    border: 1px solid var(--line);
-    border-radius: 8px;
-    overflow: hidden;
-  }
-  .speed button {
-    border: 0;
-    border-radius: 0;
-    text-transform: capitalize;
-  }
-  .speed button[aria-pressed='true'] {
-    background: var(--gold);
-    color: var(--felt-deep);
   }
   .actions {
     display: flex;
@@ -379,12 +351,12 @@
   .sheet-body header {
     display: flex;
     align-items: center;
-    justify-content: space-between;
+    gap: 8px;
     padding: 10px 12px;
     border-bottom: 1px solid var(--line);
   }
   .sheet-body h2 {
-    margin: 0;
+    margin: 0 auto 0 0;
     font: 600 12px/1 var(--font-ui);
     letter-spacing: 0.14em;
     text-transform: uppercase;

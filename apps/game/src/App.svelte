@@ -2,6 +2,7 @@
   import type { Component } from 'svelte';
   import CharmsPage from './components/charms/CharmsPage.svelte';
   import Lobby from './components/Lobby.svelte';
+  import SettingsDialog from './components/SettingsDialog.svelte';
   import { findGame, type GameEntry, type GameProps } from './lib/games';
   import { route } from './lib/route.svelte';
 
@@ -35,6 +36,8 @@
     route.go(null);
   }
 </script>
+
+<SettingsDialog />
 
 {#if route.current === 'charms'}
   <CharmsPage onExit={exit} />

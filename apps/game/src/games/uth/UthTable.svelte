@@ -12,7 +12,7 @@
   import { heldValue } from '../../lib/betting.svelte';
   import type { GameProps } from '../../lib/games';
   import { Decimal, formatMoney } from '../../lib/money';
-  import { isMuted, setMuted, sfx, unlockAudio } from '../../lib/sound';
+  import { sfx, unlockAudio } from '../../lib/sound';
   import { UthGame } from './game.svelte';
   import UthPanels from './UthPanels.svelte';
   import UthRules from './UthRules.svelte';
@@ -24,9 +24,7 @@
   const seq = game.seq;
   onDestroy(() => game.dispose());
 
-  let muted = $state(isMuted());
   let rules = $state<UthRules>();
-  $effect(() => setMuted(muted));
 
   const FLIP_MS = { smart: 260, '1x': 300, '2x': 190, '5x': 90 } as const;
   const flipMs = $derived(FLIP_MS[seq.speed]);
@@ -123,11 +121,8 @@
 <TableShell
   title={['Ultimate', "Texas Hold'em"]}
   bank={game.bank}
-  {seq}
   autoPlay={game.autoPlay}
   onAuto={(on) => game.setAutoPlay(on)}
-  {muted}
-  onMute={(m) => (muted = m)}
   onRules={() => rules?.open()}
   {onExit}
   onTapFelt={() => seq.awaiting === 'deal' && game.deal()}
@@ -284,7 +279,7 @@
   {/snippet}
 
   {#snippet panels()}
-    <UthPanels {game} {muted} onMuteChange={(m) => (muted = m)} />
+    <UthPanels {game} />
   {/snippet}
 </TableShell>
 

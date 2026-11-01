@@ -1,21 +1,12 @@
 <script lang="ts">
   import { Category, CATEGORY_NAMES } from '@idlesuits/sim';
-  import Breakdown from '../../components/Breakdown.svelte';
-  import CardStylePicker from '../../components/CardStylePicker.svelte';
-  import CharmsPanel from '../../components/charms/CharmsPanel.svelte';
   import PayTable from '../../components/PayTable.svelte';
   import SideBetsPanel from '../../components/SideBetsPanel.svelte';
+  import TablePanels from '../../components/TablePanels.svelte';
   import { formatMoney } from '../../lib/money';
-  import { SPEEDS } from '../../lib/sequencer.svelte';
   import type { UthGame } from './game.svelte';
 
-  interface Props {
-    game: UthGame;
-    muted: boolean;
-    onMuteChange: (muted: boolean) => void;
-  }
-
-  let { game, muted, onMuteChange }: Props = $props();
+  let { game }: { game: UthGame } = $props();
 
   const ratio = (n: number) => (n === 1.5 ? '3:2' : `${n}:1`);
   const rowsFor = (table: Partial<Record<Category, number>>) =>
@@ -29,70 +20,36 @@
   );
 </script>
 
-<CharmsPanel />
+<TablePanels
+  seq={game.seq}
+  autoPlay={game.autoPlay}
+  onAuto={(on) => game.setAutoPlay(on)}
+  seed={game.runSeed}
+  round={game.round}
+  last={game.last}
+  lastUnit={game.lastAnte}
+  stats={[
+    ['Hands', String(game.hands)],
+    ['Folds', String(game.folds)],
+    ['Biggest win', formatMoney(game.biggestWin)],
+  ]}
+  sessionNet={game.sessionNet}
+  history={game.history.map((h) => ({ round: h.round, text: h.player, sub: `v ${h.dealer}`, net: h.net }))}
+>
+  <section class="panel">
+    <h2>Your bets <span>set with chips on the felt</span></h2>
+    <p class="note">
+      Ante {formatMoney(game.ante)} and a matching Blind. The Play bet is 4× or 3× the Ante before the flop, 2× after
+      it, or 1× at the end. Max at risk: {formatMoney(game.ante.mul(6).add(game.side.total))}.
+    </p>
+  </section>
 
-<section class="panel">
-  <h2>Your bets <span>set with chips on the felt</span></h2>
-  <p class="note">
-    Ante {formatMoney(game.ante)} and a matching Blind. The Play bet is 4× or 3× the Ante before the flop, 2× after it,
-    or 1× at the end. Max at risk: {formatMoney(game.ante.mul(6).add(game.side.total))}.
-  </p>
-</section>
+  <section class="panel">
+    <PayTable title="Blind pays (when you win)" rows={rowsFor(game.rules.blindPays)} {lit} />
+  </section>
 
-<section class="panel">
-  <PayTable title="Blind pays (when you win)" rows={rowsFor(game.rules.blindPays)} {lit} />
-</section>
-
-<SideBetsPanel stakes={game.side} base={game.ante} results={game.bonusResults} />
-
-<section class="panel">
-  <h2>Last hand</h2>
-  <Breakdown lines={game.last?.lines ?? []} net={game.last?.net ?? null} ante={game.lastAnte} />
-</section>
-
-<section class="panel">
-  <h2>Session</h2>
-  <dl>
-    <dt>Hands</dt>
-    <dd>{game.hands}</dd>
-    <dt>Net</dt>
-    <dd class:win={game.sessionNet.gt(0)} class:loss={game.sessionNet.lt(0)}>{formatMoney(game.sessionNet, true)}</dd>
-    <dt>Biggest win</dt>
-    <dd>{formatMoney(game.biggestWin)}</dd>
-    <dt>Folds</dt>
-    <dd>{game.folds}</dd>
-  </dl>
-  <ol class="history">
-    {#each game.history as h (h.round)}
-      <li>
-        <span class="muted">#{h.round}</span>
-        <span>{h.player}</span>
-        <span class="muted">v {h.dealer}</span>
-        <span class:win={h.net.gt(0)} class:loss={h.net.lt(0)}>{formatMoney(h.net, true)}</span>
-      </li>
-    {/each}
-  </ol>
-</section>
-
-<section class="panel">
-  <h2>Cards</h2>
-  <CardStylePicker />
-</section>
-
-<section class="panel">
-  <h2>Table</h2>
-  <div class="speed" role="group" aria-label="Deal speed">
-    {#each SPEEDS as s (s)}
-      <button type="button" aria-pressed={game.seq.speed === s} onclick={() => (game.seq.speed = s)}>{s}</button>
-    {/each}
-  </div>
-  <label class="switch">
-    <input type="checkbox" checked={muted} onchange={(e) => onMuteChange(e.currentTarget.checked)} />
-    Mute sound
-  </label>
-  <p class="muted small">Seed {game.runSeed} · hand {game.round}</p>
-  <button type="button" onclick={() => game.restart()}>Restart</button>
-</section>
+  <SideBetsPanel stakes={game.side} base={game.ante} results={game.bonusResults} />
+</TablePanels>
 
 <style>
   .panel {
@@ -121,60 +78,5 @@
     margin: 0;
     font: 12px/1.4 var(--font-ui);
     color: var(--muted);
-  }
-  dl {
-    display: grid;
-    grid-template-columns: 1fr auto;
-    gap: 4px 12px;
-    margin: 0;
-    font: 13px/1.4 var(--font-ui);
-  }
-  dd {
-    margin: 0;
-    text-align: right;
-    font-variant-numeric: tabular-nums;
-  }
-  .history {
-    list-style: none;
-    margin: 0;
-    padding: 0;
-    display: grid;
-    gap: 3px;
-    font: 12px/1.4 var(--font-ui);
-  }
-  .history li {
-    display: grid;
-    grid-template-columns: 36px 1fr auto auto;
-    gap: 8px;
-    font-variant-numeric: tabular-nums;
-  }
-  .speed {
-    display: flex;
-    border: 1px solid var(--line);
-    border-radius: 8px;
-    overflow: hidden;
-    width: fit-content;
-  }
-  .speed button {
-    border: 0;
-    border-radius: 0;
-    text-transform: capitalize;
-  }
-  .speed button[aria-pressed='true'] {
-    background: var(--gold);
-    color: var(--felt-deep);
-  }
-  .small {
-    font-size: 12px;
-    margin: 0;
-  }
-  .muted {
-    color: var(--muted);
-  }
-  .win {
-    color: var(--win);
-  }
-  .loss {
-    color: var(--loss);
   }
 </style>

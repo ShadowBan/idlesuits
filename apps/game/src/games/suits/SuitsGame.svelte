@@ -12,7 +12,7 @@
   import type { GameProps } from '../../lib/games';
   import { Decimal, formatMoney } from '../../lib/money';
   import { save } from '../../lib/save';
-  import { isMuted, setMuted, sfx, unlockAudio } from '../../lib/sound';
+  import { sfx, unlockAudio } from '../../lib/sound';
   import { spotView } from '../../lib/stakes.svelte';
   import BetPanel from './BetPanel.svelte';
   import type { SpeedMode } from './director';
@@ -29,9 +29,7 @@
 
   const FLIP_MS: Record<SpeedMode, number> = { smart: 280, '1x': 320, '2x': 200, '5x': 90 };
 
-  let muted = $state(isMuted());
   let rulesDialog = $state<RulesDialog>();
-  $effect(() => setMuted(muted));
 
   const flipMs = $derived(game.speed === 'smart' && view.drama === 'tense' ? 520 : FLIP_MS[game.speed]);
 
@@ -145,11 +143,8 @@
 <TableShell
   title={['Idle', 'Suits']}
   bank={game.bank}
-  seq={game}
   autoPlay={game.autoPlay}
   onAuto={(on) => game.setAutoPlay(on)}
-  {muted}
-  onMute={(m) => (muted = m)}
   onRules={() => rulesDialog?.open()}
   {onExit}
   onTapFelt={() => (game.awaiting === 'flip' || game.awaiting === 'deal') && game.advance()}
@@ -274,11 +269,10 @@
   {#snippet panels()}
     <TablePanels
       seq={game}
-      {muted}
-      onMute={(m) => (muted = m)}
+      autoPlay={game.autoPlay}
+      onAuto={(on) => game.setAutoPlay(on)}
       seed={game.runSeed}
       round={game.round}
-      onRestart={() => game.restart()}
       last={view.last}
       lastUnit={game.lastAnte}
       stats={[
@@ -296,7 +290,9 @@
         net: h.net,
       }))}
     >
-      <BetPanel {game} />
+      {#snippet automation()}
+        <BetPanel {game} />
+      {/snippet}
       <section class="tiles">
         {#each game.rules.sideBets as def (def.id)}
           <SideBetTile

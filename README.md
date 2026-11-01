@@ -176,7 +176,10 @@ Nothing else in the shell needs to know it exists.
    and `stepWithChoices` from the simulator lets a round pause mid-hand for a decision.
    Any converted table (Three Card Poker is a short one) shows the pattern for the felt: a layout
    grid with the hands, a `FeltBand` (the printed name and the result banner) and a row of
-   `BetSpot`s; `BetBar` or `DecisionBar` below; `SeatOverlay` and `TablePanels` for the rest.
+   `BetSpot`s; `BetBar` or `DecisionBar` below; `SeatOverlay` and `TablePanels` for the rest. `TablePanels` is
+   the sidebar: charms, Automation (auto play and speed, plus an `automation` snippet for anything
+   auto play follows), then Pays, Stats and Table tabs; the game's pay tables and side bets go in as
+   its children. Settings for the whole casino (sound, card faces) live in `SettingsDialog`, not here.
    Keep everything that changes during a hand in fixed-size boxes, so nothing on the felt moves
    when a card turns or a label appears.
 2. Add an entry to `GAMES` with the name, tagline, blurb and a `load` that imports that component.

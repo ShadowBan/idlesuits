@@ -23,7 +23,7 @@
   import { heldValue } from '../../lib/betting.svelte';
   import type { GameProps } from '../../lib/games';
   import { Decimal, formatMoney } from '../../lib/money';
-  import { isMuted, setMuted, sfx, unlockAudio } from '../../lib/sound';
+  import { sfx, unlockAudio } from '../../lib/sound';
   import { spotView } from '../../lib/stakes.svelte';
   import { handPhrase, showdownLine } from '../../lib/verdict';
   import { TcpGame } from './game.svelte';
@@ -35,9 +35,7 @@
   const seq = game.seq;
   onDestroy(() => game.dispose());
 
-  let muted = $state(isMuted());
   let rules = $state<TcpRules>();
-  $effect(() => setMuted(muted));
 
   const FLIP_MS = { smart: 280, '1x': 300, '2x': 190, '5x': 90 } as const;
   const flipMs = $derived(FLIP_MS[seq.speed]);
@@ -144,11 +142,8 @@
 <TableShell
   title={['Three Card', 'Poker']}
   bank={game.bank}
-  {seq}
   autoPlay={game.autoPlay}
   onAuto={(on) => game.setAutoPlay(on)}
-  {muted}
-  onMute={(m) => (muted = m)}
   onRules={() => rules?.open()}
   {onExit}
   onTapFelt={() => seq.awaiting === 'deal' && game.deal()}
@@ -257,11 +252,10 @@
   {#snippet panels()}
     <TablePanels
       {seq}
-      {muted}
-      onMute={(m) => (muted = m)}
+      autoPlay={game.autoPlay}
+      onAuto={(on) => game.setAutoPlay(on)}
       seed={game.runSeed}
       round={game.round}
-      onRestart={() => game.restart()}
       last={game.last}
       lastUnit={game.lastAnte}
       stats={[
