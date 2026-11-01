@@ -148,18 +148,18 @@ describe('stepRound', () => {
 
 describe('a dealt shoe', () => {
   it('holds every card of every deck once, burns one and cuts 70-80% in', () => {
-    const shoe = shuffleShoe(6, 'test', 0);
+    const shoe = shuffleShoe(6, ['test', 0]);
     expect(shoe.cards).toHaveLength(312);
     expect(new Set(shoe.cards.map((c) => c.uid)).size).toBe(312);
     expect(shoe.next).toBe(1);
     expect(shoe.cut).toBeGreaterThanOrEqual(218);
     expect(shoe.cut).toBeLessThanOrEqual(250);
-    expect(shuffleShoe(6, 'test', 0)).toEqual(shoe);
-    expect(shuffleShoe(6, 'test', 1).cards).not.toEqual(shoe.cards);
+    expect(shuffleShoe(6, ['test', 0])).toEqual(shoe);
+    expect(shuffleShoe(6, ['test', 1]).cards).not.toEqual(shoe.cards);
   });
 
   it('deals rounds in order from the shoe until the cut card comes out', () => {
-    const shoe = shuffleShoe(6, 'test', 0);
+    const shoe = shuffleShoe(6, ['test', 0]);
     let rounds = 0;
     while (!cutCardOut(shoe)) {
       const result = play(rounds, { shoe });

@@ -24,6 +24,7 @@ import { Sequencer } from '../../lib/sequencer.svelte';
 import { bonusLine, SideStakes } from '../../lib/sidebets.svelte';
 import { ChipBets } from '../../lib/stakes.svelte';
 import { sfx } from '../../lib/sound';
+import { tuning } from '../../lib/tuning.svelte';
 
 const STARTING_ANTE = 5;
 
@@ -56,7 +57,10 @@ function newSeed(): string {
 }
 
 export class CspGame {
-  readonly rules = CSP_RULES;
+  /** The rules as designed, with anything the admin panel has changed. */
+  get rules() {
+    return tuning.rules('csp', CSP_RULES);
+  }
   readonly seq = new Sequencer<CspMove>();
 
   runSeed = $state(newSeed());
@@ -205,11 +209,11 @@ export class CspGame {
     const extra = blindHands(this.bank, ante.mul(3).add(this.side.total));
     const of = extra + 1;
     this.blind.deal(
-      Array.from({ length: extra }, (_, index) => simulateCspRound({ seed, seat: { index, of }, bonuses, decide: BLIND.csp })),
+      Array.from({ length: extra }, (_, index) => simulateCspRound({ rules: this.rules, seed, seat: { index, of }, bonuses, decide: BLIND.csp })),
     );
     this.blind.start(() => ante.mul(unitsDown(3, bonuses)));
     const run = (decide: (d: CspDecision) => CspMove, onEvent: (e: CspEvent) => void) =>
-      simulateCspRound({ seed, bonuses, decide, onEvent, seat: { index: extra, of } });
+      simulateCspRound({ rules: this.rules, seed, bonuses, decide, onEvent, seat: { index: extra, of } });
 
     const choices: CspMove[] = [];
     let shown = 0;

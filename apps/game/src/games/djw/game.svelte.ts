@@ -25,6 +25,7 @@ import { Sequencer } from '../../lib/sequencer.svelte';
 import { bonusLine, SideStakes } from '../../lib/sidebets.svelte';
 import { ChipBets } from '../../lib/stakes.svelte';
 import { sfx } from '../../lib/sound';
+import { tuning } from '../../lib/tuning.svelte';
 
 const STARTING_ANTE = 5;
 
@@ -57,7 +58,10 @@ function newSeed(): string {
 }
 
 export class DjGame {
-  readonly rules = DJ_RULES;
+  /** The rules as designed, with anything the admin panel has changed. */
+  get rules() {
+    return tuning.rules('djwild', DJ_RULES);
+  }
   readonly seq = new Sequencer<DjMove>();
 
   runSeed = $state(newSeed());
@@ -205,11 +209,11 @@ export class DjGame {
     const extra = blindHands(this.bank, ante.mul(4).add(this.side.total));
     const of = extra + 1;
     this.blind.deal(
-      Array.from({ length: extra }, (_, index) => simulateDjRound({ seed, seat: { index, of }, bonuses, decide: BLIND.djw })),
+      Array.from({ length: extra }, (_, index) => simulateDjRound({ rules: this.rules, seed, seat: { index, of }, bonuses, decide: BLIND.djw })),
     );
     this.blind.start(() => ante.mul(unitsDown(4, bonuses)));
     const run = (decide: (d: DjDecision) => DjMove, onEvent: (e: DjEvent) => void) =>
-      simulateDjRound({ seed, bonuses, decide, onEvent, seat: { index: extra, of } });
+      simulateDjRound({ rules: this.rules, seed, bonuses, decide, onEvent, seat: { index: extra, of } });
 
     const choices: DjMove[] = [];
     let shown = 0;

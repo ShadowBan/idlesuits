@@ -2,6 +2,7 @@ import type { Card, RoundReport } from '@idlesuits/sim';
 import type { BreakdownLine } from './breakdown';
 import { Decimal } from './money';
 import { meta } from './meta.svelte';
+import { tuning } from './tuning.svelte';
 
 /** One blind hand on the felt, for BlindSeats. */
 export interface BlindSeat {
@@ -17,12 +18,13 @@ export interface BlindSeat {
 }
 
 /**
- * How many blind hands to deal this round: as many as the Lucky Seat gives,
+ * How many blind hands to deal this round: as many as the Lucky Seat gives
+ * (or the admin panel sets),
  * while the bankroll could cover every hand, the player's own included,
  * losing `exposure` (its bets with every raise made).
  */
 export function blindHands(bank: Decimal, exposure: Decimal): number {
-  let n = meta.extraHands;
+  let n = tuning.values.blindHands >= 0 ? tuning.values.blindHands : meta.extraHands;
   while (n > 0 && bank.lt(exposure.mul(n + 1))) n--;
   return n;
 }

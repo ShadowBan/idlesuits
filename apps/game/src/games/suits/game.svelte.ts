@@ -21,6 +21,7 @@ import { mainBet } from '../../lib/report';
 import { load, save } from '../../lib/save';
 import { SideStakes } from '../../lib/sidebets.svelte';
 import { sfx } from '../../lib/sound';
+import { tuning } from '../../lib/tuning.svelte';
 import { ChipBets } from '../../lib/stakes.svelte';
 import { TableView } from './table.svelte';
 
@@ -60,7 +61,10 @@ function newSeed(): string {
 }
 
 export class Game {
-  readonly rules: TableRules = DEFAULT_RULES;
+  /** The rules as designed, with anything the admin panel has changed (the qualifier, the raise caps). */
+  get rules(): TableRules {
+    return tuning.rules('suits', DEFAULT_RULES);
+  }
   readonly shoe: Card[] = buildShoe(standardDeck('player'));
   readonly view = new TableView(this.rules.sideBets);
   private readonly clock = new Clock();

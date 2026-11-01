@@ -25,6 +25,7 @@ import { Sequencer } from '../../lib/sequencer.svelte';
 import { bonusLine, SideStakes } from '../../lib/sidebets.svelte';
 import { ChipBets } from '../../lib/stakes.svelte';
 import { sfx } from '../../lib/sound';
+import { tuning } from '../../lib/tuning.svelte';
 
 const STARTING_ANTE = 5;
 
@@ -57,7 +58,10 @@ function newSeed(): string {
 }
 
 export class C4pGame {
-  readonly rules = C4P_RULES;
+  /** The rules as designed, with anything the admin panel has changed. */
+  get rules() {
+    return tuning.rules('c4p', C4P_RULES);
+  }
   readonly seq = new Sequencer<C4pChoice>();
 
   runSeed = $state(newSeed());
@@ -212,11 +216,11 @@ export class C4pGame {
     const extra = blindHands(this.bank, ante.mul(5).add(this.side.total));
     const of = extra + 1;
     this.blind.deal(
-      Array.from({ length: extra }, (_, index) => simulateC4pRound({ seed, seat: { index, of }, bonuses, decide: BLIND.c4p })),
+      Array.from({ length: extra }, (_, index) => simulateC4pRound({ rules: this.rules, seed, seat: { index, of }, bonuses, decide: BLIND.c4p })),
     );
     this.blind.start((r) => ante.mul(unitsDown(2 + r.play, bonuses)));
     const run = (decide: (d: C4pDecision) => C4pChoice, onEvent: (e: C4pEvent) => void) =>
-      simulateC4pRound({ seed, bonuses, decide, onEvent, seat: { index: extra, of } });
+      simulateC4pRound({ rules: this.rules, seed, bonuses, decide, onEvent, seat: { index: extra, of } });
 
     const choices: C4pChoice[] = [];
     let shown = 0;

@@ -26,6 +26,7 @@ import { Sequencer } from '../../lib/sequencer.svelte';
 import { bonusLine, SideStakes } from '../../lib/sidebets.svelte';
 import { ChipBets } from '../../lib/stakes.svelte';
 import { sfx } from '../../lib/sound';
+import { tuning } from '../../lib/tuning.svelte';
 
 const STARTING_BET = 5;
 
@@ -55,7 +56,10 @@ function newSeed(): string {
 }
 
 export class LirGame {
-  readonly rules = LIR_RULES;
+  /** The rules as designed, with anything the admin panel has changed. */
+  get rules() {
+    return tuning.rules('lir', LIR_RULES);
+  }
   readonly seq = new Sequencer<LirMove>();
 
   runSeed = $state(newSeed());
@@ -215,11 +219,11 @@ export class LirGame {
     const extra = blindHands(this.bank, bet.mul(3).add(this.side.total));
     const of = extra + 1;
     this.blind.deal(
-      Array.from({ length: extra }, (_, index) => simulateLirRound({ seed, seat: { index, of }, bonuses, decide: BLIND.lir })),
+      Array.from({ length: extra }, (_, index) => simulateLirRound({ rules: this.rules, seed, seat: { index, of }, bonuses, decide: BLIND.lir })),
     );
     this.blind.start(() => bet.mul(unitsDown(3, bonuses)));
     const run = (decide: (d: LirDecision) => LirMove, onEvent: (e: LirEvent) => void) =>
-      simulateLirRound({ seed, bonuses, decide, onEvent, seat: { index: extra, of } });
+      simulateLirRound({ rules: this.rules, seed, bonuses, decide, onEvent, seat: { index: extra, of } });
 
     const choices: LirMove[] = [];
     let shown = 0;

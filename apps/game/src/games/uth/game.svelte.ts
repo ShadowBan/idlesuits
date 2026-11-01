@@ -29,6 +29,7 @@ import { Sequencer } from '../../lib/sequencer.svelte';
 import { bonusLine, SideStakes } from '../../lib/sidebets.svelte';
 import { ChipBets } from '../../lib/stakes.svelte';
 import { sfx } from '../../lib/sound';
+import { tuning } from '../../lib/tuning.svelte';
 
 type Choice = { move: UthMove; raise?: number };
 
@@ -76,7 +77,10 @@ function newSeed(): string {
 }
 
 export class UthGame {
-  readonly rules = UTH_RULES;
+  /** The rules as designed, with anything the admin panel has changed. */
+  get rules() {
+    return tuning.rules('uth', UTH_RULES);
+  }
   readonly seq = new Sequencer<Choice>();
 
   runSeed = $state(newSeed());
@@ -240,11 +244,11 @@ export class UthGame {
     const extra = blindHands(this.bank, ante.mul(6).add(this.side.total));
     const of = extra + 1;
     this.blind.deal(
-      Array.from({ length: extra }, (_, index) => simulateUthRound({ seed, seat: { index, of }, bonuses, decide: BLIND.uth })),
+      Array.from({ length: extra }, (_, index) => simulateUthRound({ rules: this.rules, seed, seat: { index, of }, bonuses, decide: BLIND.uth })),
     );
     this.blind.start(() => ante.mul(unitsDown(6, bonuses)));
     const run = (decide: (d: UthDecision) => Choice, onEvent: (e: UthEvent) => void) =>
-      simulateUthRound({ seed, bonuses, decide, onEvent, seat: { index: extra, of } });
+      simulateUthRound({ rules: this.rules, seed, bonuses, decide, onEvent, seat: { index: extra, of } });
 
     const choices: Choice[] = [];
     let shown = 0;

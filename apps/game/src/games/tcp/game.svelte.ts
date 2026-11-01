@@ -25,6 +25,7 @@ import { Sequencer } from '../../lib/sequencer.svelte';
 import { bonusLine, SideStakes } from '../../lib/sidebets.svelte';
 import { ChipBets } from '../../lib/stakes.svelte';
 import { sfx } from '../../lib/sound';
+import { tuning } from '../../lib/tuning.svelte';
 
 const STARTING_ANTE = 5;
 
@@ -57,7 +58,10 @@ function newSeed(): string {
 }
 
 export class TcpGame {
-  readonly rules = TCP_RULES;
+  /** The rules as designed, with anything the admin panel has changed. */
+  get rules() {
+    return tuning.rules('tcp', TCP_RULES);
+  }
   readonly seq = new Sequencer<TcpMove>();
 
   runSeed = $state(newSeed());
@@ -208,10 +212,10 @@ export class TcpGame {
     const extra = blindHands(this.bank, ante.mul(2).add(this.side.total));
     const of = extra + 1;
     this.blind.deal(
-      Array.from({ length: extra }, (_, index) => simulateTcpRound({ seed, seat: { index, of }, bonuses, decide: BLIND.tcp })),
+      Array.from({ length: extra }, (_, index) => simulateTcpRound({ rules: this.rules, seed, seat: { index, of }, bonuses, decide: BLIND.tcp })),
     );
     const run = (decide: (d: TcpDecision) => TcpMove, onEvent: (e: TcpEvent) => void) =>
-      simulateTcpRound({ seed, seat: { index: extra, of }, bonuses, decide, onEvent });
+      simulateTcpRound({ rules: this.rules, seed, seat: { index: extra, of }, bonuses, decide, onEvent });
 
     const choices: TcpMove[] = [];
     let shown = 0;

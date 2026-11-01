@@ -25,6 +25,7 @@ import { Sequencer } from '../../lib/sequencer.svelte';
 import { bonusLine, SideStakes } from '../../lib/sidebets.svelte';
 import { ChipBets } from '../../lib/stakes.svelte';
 import { sfx } from '../../lib/sound';
+import { tuning } from '../../lib/tuning.svelte';
 
 const STARTING_ANTE = 5;
 
@@ -59,7 +60,10 @@ function newSeed(): string {
 }
 
 export class StudGame {
-  readonly rules = STUD_RULES;
+  /** The rules as designed, with anything the admin panel has changed. */
+  get rules() {
+    return tuning.rules('stud', STUD_RULES);
+  }
   readonly seq = new Sequencer<StudChoice>();
 
   runSeed = $state(newSeed());
@@ -219,11 +223,11 @@ export class StudGame {
     const extra = blindHands(this.bank, ante.mul(10).add(this.side.total));
     const of = extra + 1;
     this.blind.deal(
-      Array.from({ length: extra }, (_, index) => simulateStudRound({ seed, seat: { index, of }, bonuses, decide: BLIND.stud })),
+      Array.from({ length: extra }, (_, index) => simulateStudRound({ rules: this.rules, seed, seat: { index, of }, bonuses, decide: BLIND.stud })),
     );
     this.blind.start(() => ante.mul(unitsDown(10, bonuses)));
     const run = (decide: (d: StudDecision) => StudChoice, onEvent: (e: StudEvent) => void) =>
-      simulateStudRound({ seed, decide, bonuses, onEvent, seat: { index: extra, of } });
+      simulateStudRound({ rules: this.rules, seed, decide, bonuses, onEvent, seat: { index: extra, of } });
 
     const choices: StudChoice[] = [];
     let shown = 0;

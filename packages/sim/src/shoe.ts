@@ -18,11 +18,13 @@ export interface Shoe {
 /** The dealer burns the first card of a fresh shoe. */
 export const BURN_CARDS = 1;
 /** Penetration: the player cuts somewhere between 70% and 80% of the way in. */
-const CUT_FROM = 0.7;
-const CUT_TO = 0.8;
+export const DEFAULT_CUT: readonly [number, number] = [0.7, 0.8];
 
-/** A freshly shuffled shoe of `decks` decks. The seed fixes its order and its cut. */
-export function shuffleShoe(decks: number, ...seed: Seed[]): Shoe {
+/**
+ * A freshly shuffled shoe of `decks` decks. The seed fixes its order and its
+ * cut, placed somewhere in `cut` (fractions of the way in).
+ */
+export function shuffleShoe(decks: number, seed: readonly Seed[], cut: readonly [number, number] = DEFAULT_CUT): Shoe {
   const rng = new Rng(...seed, 'shoe');
   const cards: Card[] = [];
   for (let d = 0; d < decks; d++) cards.push(...standardDeck('player', `d${d}`));
@@ -32,8 +34,8 @@ export function shuffleShoe(decks: number, ...seed: Seed[]): Shoe {
     cards[i] = cards[j]!;
     cards[j] = card;
   }
-  const cut = Math.round(cards.length * (CUT_FROM + rng.next() * (CUT_TO - CUT_FROM)));
-  return { cards, next: BURN_CARDS, cut };
+  const [from, to] = cut;
+  return { cards, next: BURN_CARDS, cut: Math.round(cards.length * (from + rng.next() * (to - from))) };
 }
 
 /** The cut card has come out: finish this round, then shuffle. */

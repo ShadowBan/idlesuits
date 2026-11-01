@@ -1,5 +1,6 @@
 import {
   BLIND,
+  PAI_GOW_RULES,
   applySet,
   isLegalSet,
   PG_BONUSES,
@@ -29,6 +30,7 @@ import { Sequencer } from '../../lib/sequencer.svelte';
 import { bonusLine, SideStakes } from '../../lib/sidebets.svelte';
 import { ChipBets } from '../../lib/stakes.svelte';
 import { sfx } from '../../lib/sound';
+import { tuning } from '../../lib/tuning.svelte';
 
 const STARTING_BET = 5;
 
@@ -68,6 +70,10 @@ function newSeed(): string {
 
 export class PaiGowGame {
   readonly seq = new Sequencer<PaiGowSet>();
+  /** The rules as designed, with anything the admin panel has changed. */
+  get rules() {
+    return tuning.rules('paigow', PAI_GOW_RULES);
+  }
 
   runSeed = $state(newSeed());
   round = $state(0);
@@ -242,11 +248,11 @@ export class PaiGowGame {
     const extra = blindHands(this.bank, bet.mul(1).add(this.side.total));
     const of = extra + 1;
     this.blind.deal(
-      Array.from({ length: extra }, (_, index) => simulatePaiGowRound({ seed, seat: { index, of }, bonuses, decide: BLIND.paigow })),
+      Array.from({ length: extra }, (_, index) => simulatePaiGowRound({ rules: this.rules, seed, seat: { index, of }, bonuses, decide: BLIND.paigow })),
     );
     this.blind.start(() => bet.mul(unitsDown(1, bonuses)));
     const run = (decide: (d: PaiGowDecision) => PaiGowSet, onEvent: (e: PaiGowEvent) => void) =>
-      simulatePaiGowRound({ seed, bonuses, decide, onEvent, seat: { index: extra, of } });
+      simulatePaiGowRound({ rules: this.rules, seed, bonuses, decide, onEvent, seat: { index: extra, of } });
 
     const choices: PaiGowSet[] = [];
     let shown = 0;

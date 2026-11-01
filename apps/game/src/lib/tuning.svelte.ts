@@ -1,4 +1,5 @@
 import { PULL_COST, TEN_PULL_COST } from '@idlesuits/sim';
+import { withOverrides } from './gameRules';
 import { roomTuning } from './rooms';
 import { load, save } from './save';
 
@@ -26,6 +27,8 @@ export interface TuningValues {
   roomTokenBonus: number;
   buyIn: number;
   speedBoost: number;
+  /** Blind hands at every poker table, or -1 for what the charms give. */
+  blindHands: number;
 }
 
 export const TUNING_DEFAULTS: Readonly<TuningValues> = {
@@ -38,6 +41,7 @@ export const TUNING_DEFAULTS: Readonly<TuningValues> = {
   roomTokenBonus: roomTuning.tokenBonusPerRoom,
   buyIn: 500,
   speedBoost: 1,
+  blindHands: -1,
 };
 
 export const KNOBS: readonly Knob[] = [
@@ -50,10 +54,16 @@ export const KNOBS: readonly Knob[] = [
   { key: 'roomTokenBonus', label: 'Room Token bonus', hint: '+ per room up', min: 0, max: 10, step: 0.05 },
   { key: 'buyIn', label: 'Buy-in', hint: 'a fresh stake, in dollars', min: 5, max: 1e9, step: 5 },
   { key: 'speedBoost', label: 'Speed boost', hint: '× every table’s pace', min: 0.25, max: 50, step: 0.25 },
+  { key: 'blindHands', label: 'Blind hands', hint: 'at poker tables; −1 = from charms', min: -1, max: 2, step: 1 },
 ];
+
+type Overrides = Record<string, number | boolean>;
 
 class Tuning {
   values = $state<TuningValues>({ ...TUNING_DEFAULTS, ...load<Partial<TuningValues>>('tuning', {}) });
+  /** Each game's rule overrides, by game id and path in its rules object. */
+  games = $state<Record<string, Overrides>>(load('tuning.games', {}));
+  private tuned = new Map<string, { key: string; base: object; rules: object }>();
 
   constructor() {
     this.sync();
@@ -68,6 +78,37 @@ class Tuning {
   reset() {
     this.values = { ...TUNING_DEFAULTS };
     this.persist();
+  }
+
+  /** A game's rules with any overrides set: the same object until they change, so strategy can be cached on it. */
+  rules<T extends object>(id: string, base: T): T {
+    const overrides = this.games[id] ?? {};
+    const key = JSON.stringify(overrides);
+    const hit = this.tuned.get(id);
+    if (hit && hit.key === key && hit.base === base) return hit.rules as T;
+    const rules = withOverrides(base, overrides);
+    this.tuned.set(id, { key, base, rules });
+    return rules;
+  }
+
+  /** One override for a game, or `fallback` if it hasn't been set. */
+  gameValue<V extends number | boolean>(id: string, path: string, fallback: V): V {
+    return (this.games[id]?.[path] as V | undefined) ?? fallback;
+  }
+
+  setRule(id: string, path: string, value: number | boolean, designed: number | boolean) {
+    if (typeof value === 'number' && !Number.isFinite(value)) return;
+    const game = { ...this.games[id] };
+    if (value === designed) delete game[path];
+    else game[path] = value;
+    this.games = { ...this.games, [id]: game };
+    save('tuning.games', $state.snapshot(this.games));
+  }
+
+  resetGame(id: string) {
+    const { [id]: _, ...rest } = this.games;
+    this.games = rest;
+    save('tuning.games', $state.snapshot(this.games));
   }
 
   /** Knobs moved off their defaults. */

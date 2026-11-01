@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { DEFAULT_RAISE_CAPS, maxRaise } from '@idlesuits/sim';
+  import { maxRaise } from '@idlesuits/sim';
   import { PLAN_SIZES, type Game } from './game.svelte';
   import { formatMoney } from '../../lib/money';
 
@@ -16,7 +16,7 @@
   <table>
     <tbody>
       {#each PLAN_SIZES as size (size)}
-        {@const cap = maxRaise(DEFAULT_RAISE_CAPS, size)}
+        {@const cap = maxRaise(game.rules.raiseCaps, size)}
         {@const current = game.raisePlan.raises[size] ?? 0}
         <tr>
           <th scope="row">{size === PLAN_SIZES.at(-1) ? `${size}+ card` : `${size}-card`}</th>

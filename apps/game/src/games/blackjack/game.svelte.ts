@@ -22,7 +22,9 @@ import { load, saveSoon } from '../../lib/save';
 import { mainBet, outcomeOf, sideBets } from '../../lib/report';
 import { Sequencer } from '../../lib/sequencer.svelte';
 import { SideStakes } from '../../lib/sidebets.svelte';
+import { PENETRATION } from '../../lib/gameRules';
 import { sfx } from '../../lib/sound';
+import { tuning } from '../../lib/tuning.svelte';
 import { ChipBets } from '../../lib/stakes.svelte';
 import { BjTableView } from './table.svelte';
 
@@ -65,8 +67,19 @@ function newSeed(): string {
 }
 
 export class BjGame {
-  readonly rules: BjRules = FREE_BET_RULES;
-  readonly tables: StrategyTables = solveStrategy(FREE_BET_RULES);
+  /** The basic strategy for the rules in play, solved again when the admin panel changes them. */
+  private solved: { rules: BjRules; tables: StrategyTables } | null = null;
+
+  /** Free Bet rules as designed, with anything the admin panel has changed. */
+  get rules(): BjRules {
+    return tuning.rules('blackjack', FREE_BET_RULES);
+  }
+
+  get tables(): StrategyTables {
+    const rules = this.rules;
+    if (this.solved?.rules !== rules) this.solved = { rules, tables: solveStrategy(rules) };
+    return this.solved.tables;
+  }
   readonly view = new BjTableView();
   readonly seq = new Sequencer<BjChoice>();
   /** The shoe being dealt, down to its cut card. Kept across rounds and saved, as a real table's shoe is. */
@@ -122,7 +135,7 @@ export class BjGame {
     this.shoeSeed = saved?.seed ?? newSeed();
     this.shoeNumber = saved?.number ?? 0;
     this.shoeDecks = saved?.decks ?? this.decksWanted();
-    this.shoe = shuffleShoe(this.shoeDecks, this.shoeSeed, this.shoeNumber);
+    this.shoe = shuffleShoe(this.shoeDecks, [this.shoeSeed, this.shoeNumber], this.cutRange());
     if (saved && saved.next > this.shoe.next && saved.next < this.shoe.cards.length) this.shoe.next = saved.next;
     this.refreshShoe();
   }
@@ -140,6 +153,12 @@ export class BjGame {
   /** The decks the next shoe should hold. */
   private decksWanted(): number {
     return Math.max(1, this.rules.decks - meta.fewerDecks);
+  }
+
+  /** Where the cut card can go: 70–80% in, or wherever the admin panel puts it. */
+  private cutRange(): [number, number] {
+    const at = tuning.gameValue('blackjack', PENETRATION.path, PENETRATION.value as number) / 100;
+    return [Math.max(0.1, at - 0.05), Math.min(0.97, at + 0.05)];
   }
 
   /** Insurance costs half the bet on top of everything else down; the bankroll must cover it. */
@@ -239,13 +258,14 @@ export class BjGame {
 
   /** Plays one round; false if the game was reset part-way through. */
   private async playRound(): Promise<boolean> {
-    // The cut card came out last round: the dealer shuffles before dealing on.
-    if (cutCardOut(this.shoe)) {
+    // The cut card came out last round, or the shoe should hold a different number of decks now (a charm
+    // or a rule changed): the dealer shuffles before dealing on.
+    if (cutCardOut(this.shoe) || this.shoeDecks !== this.decksWanted()) {
       this.shuffling = true;
       sfx.shuffle();
       const ok = await this.seq.wait(SHUFFLE_MS);
       this.shoeDecks = this.decksWanted();
-      this.shoe = shuffleShoe(this.shoeDecks, this.shoeSeed, ++this.shoeNumber);
+      this.shoe = shuffleShoe(this.shoeDecks, [this.shoeSeed, ++this.shoeNumber], this.cutRange());
       this.refreshShoe();
       this.shuffling = false;
       if (!ok) return false;
