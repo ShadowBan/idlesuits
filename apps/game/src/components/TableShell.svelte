@@ -1,7 +1,9 @@
 <script lang="ts">
-  import type { Snippet } from 'svelte';
+  import { untrack, type Snippet } from 'svelte';
   import { MediaQuery } from 'svelte/reactivity';
+  import { floor } from '../lib/floor.svelte';
   import type { Decimal } from '../lib/money';
+  import { formatLimit } from '../lib/rooms';
   import { SPEEDS, type SpeedControl } from '../lib/sequencer.svelte';
   import BankCounter from './BankCounter.svelte';
   import TokenCounter from './charms/TokenCounter.svelte';
@@ -54,6 +56,9 @@
   const cardWidth = $derived(
     `clamp(30px, min(calc((100cqw - 28px) / ${cards.across * 1.16}), calc((100cqh - ${cards.rows * 32 + (cards.reserve ?? 230)}px) / ${cards.rows * 1.4})), 104px)`,
   );
+
+  /** Moves down a room before the player sat down here aren't news at this table. */
+  const movesAtSit = untrack(() => floor.moves);
 
   /** Below this the table fits one screen and the panels move into a sheet. */
   const compact = new MediaQuery('(max-width: 899px)');
@@ -117,6 +122,13 @@
           <span style:--c={color}></span>
         {/each}
       </div>
+      <!-- The table's limit sign, beside the tray; it flashes when a short bankroll moves the player down a room. -->
+      {#key floor.moves}
+        <div class="limits" class:moved={floor.moves > movesAtSit} title="{floor.room.name}: main bet {formatLimit(floor.room.min)} to {formatLimit(floor.room.max)}, side bets up to {formatLimit(floor.room.sideMax)}">
+          <span class="room">{floor.room.name}</span>
+          <b>{formatLimit(floor.room.min)}–{formatLimit(floor.room.max)}</b>
+        </div>
+      {/key}
       <!-- Inside the felt so its container units measure the felt; no box of its own. -->
       <div class="surface" style:--card-w={cardWidth}>{@render felt()}</div>
     </div>
@@ -277,6 +289,51 @@
   .compact .tray span {
     width: 9px;
     height: 5px;
+  }
+  /* A small acrylic sign on the felt's top edge, right of the tray: inside the felt's padding, clear of the cards. */
+  .limits {
+    position: absolute;
+    top: 3px;
+    left: calc(50% + 90px);
+    display: flex;
+    align-items: baseline;
+    gap: 5px;
+    padding: 2px 7px;
+    border-radius: 4px;
+    background: rgb(10 6 4 / 0.55);
+    border: 1px solid rgb(236 216 160 / 0.35);
+    font: 600 9px/1.1 var(--font-ui);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--print);
+    white-space: nowrap;
+    pointer-events: none;
+  }
+  .limits b {
+    font: 700 11px/1.1 var(--font-display);
+    letter-spacing: 0.04em;
+    color: var(--gold);
+  }
+  .limits.moved {
+    animation: moved 1600ms ease-out;
+  }
+  @keyframes moved {
+    0%,
+    40% {
+      border-color: var(--gold);
+      box-shadow: 0 0 10px rgb(242 198 78 / 0.7);
+    }
+  }
+  .compact .limits {
+    top: 1px;
+    left: calc(50% + 64px);
+    padding: 1px 5px;
+  }
+  .compact .limits .room {
+    display: none;
+  }
+  .compact .limits b {
+    font-size: 10px;
   }
   /*
    * A fixed height, tall enough for the chip rack: switching between betting

@@ -1,5 +1,7 @@
 <script lang="ts">
   import { bankroll } from '../lib/casino.svelte';
+  import { floor } from '../lib/floor.svelte';
+  import { formatLimit, room } from '../lib/rooms';
   import { GAMES, type GameEntry } from '../lib/games';
   import { formatMoney } from '../lib/money';
   import CardStylePicker from './CardStylePicker.svelte';
@@ -11,6 +13,9 @@
   let { onPlay }: { onPlay: (game: GameEntry) => void } = $props();
 
   let cards = $state<HTMLDialogElement>();
+
+  /** Every opened room, and the next one as something to aim for. */
+  const rooms = $derived(Array.from({ length: floor.best + 2 }, (_, i) => room(i)));
 </script>
 
 <dialog bind:this={cards} class="cards-dialog" aria-labelledby="cards-title" onclick={(e) => e.target === cards && cards.close()}>
@@ -27,7 +32,7 @@
 <div class="lobby">
   <header>
     <div>
-      <h1>The Floor</h1>
+      <h1>{floor.room.name}</h1>
       <p class="sub">Pick a table. Your money follows you from game to game.</p>
     </div>
     <div class="corner">
@@ -43,6 +48,35 @@
       <TokenCounter />
     </div>
   </header>
+
+  <!-- Where to sit: each room's limits apply at every table in it. -->
+  <section class="rooms" aria-label="Rooms">
+    {#each rooms as r (r.index)}
+      {@const open = r.index <= floor.best}
+      {@const short = open && bankroll.balance.lt(r.min)}
+      <button
+        type="button"
+        class="room"
+        class:here={r.index === floor.current}
+        aria-pressed={r.index === floor.current}
+        disabled={!open || short}
+        onclick={() => floor.enter(r.index)}
+      >
+        <span class="room-name">{open ? r.name : 'Locked'}</span>
+        <b>{formatLimit(r.min)}–{formatLimit(r.max)}</b>
+        {#if !open}
+          <span class="perk">Opens at a {formatMoney(r.opensAt)} bank</span>
+          <span class="meter" aria-hidden="true">
+            <span style:width="{Math.min(100, bankroll.balance.div(r.opensAt).toNumber() * 100)}%"></span>
+          </span>
+        {:else if short}
+          <span class="perk">Bank below the minimum</span>
+        {:else}
+          <span class="perk">{r.tokenBonus > 1 ? `Tokens ×${+r.tokenBonus.toFixed(2)}` : 'Side bets to ' + formatLimit(r.sideMax)}</span>
+        {/if}
+      </button>
+    {/each}
+  </section>
 
   <!-- The meta layer's front door: what's on, what's found, and whether there's a pull waiting. -->
   <a class="charms" href="#/charms">
@@ -93,6 +127,62 @@
 </div>
 
 <style>
+  .rooms {
+    display: flex;
+    gap: 10px;
+    overflow-x: auto;
+    padding-bottom: 4px;
+    scrollbar-width: thin;
+  }
+  .room {
+    flex: 0 0 auto;
+    min-width: 150px;
+    display: grid;
+    justify-items: start;
+    gap: 4px;
+    padding: 10px 14px;
+    border-radius: 12px;
+    border: 1px solid var(--line);
+    background: var(--rail);
+    color: var(--ink);
+    text-align: left;
+  }
+  .room.here {
+    border-color: var(--gold);
+    background: radial-gradient(circle at 0% 0%, rgb(242 198 78 / 0.18), transparent 70%), var(--rail);
+  }
+  .room:disabled {
+    opacity: 0.6;
+  }
+  .room-name {
+    font: 600 11px/1 var(--font-ui);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .room.here .room-name {
+    color: var(--gold);
+  }
+  .room b {
+    font: 700 20px/1 var(--font-display);
+    font-variant-numeric: tabular-nums;
+  }
+  .perk {
+    font: 12px/1.2 var(--font-ui);
+    color: var(--muted);
+  }
+  .meter {
+    width: 100%;
+    height: 4px;
+    border-radius: 2px;
+    background: rgb(255 255 255 / 0.1);
+    overflow: hidden;
+  }
+  .meter span {
+    display: block;
+    height: 100%;
+    background: var(--gold);
+  }
   .charms {
     --art: 40px;
     display: flex;

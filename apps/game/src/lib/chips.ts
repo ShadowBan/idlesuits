@@ -59,9 +59,10 @@ export function chipLabel(index: number): string {
   return `${face}e${tier * 3}`;
 }
 
-/** Five chips for the rack, topping out around a tenth of the bankroll. */
-export function rackFor(bank: Decimal, count = 5): number[] {
-  const top = Math.max(count - 1, chipIndexAtMost(bank.div(10).max(1)));
+/** Five chips for the rack, topping out around a tenth of the bankroll, and never above the table maximum. */
+export function rackFor(bank: Decimal, cap?: Decimal, count = 5): number[] {
+  const reach = cap ? Decimal.min(bank.div(10), cap) : bank.div(10);
+  const top = Math.max(count - 1, chipIndexAtMost(reach.max(1)));
   return Array.from({ length: count }, (_, i) => top - (count - 1) + i);
 }
 

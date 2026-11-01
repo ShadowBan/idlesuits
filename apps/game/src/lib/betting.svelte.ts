@@ -1,4 +1,5 @@
 import { chipIndexAtMost, chipValue, rackFor } from './chips';
+import { floor } from './floor.svelte';
 import type { Decimal } from './money';
 
 /**
@@ -7,9 +8,14 @@ import type { Decimal } from './money';
  */
 export const chipInHand = $state({ index: 1 });
 
+/** The chips on the rack at this room's tables, for this bankroll. */
+export function tableRack(bank: Decimal): number[] {
+  return rackFor(bank, floor.room.max);
+}
+
 /** The picked chip, kept within what this bankroll's rack offers. */
 export function heldChip(bank: Decimal): number {
-  const rack = rackFor(bank);
+  const rack = tableRack(bank);
   const index = Math.min(Math.max(chipInHand.index, rack[0]!), rack[rack.length - 1]!);
   return index;
 }

@@ -428,7 +428,7 @@ export class Game {
       this.gameOver = true;
       this.autoPlay = false;
     }
-    else this.bets.fitToBank();
+    else this.bets.fit();
     return beats.at(-1)!.drama;
   }
 

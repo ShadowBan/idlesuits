@@ -8,6 +8,8 @@
     /** Everything the next hand puts down to start. */
     total: Decimal;
     canDeal: boolean;
+    /** Shown in place of the total when the table's limits hold up the deal. */
+    hint?: string | null;
     onDeal?: () => void;
     onClear: () => void;
     onDouble: () => void;
@@ -15,7 +17,7 @@
     trailing?: Snippet;
   }
 
-  let { bank, total, canDeal, onDeal, onClear, onDouble, trailing }: Props = $props();
+  let { bank, total, canDeal, hint = null, onDeal, onClear, onDouble, trailing }: Props = $props();
 </script>
 
 <div class="betbar">
@@ -26,7 +28,7 @@
     {:else}
       <button type="button" class="deal primary" disabled={!canDeal} onclick={onDeal}>Deal</button>
     {/if}
-    <span class="total">{total.gt(0) ? `Bet ${formatMoney(total)}` : 'Tap a spot to bet'}</span>
+    <span class="total" class:hint>{hint ?? (total.gt(0) ? `Bet ${formatMoney(total)}` : 'Tap a spot to bet')}</span>
   </div>
 </div>
 
@@ -61,6 +63,9 @@
     color: var(--muted);
     font-variant-numeric: tabular-nums;
     white-space: nowrap;
+  }
+  .total.hint {
+    color: var(--gold);
   }
   @media (orientation: landscape) and (max-height: 520px) {
     .betbar {

@@ -16,6 +16,7 @@ import {
 } from '@idlesuits/sim';
 import type { BreakdownLine } from './breakdown';
 import { bankroll } from './casino.svelte';
+import { floor } from './floor.svelte';
 import type { Decimal } from './money';
 import { load, saveSoon } from './save';
 
@@ -125,9 +126,11 @@ class Meta {
     const out = applyCharms(report, this.equipped, this.run);
     this.run = out.state;
     this.hands++;
-    if (out.tokens > 0) {
-      this.tokens += out.tokens;
-      this.lifetimeTokens += out.tokens;
+    // Higher rooms comp more: their Token bonus multiplies everything earned on the hand.
+    const tokens = out.tokens * floor.room.tokenBonus;
+    if (tokens > 0) {
+      this.tokens += tokens;
+      this.lifetimeTokens += tokens;
     }
     bankroll.settle(unit.mul(net + out.cash));
     const cashTriggers = out.triggers.filter((t) => t.cash > 0);
@@ -135,7 +138,7 @@ class Meta {
       key: ++this.flashes,
       at: performance.now(),
       triggers: out.triggers.map((t) => ({ ...t, cashMoney: unit.mul(t.cash) })),
-      tokens: out.tokens,
+      tokens,
     };
     this.persist();
     return {

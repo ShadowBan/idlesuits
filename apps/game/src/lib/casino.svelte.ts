@@ -1,9 +1,11 @@
+import { floor } from './floor.svelte';
 import { Decimal } from './money';
+import { room } from './rooms';
 import { load, saveSoon } from './save';
 
 const STARTING_BANK = 500;
-/** The smallest chip: below this a player can't place a bet anywhere. */
-export const MIN_BET = 1;
+/** The Main Floor's minimum: below this a player can't sit at any table. */
+export const MIN_BET = room(0).min;
 
 function saved(): Decimal {
   try {
@@ -22,14 +24,15 @@ function saved(): Decimal {
 export class Bankroll {
   balance = $state(saved());
   /**
-   * Too little left for even the smallest chip, and the player has to buy
-   * back in. Not just zero: Pai Gow's commission and charm payouts leave cents.
+   * Too little left for the cheapest table's minimum, and the player has to
+   * buy back in. Not just zero: Pai Gow's commission and charm payouts leave cents.
    */
   broke = $derived(this.balance.lt(MIN_BET));
 
   /** Applies a round's result. Returns the new balance. */
   settle(amount: Decimal): Decimal {
     this.balance = this.balance.add(amount);
+    floor.reach(this.balance);
     this.persist();
     return this.balance;
   }
@@ -40,6 +43,8 @@ export class Bankroll {
 
   buyIn(amount: Decimal = new Decimal(STARTING_BANK)): void {
     this.balance = amount;
+    // A fresh stake starts back on the Main Floor; rooms already opened stay open.
+    floor.enter(0);
     this.persist();
   }
 
@@ -50,3 +55,4 @@ export class Bankroll {
 
 /** The wallet every table in this session shares. */
 export const bankroll = new Bankroll();
+floor.reach(bankroll.balance);

@@ -117,6 +117,18 @@ shows the measured edge beside every side bet.
 The simulator produces an event log; the UI only plays that log back. Any hand can be reproduced
 exactly from its seed.
 
+## Rooms and table limits
+
+Every table plays at the limits of the room the player is sitting in, picked in the lobby: the Main
+Floor's $5–$500 tables, then the Mezzanine ($25), High Limit ($100), Salon Privé ($500) and up the
+chip ladder without end. The maximum is a hundred minimums, side bets go to a fifth of that, and a
+room opens for good once the bankroll first holds fifty of its minimum bets. Higher rooms multiply
+the Tokens earned there (+10% a room). Short of a room's minimum, a table moves the player down to
+a room they can cover; below the Main Floor's $5 they're busted and buy back in on the Main Floor.
+
+The ladder is pure, in `lib/rooms.ts`; `lib/floor.svelte.ts` holds the current room and the highest
+opened. `ChipBets` enforces the limits, so a table gets them for free.
+
 ## Tokens and lucky charms
 
 Winning at any table earns **Tokens**: each winning bet earns its pay odds, whatever its stake.
@@ -129,8 +141,8 @@ The catalog, levels, the machine's draws and every effect are pure and seeded, i
 (`apps/game/src/lib/meta.svelte.ts`) with a `RoundReport`: each bet's stake and result, the
 outcome and the hand made. That one call applies the charms and pays the bankroll and the Tokens.
 
-Everything is saved in the browser (`lib/save.ts`): the bankroll, Tokens, charms, each table's
-bets and speed, sound and card style.
+Everything is saved in the browser (`lib/save.ts`): the bankroll, the room, Tokens, charms, each
+table's bets and speed, sound and card style.
 
 ## Adding a game
 
@@ -182,5 +194,4 @@ built for the domain root instead. To build for a subpath locally:
 BASE_PATH=/idlesuits/ npm run build
 ```
 
-The game is entirely client-side with no backend, and saves nothing yet, so each page load starts a
-fresh session.
+The game is entirely client-side with no backend; progress is saved in the browser it's played in.

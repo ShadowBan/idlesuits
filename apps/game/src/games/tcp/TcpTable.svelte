@@ -241,6 +241,7 @@
         bank={game.bank}
         total={game.bets.total}
         canDeal={seq.awaiting === 'deal' && game.bets.canDeal}
+        hint={game.bets.hint}
         onDeal={() => game.deal()}
         onClear={() => game.bets.clearAll()}
         onDouble={() => game.bets.double()}

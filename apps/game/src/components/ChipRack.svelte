@@ -1,6 +1,5 @@
 <script lang="ts">
-  import { chipInHand, heldChip } from '../lib/betting.svelte';
-  import { rackFor } from '../lib/chips';
+  import { chipInHand, heldChip, tableRack } from '../lib/betting.svelte';
   import type { Decimal } from '../lib/money';
   import Chip from './Chip.svelte';
 
@@ -14,7 +13,7 @@
 
   let { bank, onClear, onDouble }: Props = $props();
 
-  const rack = $derived(rackFor(bank));
+  const rack = $derived(tableRack(bank));
   const held = $derived(heldChip(bank));
 </script>
 

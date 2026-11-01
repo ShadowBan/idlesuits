@@ -28,7 +28,11 @@ export class SideStakes<Bet extends { id: string } = AnyBonus> {
 
   /** Takes every chip off one bet. */
   clear(id: string) {
-    this.stakes = { ...this.stakes, [id]: new Decimal(0) };
+    this.set(id, new Decimal(0));
+  }
+
+  set(id: string, amount: Decimal) {
+    this.stakes = { ...this.stakes, [id]: amount };
   }
 
   /** Doubles every side bet that is up. */
