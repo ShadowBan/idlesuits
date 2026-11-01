@@ -58,18 +58,23 @@ export class BlindHands<R> {
     this.results = results;
   }
 
-  /** As the round starts: the hands land face down, each with `stake` on it. */
-  start(stake: Decimal) {
+  /** As the round starts: the hands land face down, each with its stake on it. */
+  start(stake: (result: R) => Decimal) {
     this.net = new Decimal(0);
-    this.seats = this.results.map((r) => ({ ...this.rules.show(r), shown: false, stake, net: null }));
+    this.seats = this.results.map((r) => ({ ...this.rules.show(r), shown: false, stake: stake(r), net: null }));
   }
 
   reveal() {
     for (const seat of this.seats) seat.shown = true;
   }
 
-  /** As the round settles on the felt: each hand's result, before charms. */
+  /**
+   * As the round settles on the felt: each hand's result, before charms. Turns
+   * them over too, for a round that ends early (the player folds before the
+   * last card) without a showdown.
+   */
   showResults(unit: Decimal) {
+    this.reveal();
     this.results.forEach((r, i) => {
       const seat = this.seats[i];
       if (seat) seat.net = unit.mul(this.rules.net(r));

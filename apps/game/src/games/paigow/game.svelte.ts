@@ -1,4 +1,5 @@
 import {
+  BLIND,
   applySet,
   isLegalSet,
   PG_BONUSES,
@@ -18,6 +19,7 @@ import {
   pgCategoryOf,
   type RoundReport,
 } from '@idlesuits/sim';
+import { BlindHands, blindHands, unitsDown } from '../../lib/blind.svelte';
 import type { BreakdownLine } from '../../lib/breakdown';
 import { bankroll } from '../../lib/casino.svelte';
 import { Decimal } from '../../lib/money';
@@ -102,6 +104,12 @@ export class PaiGowGame {
   outcome = $state<PaiGowOutcome | null>(null);
   /** Side bets riding on this hand, in bets. */
   roundSide = $state<Record<string, number>>({});
+  /** Hands the Lucky Seat deals blind beside the player's, played all in. */
+  readonly blind = new BlindHands<PaiGowRoundResult>({
+    show: (r) => ({ cards: r.player, label: pgHandName(r.playerSet.highScore) }),
+    report: (r) => this.reportFor(r),
+    net: (r) => r.net,
+  });
   bonusResults = $state<Record<string, BonusResult>>({});
   net = $state<number | null>(null);
   breakdown = $state<BreakdownLine[]>([]);
@@ -208,6 +216,7 @@ export class PaiGowGame {
     this.biggestWin = new Decimal(0);
     this.history = [];
     this.last = null;
+    this.blind.clear();
     this.gameOver = false;
     this.started = false;
     this.start();
@@ -229,8 +238,15 @@ export class PaiGowGame {
     const bonuses = this.side.units(bet);
     this.roundBet = bet;
     const seed = { run: this.runSeed, round: this.round };
+    // Blind hands sit in the seats dealt before the player's; each puts down the bet, set the house way.
+    const extra = blindHands(this.bank, bet.mul(1).add(this.side.total));
+    const of = extra + 1;
+    this.blind.deal(
+      Array.from({ length: extra }, (_, index) => simulatePaiGowRound({ seed, seat: { index, of }, bonuses, decide: BLIND.paigow })),
+    );
+    this.blind.start(() => bet.mul(unitsDown(1, bonuses)));
     const run = (decide: (d: PaiGowDecision) => PaiGowSet, onEvent: (e: PaiGowEvent) => void) =>
-      simulatePaiGowRound({ seed, bonuses, decide, onEvent });
+      simulatePaiGowRound({ seed, bonuses, decide, onEvent, seat: { index: extra, of } });
 
     const choices: PaiGowSet[] = [];
     let shown = 0;
@@ -305,6 +321,7 @@ export class PaiGowGame {
         sfx.chip();
         break;
       case 'DealerRevealed':
+        this.blind.reveal();
         this.dealer = [...event.cards];
         sfx.flip();
         break;
@@ -325,6 +342,7 @@ export class PaiGowGame {
         if (event.result.net > 0) sfx.chip();
         break;
       case 'RoundSettled':
+        this.blind.showResults(this.roundBet);
         this.net = event.net;
         this.last = { lines: [...this.breakdown], net: event.net };
         if (event.net >= 5) sfx.bigWin();
@@ -337,27 +355,32 @@ export class PaiGowGame {
     }
   }
 
-  private settle(result: PaiGowRoundResult, bet: Decimal) {
-    const report: RoundReport = {
+  /** What the casino is told about one settled hand, for charms and Tokens. */
+  private reportFor(r: PaiGowRoundResult): RoundReport {
+    return {
       game: 'paigow',
       seed: { run: this.runSeed, round: this.round },
-      bets: [...mainBet(1, result.main), ...sideBets(result.bonuses, this.roundSide)],
-      outcome: result.outcome,
-      tier: Math.min(9, pgCategoryOf(result.playerSet.highScore)),
+      bets: [...mainBet(1, r.main), ...sideBets(r.bonuses, this.roundSide)],
+      outcome: r.outcome,
+      tier: Math.min(9, pgCategoryOf(r.playerSet.highScore)),
     };
+  }
+
+  private settle(result: PaiGowRoundResult, bet: Decimal) {
+    const blind = this.blind.settle(bet);
     // Charms act on the settled hand; the bankroll is paid the hand and whatever they add.
-    const charms = meta.settleRound(report, bet, result.net);
+    const charms = meta.settleRound(this.reportFor(result), bet, result.net);
     const units = result.net + charms.extra;
-    if (charms.lines.length) {
-      this.net = units;
-      this.last = { lines: [...(this.last?.lines ?? []), ...charms.lines], net: units };
+    if (charms.lines.length) this.net = units;
+    if (charms.lines.length || blind.hands) {
+      this.last = { lines: [...(this.last?.lines ?? []), ...charms.lines, ...blind.lines], net: units + blind.units };
     }
     const net = bet.mul(units);
     this.lastBet = bet;
-    this.sessionNet = this.sessionNet.add(net);
+    this.sessionNet = this.sessionNet.add(net).add(blind.money);
     if (net.gt(this.biggestWin)) this.biggestWin = net;
     this.outcomes = { ...this.outcomes, [result.outcome]: this.outcomes[result.outcome] + 1 };
-    this.hands++;
+    this.hands += 1 + blind.hands;
     this.round++;
     const entry: HistoryEntry = {
       round: this.round,

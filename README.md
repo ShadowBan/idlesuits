@@ -149,6 +149,18 @@ The catalog, levels, the machine's draws and every effect are pure and seeded, i
 (`apps/game/src/lib/meta.svelte.ts`) with a `RoundReport`: each bet's stake and result, the
 outcome and the hand made. That one call applies the charms and pays the bankroll and the Tokens.
 
+**Secret** charms change the game itself and are drawn apart from the rarities, each at its own
+odds (`SECRET_ODDS` in `machine.ts`, 0.001% each to start), topping out after two or three levels:
+
+- **The Lucky Seat** deals one or two extra hands blind at the poker tables. A round can be told its
+  seat (`seat` on every poker round, `seated` in `packages/sim/src/seats.ts`): each seat's cards come
+  off the deck in turn and the dealer and board are shared after them, so the extra hands sit in the
+  seats dealt before the player's and change the cards the player gets. They're face down until the
+  dealer shows and play all in (`BLIND` in `blind.ts`): never fold, always the biggest raise. Each
+  settles through the charms as a hand of its own. `BlindHands` (`lib/blind.svelte.ts`) and
+  `BlindSeats` carry this for a table.
+- **The Thin Shoe** takes decks out of the Blackjack shoe at its next shuffle.
+
 Everything is saved in the browser (`lib/save.ts`): the bankroll, the room, Tokens, charms, each
 table's bets and speed, sound and card style.
 

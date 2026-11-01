@@ -281,7 +281,7 @@ export class TcpGame {
         this.net = null;
         this.breakdown = [];
         // Blind hands always play: the ante and the play bet, plus the side bets.
-        this.blind.start(this.roundAnte.mul(unitsDown(2, this.roundSide)));
+        this.blind.start(() => this.roundAnte.mul(unitsDown(2, this.roundSide)));
         break;
       case 'PlayerCards':
         this.player = [...event.cards];

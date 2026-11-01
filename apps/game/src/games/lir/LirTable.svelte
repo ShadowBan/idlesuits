@@ -2,6 +2,7 @@
   import { onDestroy } from 'svelte';
   import { Category, CATEGORY_NAMES, handName, LIR_BONUSES, type LirMove } from '@idlesuits/sim';
   import BetBar from '../../components/BetBar.svelte';
+  import BlindSeats from '../../components/BlindSeats.svelte';
   import BetSpot from '../../components/BetSpot.svelte';
   import CardRow from '../../components/CardRow.svelte';
   import DecisionBar from '../../components/DecisionBar.svelte';
@@ -94,7 +95,8 @@
 
   const result = $derived.by(() => {
     if (game.net === null || betting || !game.hand) return null;
-    const net = game.roundBet.mul(game.net);
+    // The banner shows the whole table's result: the player's hand and any blind hands.
+    const net = game.roundBet.mul(game.net).add(game.blind.net);
     const m = game.multiplier ?? -1;
     const name = handName(game.hand);
     if (m > 0) return { title: `Pays ${m}:1`, net, detail: `${name} on ${game.up} bet${game.up > 1 ? 's' : ''}`, big: game.net >= 10 };
@@ -201,6 +203,8 @@
         </CardRow>
       </div>
     </div>
+
+    <BlindSeats seats={game.blind.seats} {flipMs} />
 
     <SeatOverlay
       started={game.started}

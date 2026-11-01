@@ -1,4 +1,5 @@
 import {
+  BLIND,
   bestFive,
   decideStud,
   simulateStudRound,
@@ -14,6 +15,7 @@ import {
   type StudRoundResult,
   type RoundReport,
 } from '@idlesuits/sim';
+import { BlindHands, blindHands, unitsDown } from '../../lib/blind.svelte';
 import type { BreakdownLine } from '../../lib/breakdown';
 import { bankroll } from '../../lib/casino.svelte';
 import { Decimal } from '../../lib/money';
@@ -91,6 +93,12 @@ export class StudGame {
   folded = $state(false);
   /** Side bets riding on this hand, in antes. */
   roundSide = $state<Record<string, number>>({});
+  /** Hands the Lucky Seat deals blind beside the player's, played all in. */
+  readonly blind = new BlindHands<StudRoundResult>({
+    show: (r) => ({ cards: r.hole, label: r.hand ? shortName(r.hand) : '' }),
+    report: (r) => this.reportFor(r),
+    net: (r) => r.net,
+  });
   bonusResults = $state<Record<string, BonusResult>>({});
   hand = $state<PokerHand | null>(null);
   multiplier = $state<number | null>(null);
@@ -184,6 +192,7 @@ export class StudGame {
     this.biggestWin = new Decimal(0);
     this.history = [];
     this.last = null;
+    this.blind.clear();
     this.gameOver = false;
     this.started = false;
     this.start();
@@ -206,8 +215,15 @@ export class StudGame {
     this.roundAnte = ante;
     this.roundSide = bonuses;
     const seed = { run: this.runSeed, round: this.round };
+    // Blind hands sit in the seats dealt before the player's; each puts down the ante and 3× on every street.
+    const extra = blindHands(this.bank, ante.mul(10).add(this.side.total));
+    const of = extra + 1;
+    this.blind.deal(
+      Array.from({ length: extra }, (_, index) => simulateStudRound({ seed, seat: { index, of }, bonuses, decide: BLIND.stud })),
+    );
+    this.blind.start(() => ante.mul(unitsDown(10, bonuses)));
     const run = (decide: (d: StudDecision) => StudChoice, onEvent: (e: StudEvent) => void) =>
-      simulateStudRound({ seed, decide, bonuses, onEvent });
+      simulateStudRound({ seed, decide, bonuses, onEvent, seat: { index: extra, of } });
 
     const choices: StudChoice[] = [];
     let shown = 0;
@@ -280,6 +296,7 @@ export class StudGame {
         sfx.flip();
         break;
       case 'FinalHand': {
+        this.blind.reveal();
         this.hand = event.hand;
         this.multiplier = event.multiplier;
         const label =
@@ -299,6 +316,7 @@ export class StudGame {
         if (event.result.net > 0) sfx.chip();
         break;
       case 'RoundSettled':
+        this.blind.showResults(this.roundAnte);
         this.net = event.net;
         this.last = { lines: [...this.breakdown], net: event.net };
         if (event.net >= 10) sfx.bigWin();
@@ -310,30 +328,35 @@ export class StudGame {
     }
   }
 
-  private settle(result: StudRoundResult, ante: Decimal) {
-    const report: RoundReport = {
+  /** What the casino is told about one settled hand, for charms and Tokens. */
+  private reportFor(r: StudRoundResult): RoundReport {
+    return {
       game: 'stud',
       seed: { run: this.runSeed, round: this.round },
       bets: [
-        ...[1, ...result.bets].flatMap((stake) => mainBet(stake, result.folded ? -stake : stake * (result.multiplier ?? -1))),
-        ...sideBets(result.bonuses, this.roundSide),
+        ...[1, ...r.bets].flatMap((stake) => mainBet(stake, r.folded ? -stake : stake * (r.multiplier ?? -1))),
+        ...sideBets(r.bonuses, this.roundSide),
       ],
-      outcome: outcomeOf(result.folded, result.multiplier ?? -1),
-      tier: result.hand?.category,
+      outcome: outcomeOf(r.folded, r.multiplier ?? -1),
+      tier: r.hand?.category,
     };
+  }
+
+  private settle(result: StudRoundResult, ante: Decimal) {
+    const blind = this.blind.settle(ante);
     // Charms act on the settled hand; the bankroll is paid the hand and whatever they add.
-    const charms = meta.settleRound(report, ante, result.net);
+    const charms = meta.settleRound(this.reportFor(result), ante, result.net);
     const units = result.net + charms.extra;
-    if (charms.lines.length) {
-      this.net = units;
-      this.last = { lines: [...(this.last?.lines ?? []), ...charms.lines], net: units };
+    if (charms.lines.length) this.net = units;
+    if (charms.lines.length || blind.hands) {
+      this.last = { lines: [...(this.last?.lines ?? []), ...charms.lines, ...blind.lines], net: units + blind.units };
     }
     const net = ante.mul(units);
     this.lastAnte = ante;
-    this.sessionNet = this.sessionNet.add(net);
+    this.sessionNet = this.sessionNet.add(net).add(blind.money);
     if (net.gt(this.biggestWin)) this.biggestWin = net;
     if (result.folded) this.folds++;
-    this.hands++;
+    this.hands += 1 + blind.hands;
     this.round++;
     const entry: HistoryEntry = {
       round: this.round,

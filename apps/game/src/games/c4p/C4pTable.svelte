@@ -2,6 +2,7 @@
   import { onDestroy } from 'svelte';
   import { FOUR_CARD_NAMES, fourCategoryOf, FourCategory, fourTopRank, type C4pChoice, type Card } from '@idlesuits/sim';
   import BetBar from '../../components/BetBar.svelte';
+  import BlindSeats from '../../components/BlindSeats.svelte';
   import BetSpot from '../../components/BetSpot.svelte';
   import CardRow from '../../components/CardRow.svelte';
   import DecisionBar from '../../components/DecisionBar.svelte';
@@ -98,7 +99,8 @@
 
   const result = $derived.by(() => {
     if (game.net === null || betting || game.playerScore === null || game.dealerScore === null) return null;
-    const net = game.roundAnte.mul(game.net);
+    // The banner shows the whole table's result: the player's hand and any blind hands.
+    const net = game.roundAnte.mul(game.net).add(game.blind.net);
     const you = { name: fourName(game.playerScore), score: game.playerScore };
     const them = { name: fourName(game.dealerScore), score: game.dealerScore };
     if (game.folded) return { title: 'Folded', net, detail: `You folded ${handPhrase(you.name)}`, big: false };
@@ -233,6 +235,8 @@
         </CardRow>
       </div>
     </div>
+
+    <BlindSeats seats={game.blind.seats} {flipMs} />
 
     <SeatOverlay
       started={game.started}

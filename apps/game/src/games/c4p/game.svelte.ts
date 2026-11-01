@@ -1,4 +1,5 @@
 import {
+  BLIND,
   C4P_BONUSES,
   C4P_RULES,
   decideC4p,
@@ -14,6 +15,7 @@ import {
   type Card,
   type RoundReport,
 } from '@idlesuits/sim';
+import { BlindHands, blindHands, unitsDown } from '../../lib/blind.svelte';
 import type { BreakdownLine } from '../../lib/breakdown';
 import { bankroll } from '../../lib/casino.svelte';
 import { Decimal } from '../../lib/money';
@@ -98,6 +100,12 @@ export class C4pGame {
   results = $state<Partial<Record<keyof typeof PART_LABEL, { net: number; note: string }>>>({});
   /** Side bets riding on this hand, in antes. */
   roundSide = $state<Record<string, number>>({});
+  /** Hands the Lucky Seat deals blind beside the player's, played all in. */
+  readonly blind = new BlindHands<C4pRoundResult>({
+    show: (r) => ({ cards: r.player, label: FOUR_CARD_NAMES[fourCategoryOf(r.playerScore)] }),
+    report: (r) => this.reportFor(r),
+    net: (r) => r.net,
+  });
   bonusResults = $state<Record<string, BonusResult>>({});
   net = $state<number | null>(null);
   breakdown = $state<BreakdownLine[]>([]);
@@ -178,6 +186,7 @@ export class C4pGame {
     this.biggestWin = new Decimal(0);
     this.history = [];
     this.last = null;
+    this.blind.clear();
     this.gameOver = false;
     this.started = false;
     this.start();
@@ -199,8 +208,15 @@ export class C4pGame {
     const bonuses = this.side.units(ante);
     this.roundAnte = ante;
     const seed = { run: this.runSeed, round: this.round };
+    // Blind hands sit in the seats dealt before the player's; each puts down the ante, the Super Bonus and the biggest play.
+    const extra = blindHands(this.bank, ante.mul(5).add(this.side.total));
+    const of = extra + 1;
+    this.blind.deal(
+      Array.from({ length: extra }, (_, index) => simulateC4pRound({ seed, seat: { index, of }, bonuses, decide: BLIND.c4p })),
+    );
+    this.blind.start((r) => ante.mul(unitsDown(2 + r.play, bonuses)));
     const run = (decide: (d: C4pDecision) => C4pChoice, onEvent: (e: C4pEvent) => void) =>
-      simulateC4pRound({ seed, bonuses, decide, onEvent });
+      simulateC4pRound({ seed, bonuses, decide, onEvent, seat: { index: extra, of } });
 
     const choices: C4pChoice[] = [];
     let shown = 0;
@@ -288,6 +304,7 @@ export class C4pGame {
         sfx.lose();
         break;
       case 'DealerRevealed':
+        this.blind.reveal();
         this.dealer = [...event.cards];
         this.dealerScore = event.score;
         this.dealerDiscard = event.discard;
@@ -304,6 +321,7 @@ export class C4pGame {
         if (event.result.net > 0) sfx.chip();
         break;
       case 'RoundSettled':
+        this.blind.showResults(this.roundAnte);
         this.net = event.net;
         this.last = { lines: [...this.breakdown], net: event.net };
         if (event.net >= 8) sfx.bigWin();
@@ -316,32 +334,37 @@ export class C4pGame {
     }
   }
 
-  private settle(result: C4pRoundResult, ante: Decimal) {
-    const report: RoundReport = {
+  /** What the casino is told about one settled hand, for charms and Tokens. */
+  private reportFor(r: C4pRoundResult): RoundReport {
+    return {
       game: 'c4p',
       seed: { run: this.runSeed, round: this.round },
       bets: [
-        ...mainBet(1, result.parts.ante),
-        ...mainBet(result.play, result.parts.play),
-        ...mainBet(1, result.parts.superBonus),
-        ...sideBets(result.bonuses, this.roundSide),
+        ...mainBet(1, r.parts.ante),
+        ...mainBet(r.play, r.parts.play),
+        ...mainBet(1, r.parts.superBonus),
+        ...sideBets(r.bonuses, this.roundSide),
       ],
-      outcome: outcomeOf(result.folded, result.parts.ante + result.parts.play),
-      tier: [0, 1, 2, 4, 5, 3, 8, 7][fourCategoryOf(result.playerScore)],
+      outcome: outcomeOf(r.folded, r.parts.ante + r.parts.play),
+      tier: [0, 1, 2, 4, 5, 3, 8, 7][fourCategoryOf(r.playerScore)],
     };
+  }
+
+  private settle(result: C4pRoundResult, ante: Decimal) {
+    const blind = this.blind.settle(ante);
     // Charms act on the settled hand; the bankroll is paid the hand and whatever they add.
-    const charms = meta.settleRound(report, ante, result.net);
+    const charms = meta.settleRound(this.reportFor(result), ante, result.net);
     const units = result.net + charms.extra;
-    if (charms.lines.length) {
-      this.net = units;
-      this.last = { lines: [...(this.last?.lines ?? []), ...charms.lines], net: units };
+    if (charms.lines.length) this.net = units;
+    if (charms.lines.length || blind.hands) {
+      this.last = { lines: [...(this.last?.lines ?? []), ...charms.lines, ...blind.lines], net: units + blind.units };
     }
     const net = ante.mul(units);
     this.lastAnte = ante;
-    this.sessionNet = this.sessionNet.add(net);
+    this.sessionNet = this.sessionNet.add(net).add(blind.money);
     if (net.gt(this.biggestWin)) this.biggestWin = net;
     if (result.folded) this.folds++;
-    this.hands++;
+    this.hands += 1 + blind.hands;
     this.round++;
     const short = (score: number) => FOUR_CARD_NAMES[fourCategoryOf(score)];
     const entry: HistoryEntry = {

@@ -2,6 +2,7 @@
   import { onDestroy } from 'svelte';
   import { PG_BONUSES, pgHandName, pgLowName as lowName, type HandWinner } from '@idlesuits/sim';
   import BetBar from '../../components/BetBar.svelte';
+  import BlindSeats from '../../components/BlindSeats.svelte';
   import BetSpot from '../../components/BetSpot.svelte';
   import DecisionBar from '../../components/DecisionBar.svelte';
   import FeltBand from '../../components/FeltBand.svelte';
@@ -65,7 +66,8 @@
 
   const result = $derived.by(() => {
     if (game.net === null || betting || !game.playerSet || !game.dealerSet) return null;
-    const net = game.roundBet.mul(game.net);
+    // The banner shows the whole table's result: the player's hand and any blind hands.
+    const net = game.roundBet.mul(game.net).add(game.blind.net);
     const high = game.winners.high === 'player' ? 'Your high' : "The dealer's high";
     const low = game.winners.low === 'player' ? 'your low' : "the dealer's low";
     if (game.outcome === 'win') return { title: 'You win both', net, detail: 'Paid 1:1 less 5% commission', big: game.net >= 5 };
@@ -173,6 +175,8 @@
         />
       </div>
     </div>
+
+    <BlindSeats seats={game.blind.seats} {flipMs} />
 
     <SeatOverlay
       started={game.started}
