@@ -1,4 +1,5 @@
 import {
+  BLIND,
   decideTcp,
   simulateTcpRound,
   stepWithChoices,
@@ -14,6 +15,7 @@ import {
   type ThreeCardHand,
   type RoundReport,
 } from '@idlesuits/sim';
+import { BlindHands, blindHands, unitsDown } from '../../lib/blind.svelte';
 import type { BreakdownLine } from '../../lib/breakdown';
 import { bankroll } from '../../lib/casino.svelte';
 import { Decimal } from '../../lib/money';
@@ -97,6 +99,12 @@ export class TcpGame {
   net = $state<number | null>(null);
   breakdown = $state<BreakdownLine[]>([]);
   last = $state<{ lines: BreakdownLine[]; net: number } | null>(null);
+  /** Hands the Lucky Seat deals blind beside the player's, played all in. */
+  readonly blind = new BlindHands<TcpRoundResult>({
+    show: (r) => ({ cards: r.player, label: THREE_CARD_NAMES[r.playerHand] }),
+    report: (r) => this.reportFor(r),
+    net: (r) => r.net,
+  });
 
   hands = $state(0);
   sessionNet = $state(new Decimal(0));
@@ -174,6 +182,7 @@ export class TcpGame {
     this.biggestWin = new Decimal(0);
     this.history = [];
     this.last = null;
+    this.blind.clear();
     this.gameOver = false;
     this.started = false;
     this.start();
@@ -195,8 +204,14 @@ export class TcpGame {
     const bonuses = this.side.units(ante);
     this.roundAnte = ante;
     const seed = { run: this.runSeed, round: this.round };
+    // Blind hands sit in the seats dealt before the player's; each can lose its ante, play and side bets.
+    const extra = blindHands(this.bank, ante.mul(2).add(this.side.total));
+    const of = extra + 1;
+    this.blind.deal(
+      Array.from({ length: extra }, (_, index) => simulateTcpRound({ seed, seat: { index, of }, bonuses, decide: BLIND.tcp })),
+    );
     const run = (decide: (d: TcpDecision) => TcpMove, onEvent: (e: TcpEvent) => void) =>
-      simulateTcpRound({ seed, bonuses, decide, onEvent });
+      simulateTcpRound({ seed, seat: { index: extra, of }, bonuses, decide, onEvent });
 
     const choices: TcpMove[] = [];
     let shown = 0;
@@ -265,6 +280,8 @@ export class TcpGame {
         this.bonusResults = {};
         this.net = null;
         this.breakdown = [];
+        // Blind hands always play: the ante and the play bet, plus the side bets.
+        this.blind.start(this.roundAnte.mul(unitsDown(2, this.roundSide)));
         break;
       case 'PlayerCards':
         this.player = [...event.cards];
@@ -280,6 +297,7 @@ export class TcpGame {
         sfx.lose();
         break;
       case 'DealerRevealed':
+        this.blind.reveal();
         this.dealer = [...event.cards];
         this.dealerHand = event.hand;
         this.qualified = event.qualified;
@@ -295,6 +313,7 @@ export class TcpGame {
         if (event.result.net > 0) sfx.chip();
         break;
       case 'RoundSettled':
+        this.blind.showResults(this.roundAnte);
         this.net = event.net;
         this.last = { lines: [...this.breakdown], net: event.net };
         if (event.net >= 5) sfx.bigWin();
@@ -307,8 +326,9 @@ export class TcpGame {
     }
   }
 
-  private settle(result: TcpRoundResult, ante: Decimal) {
-    const report: RoundReport = {
+  /** What the casino is told about one settled hand, for charms and Tokens. */
+  private reportFor(result: TcpRoundResult): RoundReport {
+    return {
       game: 'tcp',
       seed: { run: this.runSeed, round: this.round },
       bets: [
@@ -320,19 +340,23 @@ export class TcpGame {
       outcome: outcomeOf(result.folded, result.parts.ante + result.parts.play),
       tier: ({ high: 0, pair: 1, straight: 4, flush: 5, trips: 3, straightFlush: 8, miniRoyal: 9 } as const)[result.playerHand],
     };
+  }
+
+  private settle(result: TcpRoundResult, ante: Decimal) {
+    const blind = this.blind.settle(ante);
     // Charms act on the settled hand; the bankroll is paid the hand and whatever they add.
-    const charms = meta.settleRound(report, ante, result.net);
+    const charms = meta.settleRound(this.reportFor(result), ante, result.net);
     const units = result.net + charms.extra;
-    if (charms.lines.length) {
-      this.net = units;
-      this.last = { lines: [...(this.last?.lines ?? []), ...charms.lines], net: units };
+    if (charms.lines.length) this.net = units;
+    if (charms.lines.length || blind.hands) {
+      this.last = { lines: [...(this.last?.lines ?? []), ...charms.lines, ...blind.lines], net: units + blind.units };
     }
     const net = ante.mul(units);
     this.lastAnte = ante;
-    this.sessionNet = this.sessionNet.add(net);
+    this.sessionNet = this.sessionNet.add(net).add(blind.money);
     if (net.gt(this.biggestWin)) this.biggestWin = net;
     if (result.folded) this.folds++;
-    this.hands++;
+    this.hands += 1 + blind.hands;
     this.round++;
     const entry: HistoryEntry = {
       round: this.round,
