@@ -45,6 +45,19 @@ export interface BaccaratRoundResult {
   events: BaccaratEvent[];
 }
 
+/** Unshuffled shoes by deck count, built once: each coup copies one rather than making 416 cards. */
+const SHOES = new Map<number, readonly Card[]>();
+
+function freshShoe(decks: number): Card[] {
+  let shoe = SHOES.get(decks);
+  if (!shoe) {
+    const cards: Card[] = [];
+    for (let d = 0; d < decks; d++) cards.push(...standardDeck('player', `d${d}`));
+    SHOES.set(decks, (shoe = cards));
+  }
+  return shoe.slice();
+}
+
 /**
  * One coup of Punto Banco. Nobody decides anything: the cards are dealt
  * Player, Banker, Player, Banker, then each hand draws by the tableau.
@@ -69,8 +82,7 @@ export function simulateBaccaratRound(input: BaccaratRoundInput): BaccaratRoundR
     };
   } else {
     const rng = new Rng(input.seed.run, 'baccarat', input.seed.round);
-    const shoe: Card[] = [];
-    for (let d = 0; d < rules.decks; d++) shoe.push(...standardDeck('player', `d${d}`));
+    const shoe = freshShoe(rules.decks);
     // Partial Fisher-Yates: only the cards dealt get shuffled.
     draw = () => {
       const j = used + rng.int(shoe.length - used);
