@@ -4,6 +4,26 @@
 
   let dialog = $state<HTMLDialogElement>();
 
+  /**
+   * The admin panel's secret switch: seven quick taps on the title. Nothing
+   * hints at it until it flips, and the same seven taps flip it back.
+   */
+  const TAPS = 7;
+  const TAP_GAP_MS = 600;
+  let taps = 0;
+  let lastTap = 0;
+  let notice = $state<string | null>(null);
+  function tapTitle() {
+    const now = performance.now();
+    taps = now - lastTap < TAP_GAP_MS ? taps + 1 : 1;
+    lastTap = now;
+    if (taps < TAPS) return;
+    taps = 0;
+    ui.admin = !ui.admin;
+    notice = ui.admin ? 'Pit boss mode on' : 'Pit boss mode off';
+    setTimeout(() => (notice = null), 2000);
+  }
+
   // Opened from anywhere through `ui.settingsOpen`, so the lobby and every table share one panel.
   $effect(() => {
     if (!dialog) return;
@@ -22,7 +42,9 @@
 >
   <div class="body">
     <header>
-      <h2 id="settings-title">Settings</h2>
+      <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_noninteractive_element_interactions -->
+      <h2 id="settings-title" onclick={tapTitle}>Settings</h2>
+      {#if notice}<span class="notice">{notice}</span>{/if}
       <button type="button" onclick={() => dialog?.close()} aria-label="Close">✕</button>
     </header>
 
@@ -41,6 +63,10 @@
     </section>
 
     <p class="note">Everything is saved in this browser: your bank, Tokens, charms and each table's bets.</p>
+
+    {#if ui.admin}
+      <button type="button" class="pitboss" onclick={() => ((ui.adminOpen = true), dialog?.close())}>Pit boss</button>
+    {/if}
   </div>
 </dialog>
 
@@ -65,10 +91,12 @@
   header {
     display: flex;
     align-items: center;
-    justify-content: space-between;
+    gap: 10px;
   }
   h2 {
-    margin: 0;
+    margin: 0 auto 0 0;
+    user-select: none;
+    -webkit-user-select: none;
     font: 700 18px/1 var(--font-display);
     letter-spacing: 0.04em;
     text-transform: uppercase;
@@ -89,6 +117,15 @@
     margin: 0;
     font: 13px/1.4 var(--font-ui);
     color: var(--muted);
+  }
+  .notice {
+    font: 600 12px/1 var(--font-ui);
+    color: var(--gold);
+  }
+  .pitboss {
+    justify-self: start;
+    border-color: #ff7ad9;
+    color: #ff7ad9;
   }
   .switch {
     display: flex;

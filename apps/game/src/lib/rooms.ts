@@ -26,9 +26,12 @@ const NAMES = ['Main Floor', 'Mezzanine', 'High Limit', 'Salon Privé', 'The Pen
 /** The maximum is a hundred minimums, the usual spread on a carnival table. */
 const MAX_SPREAD = 100;
 const SIDE_SHARE = 5;
-/** A room opens when the bankroll holds this many of its minimum bets. */
-const OPENS_AT_BETS = 50;
-const TOKEN_BONUS_PER_ROOM = 0.1;
+/**
+ * The ladder's two tunable numbers: a room opens when the bankroll holds
+ * `opensAtBets` of its minimum bets, and each room up adds `tokenBonusPerRoom`
+ * to the Tokens earned. The admin panel can change them while testing.
+ */
+export const roomTuning = { opensAtBets: 50, tokenBonusPerRoom: 0.1 };
 
 function roman(n: number): string {
   const parts: [number, string][] = [
@@ -54,8 +57,8 @@ export function room(index: number): Room {
     min,
     max: min.mul(MAX_SPREAD),
     sideMax: min.mul(MAX_SPREAD / SIDE_SHARE),
-    opensAt: index === 0 ? new Decimal(0) : min.mul(OPENS_AT_BETS),
-    tokenBonus: 1 + TOKEN_BONUS_PER_ROOM * index,
+    opensAt: index === 0 ? new Decimal(0) : min.mul(roomTuning.opensAtBets),
+    tokenBonus: 1 + roomTuning.tokenBonusPerRoom * index,
   };
 }
 

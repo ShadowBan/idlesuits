@@ -34,6 +34,13 @@ class Floor {
     this.persist();
   }
 
+  /** Opens every room up to `index`, for the admin panel. */
+  openTo(index: number) {
+    this.best = Math.max(0, Math.floor(index));
+    this.current = Math.min(this.current, this.best);
+    this.persist();
+  }
+
   enter(index: number) {
     if (index < 0 || index > this.best || index === this.current) return;
     this.current = index;

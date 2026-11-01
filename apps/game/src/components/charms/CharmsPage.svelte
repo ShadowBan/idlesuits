@@ -11,6 +11,7 @@
   import { formatTokens } from './format';
   import Loadout from './Loadout.svelte';
   import TokenCounter from './TokenCounter.svelte';
+  import { tuning } from '../../lib/tuning.svelte';
 
   let { onExit }: { onExit: () => void } = $props();
 
@@ -55,7 +56,7 @@
           {#each RARITIES as r (r)}
             <li style:color={RARITY_COLOR[r]}>
               {#if r === 'secret'}
-                <span>{r}</span><span>{+(Math.max(...Object.values(SECRET_ODDS)) * 100).toPrecision(2)}% each</span>
+                <span>{r}</span><span>{+(Math.max(...Object.values(SECRET_ODDS)) * tuning.values.secretOdds * 100).toPrecision(2)}% each</span>
               {:else}
                 <span>{r}</span><span>{+(RARITY_WEIGHTS[r] * 100).toFixed(1)}%</span>
               {/if}

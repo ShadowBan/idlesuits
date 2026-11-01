@@ -18,6 +18,18 @@ class Ui {
   #tab = $state<PanelTab>(savedTab());
   /** The global settings dialog is open. */
   settingsOpen = $state(false);
+  /** The admin ("pit boss") panel is switched on, and open. Switched on in secret; see SettingsDialog. */
+  #admin = $state(load('admin', false));
+  adminOpen = $state(false);
+
+  get admin(): boolean {
+    return this.#admin;
+  }
+  set admin(value: boolean) {
+    this.#admin = value;
+    if (!value) this.adminOpen = false;
+    save('admin', value);
+  }
 
   get muted(): boolean {
     return this.#muted;

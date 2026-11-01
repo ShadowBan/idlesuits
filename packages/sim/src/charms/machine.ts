@@ -59,14 +59,15 @@ export function nextLevel(copies: number, maxLevel = MAX_LEVEL): { need: number;
 /**
  * One capsule from the machine. Seeded by the save's seed and the pull's
  * number, so a collection can be replayed exactly. The rarity is drawn
- * first, then a charm of that rarity.
+ * first, then a charm of that rarity. `secretScale` multiplies the Secret
+ * odds, for testing.
  */
-export function drawCharm(seed: string, pull: number): string {
+export function drawCharm(seed: string, pull: number, secretScale = 1): string {
   // A separate stream, so the ordinary draw is the same as it always was.
   let secret = new Rng(seed, 'secret', pull).next();
   for (const [id, odds] of Object.entries(SECRET_ODDS)) {
-    if (secret < odds) return id;
-    secret -= odds;
+    if (secret < odds * secretScale) return id;
+    secret -= odds * secretScale;
   }
   const rng = new Rng(seed, 'machine', pull);
   let roll = rng.next();

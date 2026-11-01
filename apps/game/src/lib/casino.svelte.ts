@@ -2,6 +2,7 @@ import { floor } from './floor.svelte';
 import { Decimal } from './money';
 import { room } from './rooms';
 import { load, saveSoon } from './save';
+import { tuning } from './tuning.svelte';
 
 const STARTING_BANK = 500;
 /** The Main Floor's minimum: below this a player can't sit at any table. */
@@ -41,10 +42,17 @@ export class Bankroll {
     return this.balance.gte(amount);
   }
 
-  buyIn(amount: Decimal = new Decimal(STARTING_BANK)): void {
+  buyIn(amount: Decimal = new Decimal(tuning.values.buyIn)): void {
     this.balance = amount;
     // A fresh stake starts back on the Main Floor; rooms already opened stay open.
     floor.enter(0);
+    this.persist();
+  }
+
+  /** Sets the bank outright, for the admin panel. */
+  set(amount: Decimal) {
+    this.balance = amount.max(0);
+    floor.reach(this.balance);
     this.persist();
   }
 

@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { findCharm, PULL_COST, TEN_PULL_COST } from '@idlesuits/sim';
+  import { findCharm } from '@idlesuits/sim';
+  import { tuning } from '../../lib/tuning.svelte';
   import { meta, type Capsule } from '../../lib/meta.svelte';
   import { sfx, unlockAudio } from '../../lib/sound';
   import { RARITY_COLOR } from './art';
@@ -108,15 +109,15 @@
   </svg>
 
   <div class="buttons">
-    <button type="button" class="primary" disabled={meta.tokens < PULL_COST || phase === 'crank'} onclick={() => pull(1)}>
-      Pull <span class="cost">◉ {PULL_COST}</span>
+    <button type="button" class="primary" disabled={meta.tokens < tuning.values.pullCost || phase === 'crank'} onclick={() => pull(1)}>
+      Pull <span class="cost">◉ {tuning.values.pullCost}</span>
     </button>
-    <button type="button" disabled={meta.tokens < TEN_PULL_COST || phase === 'crank'} onclick={() => pull(10)}>
-      Pull ×10 <span class="cost">◉ {formatTokens(TEN_PULL_COST)}</span>
+    <button type="button" disabled={meta.tokens < tuning.values.tenPullCost || phase === 'crank'} onclick={() => pull(10)}>
+      Pull ×10 <span class="cost">◉ {formatTokens(tuning.values.tenPullCost)}</span>
     </button>
   </div>
-  {#if meta.tokens < PULL_COST && phase === 'idle'}
-    <p class="hint">Win hands at any table to earn Tokens: {formatTokens(PULL_COST - meta.tokens)} more for a pull.</p>
+  {#if meta.tokens < tuning.values.pullCost && phase === 'idle'}
+    <p class="hint">Win hands at any table to earn Tokens: {formatTokens(tuning.values.pullCost - meta.tokens)} more for a pull.</p>
   {/if}
 </div>
 

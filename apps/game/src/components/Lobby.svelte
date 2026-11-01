@@ -5,7 +5,8 @@
   import { ui } from '../lib/ui.svelte';
   import { deckLabel, GAMES, type GameEntry } from '../lib/games';
   import { formatMoney } from '../lib/money';
-  import { CHARMS, PULL_COST } from '@idlesuits/sim';
+  import { CHARMS } from '@idlesuits/sim';
+  import { tuning } from '../lib/tuning.svelte';
   import { meta } from '../lib/meta.svelte';
   import CharmArt from './charms/CharmArt.svelte';
   import TokenCounter from './charms/TokenCounter.svelte';
@@ -77,7 +78,7 @@
       <b>Charm Machine</b>
       <span>
         {CHARMS.filter((c) => meta.collection[c.id]).length} of {CHARMS.length} charms found
-        {#if meta.tokens >= PULL_COST}· <em>{Math.floor(meta.tokens / PULL_COST)} pulls ready</em>{/if}
+        {#if meta.tokens >= tuning.values.pullCost}· <em>{Math.floor(meta.tokens / tuning.values.pullCost)} pulls ready</em>{/if}
       </span>
     </span>
     <span class="go">Open ›</span>

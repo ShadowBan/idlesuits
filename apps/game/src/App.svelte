@@ -2,7 +2,9 @@
   import type { Component } from 'svelte';
   import CharmsPage from './components/charms/CharmsPage.svelte';
   import Lobby from './components/Lobby.svelte';
+  import AdminPanel from './components/AdminPanel.svelte';
   import SettingsDialog from './components/SettingsDialog.svelte';
+  import { ui } from './lib/ui.svelte';
   import { findGame, type GameEntry, type GameProps } from './lib/games';
   import { route } from './lib/route.svelte';
 
@@ -35,9 +37,24 @@
   function exit() {
     route.go(null);
   }
+
+  // The admin panel's other secret switch, for a keyboard: type the word anywhere outside a field.
+  const WORD = 'pitboss';
+  let typed = '';
+  function onKey(e: KeyboardEvent) {
+    if ((e.target as HTMLElement).closest('input, select, textarea')) return;
+    if (e.key.length !== 1) return;
+    typed = (typed + e.key.toLowerCase()).slice(-WORD.length);
+    if (typed !== WORD) return;
+    typed = '';
+    ui.admin = true;
+    ui.adminOpen = true;
+  }
 </script>
 
+<svelte:window onkeydown={onKey} />
 <SettingsDialog />
+{#if ui.admin}<AdminPanel />{/if}
 
 {#if route.current === 'charms'}
   <CharmsPage onExit={exit} />

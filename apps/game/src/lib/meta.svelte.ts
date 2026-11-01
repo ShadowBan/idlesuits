@@ -7,10 +7,8 @@ import {
   maxLevelOf,
   ruleTotal,
   MAX_SLOTS,
-  PULL_COST,
   SLOT_COSTS,
   STARTER_TOKENS,
-  TEN_PULL_COST,
   type CharmRunState,
   type CharmTrigger,
   type Equipped,
@@ -21,6 +19,7 @@ import { bankroll } from './casino.svelte';
 import { floor } from './floor.svelte';
 import type { Decimal } from './money';
 import { load, saveSoon } from './save';
+import { tuning } from './tuning.svelte';
 
 interface MetaSave {
   tokens: number;
@@ -103,7 +102,7 @@ class Meta {
   }
 
   get nextSlotCost(): number | null {
-    return this.slots < MAX_SLOTS ? SLOT_COSTS[this.slots]! : null;
+    return this.slots < MAX_SLOTS ? Math.round(SLOT_COSTS[this.slots]! * tuning.values.slotCostScale) : null;
   }
 
   levelOf(id: string): number {
@@ -139,7 +138,7 @@ class Meta {
     this.run = out.state;
     this.hands++;
     // Higher rooms comp more: their Token bonus multiplies everything earned on the hand.
-    const tokens = out.tokens * floor.room.tokenBonus;
+    const tokens = out.tokens * floor.room.tokenBonus * tuning.values.tokenRate;
     if (tokens > 0) {
       this.tokens += tokens;
       this.lifetimeTokens += tokens;
@@ -161,13 +160,13 @@ class Meta {
 
   /** Pulls from the machine; null if there aren't the Tokens for it. */
   pull(count: 1 | 10): Capsule[] | null {
-    const cost = count === 10 ? TEN_PULL_COST : PULL_COST;
+    const cost = count === 10 ? tuning.values.tenPullCost : tuning.values.pullCost;
     if (this.tokens < cost) return null;
     this.tokens -= cost;
     const capsules: Capsule[] = [];
     const collection = { ...this.collection };
     for (let i = 0; i < count; i++) {
-      const id = drawCharm(this.seed, this.pulls++);
+      const id = drawCharm(this.seed, this.pulls++, tuning.values.secretOdds);
       const before = collection[id] ?? 0;
       collection[id] = before + 1;
       const level = levelOf(before + 1, maxLevelOf(id));
@@ -192,6 +191,26 @@ class Meta {
 
   unequip(id: string) {
     this.loadout = this.loadout.map((s) => (s === id ? null : s));
+    this.persist();
+  }
+
+  /** Admin: Tokens from nowhere. */
+  grantTokens(amount: number) {
+    this.tokens = Math.max(0, this.tokens + amount);
+    this.persist();
+  }
+
+  /** Admin: copies of a charm, as if pulled. */
+  grant(id: string, copies: number) {
+    if (!findCharm(id)) return;
+    this.collection = { ...this.collection, [id]: Math.max(0, (this.collection[id] ?? 0) + copies) };
+    if (!this.collection[id]) this.unequip(id);
+    this.persist();
+  }
+
+  /** Admin: every slot open, charms kept where they are. */
+  openAllSlots() {
+    this.loadout = [...this.loadout, ...Array<null>(MAX_SLOTS - this.loadout.length).fill(null)];
     this.persist();
   }
 
