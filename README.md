@@ -22,7 +22,8 @@ An idle casino. Pick a table from the floor and the same bankroll follows you fr
   straight or better. Side bet: Queens Up.
 - **Baccarat** — Punto Banco from an eight-deck shoe: back the Player or the Banker, and the hand closest
   to nine wins by the fixed drawing rules. Banker pays less 5% commission. Side bets: Tie, Player
-  Pair, Banker Pair. A bead-plate scoreboard keeps the shoe's coups.
+  Pair, Banker Pair. You turn the cards of the hand you backed, as the biggest bettor on each side
+  does at a real table (auto play turns them for you). A bead-plate scoreboard keeps the shoe's coups.
 - **DJ Wild** — five cards from 53 with deuces and the joker wild; play 2× or fold, and a winning
   straight or better pays the Blind. Side bets: Trips, which pays more for natural hands, and the
   Two-Way Bad Beat.

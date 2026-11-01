@@ -58,8 +58,11 @@ function newSeed(): string {
   return Math.random().toString(36).slice(2, 10);
 }
 
+/** What the table waits on the player for: the deal, or which face-down card to turn (-1 turns them all). */
+type Answer = true | number;
+
 export class BaccaratGame {
-  readonly seq = new Sequencer<true>();
+  readonly seq = new Sequencer<Answer>();
 
   /** Punto Banco as designed, with anything the admin panel has changed. */
   get rules() {
@@ -96,6 +99,8 @@ export class BaccaratGame {
   banker = $state<(Card | null | undefined)[]>([undefined, undefined, undefined]);
   /** The face-down card being squeezed. */
   focus = $state<{ hand: BaccaratHand; index: number } | null>(null);
+  /** The hand whose face-down cards wait for the player to turn them: the one they bet on. */
+  turning = $state<BaccaratHand | null>(null);
   winner = $state<BaccaratWinner | null>(null);
   natural = $state(false);
   roundBet = $state(new Decimal(STARTING_BET));
@@ -182,10 +187,29 @@ export class BaccaratGame {
   setAutoPlay(on: boolean) {
     this.autoPlay = on;
     if (on && this.seq.awaiting === 'deal' && this.bets.canDeal) this.seq.answer(true);
+    // Auto play turns the cards itself.
+    if (on && this.seq.awaiting === 'turn') this.seq.answer(-1);
   }
 
   deal() {
     if (this.seq.awaiting === 'deal' && this.bets.canDeal) this.seq.answer(true);
+  }
+
+  /** Turns one of the player's face-down cards, by slot. */
+  turn(index: number) {
+    if (this.seq.awaiting === 'turn') this.seq.answer(index);
+  }
+
+  /** Turns the player's next face-down card, left to right. */
+  turnNext() {
+    if (!this.turning) return;
+    const row = this.turning === 'player' ? this.player : this.banker;
+    const index = row.indexOf(null);
+    if (index >= 0) this.turn(index);
+  }
+
+  turnAll() {
+    this.turn(-1);
   }
 
   dispose() {
@@ -261,6 +285,31 @@ export class BaccaratGame {
     return this.seq.wait(base);
   }
 
+  /**
+   * The bettor turns the cards of the hand they backed, as the biggest bet on
+   * each side does at a real baccarat table: waits until every one of `cards`
+   * is face up. False if the game was reset meanwhile.
+   */
+  private async playerTurns(to: BaccaratHand, cards: { index: number; card: Card }[]): Promise<boolean> {
+    const row = to === 'player' ? this.player : this.banker;
+    this.turning = to;
+    while (cards.some((c) => row[c.index] === null)) {
+      const answer = await this.seq.ask('turn');
+      if (answer === null) return false;
+      for (const c of cards) {
+        if (row[c.index] === null && (answer === -1 || answer === c.index)) row[c.index] = c.card;
+      }
+      sfx.flip();
+    }
+    this.turning = null;
+    return true;
+  }
+
+  /** Whether the player turns this hand's cards: the one they bet on, unless auto play is dealing. */
+  private turnsOwn(to: BaccaratHand): boolean {
+    return !this.autoPlay && to === this.roundSideBet;
+  }
+
   /** Plays the coup out: four cards face down, turned Player then Banker, then any third cards squeezed. */
   private async show(events: BaccaratEvent[]): Promise<boolean> {
     for (const event of events) {
@@ -271,6 +320,7 @@ export class BaccaratGame {
           this.player = [undefined, undefined, undefined];
           this.banker = [undefined, undefined, undefined];
           this.focus = null;
+          this.turning = null;
           this.winner = null;
           this.natural = false;
           this.roundSideBet = event.side;
@@ -292,17 +342,26 @@ export class BaccaratGame {
             if (event.to === 'banker' && event.index === 1) {
               const first = events.filter((e) => e.type === 'CardDealt' && e.index < 2) as Extract<BaccaratEvent, { type: 'CardDealt' }>[];
               for (const to of ['player', 'banker'] as const) {
+                const own = first.filter((c) => c.to === to);
+                if (this.turnsOwn(to)) {
+                  if (!(await this.playerTurns(to, own))) return false;
+                  continue;
+                }
                 if (!(await this.ms(REVEAL_MS))) return false;
                 const row = to === 'player' ? this.player : this.banker;
-                for (const e of first.filter((c) => c.to === to)) row[e.index] = e.card;
+                for (const e of own) row[e.index] = e.card;
                 sfx.flip();
               }
             }
           } else {
             if (!(await this.ms(DEAL_MS))) return false;
             hand[2] = null;
-            this.focus = { hand: event.to, index: 2 };
             sfx.flip();
+            if (this.turnsOwn(event.to)) {
+              if (!(await this.playerTurns(event.to, [{ index: 2, card: event.card }]))) return false;
+              break;
+            }
+            this.focus = { hand: event.to, index: 2 };
             if (this.seq.speed === 'smart') sfx.tension();
             if (!(await this.ms(this.seq.speed === 'smart' ? SQUEEZE_MS : REVEAL_MS))) return false;
             hand[2] = event.card;

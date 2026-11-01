@@ -3,6 +3,7 @@
   import { BACCARAT_BONUSES, baccaratTotal, type BaccaratSide, type Card } from '@idlesuits/sim';
   import BetBar from '../../components/BetBar.svelte';
   import BetSpot from '../../components/BetSpot.svelte';
+  import DecisionBar from '../../components/DecisionBar.svelte';
   import FeltBand from '../../components/FeltBand.svelte';
   import SeatOverlay from '../../components/SeatOverlay.svelte';
   import ShoeRack from '../../components/ShoeRack.svelte';
@@ -76,11 +77,17 @@
   function onKey(e: KeyboardEvent) {
     const target = e.target as HTMLElement;
     if (target.closest('input, select, textarea, dialog, aside')) return;
+    if (seq.awaiting === 'turn' && e.key.toLowerCase() === 'a') return game.turnAll();
     if (e.key !== ' ' && e.key !== 'Enter') return;
     if (target.closest('button, a')) return;
     e.preventDefault();
-    game.deal();
+    if (seq.awaiting === 'turn') game.turnNext();
+    else game.deal();
   }
+
+  const turnHint = $derived(
+    game.turning ? `Your bet is on the ${NAMES[game.turning]}. Turn its cards.` : '',
+  );
 </script>
 
 <svelte:window onkeydown={onKey} />
@@ -93,8 +100,8 @@
   onAuto={(on) => game.setAutoPlay(on)}
   onRules={() => rules?.open()}
   {onExit}
-  onTapFelt={() => seq.awaiting === 'deal' && game.deal()}
-  cards={{ across: 8, rows: 1, reserve: 260 }}
+  onTapFelt={() => (seq.awaiting === 'turn' ? game.turnNext() : seq.awaiting === 'deal' && game.deal())}
+  cards={{ across: 8, rows: 1, reserve: 276 }}
 >
   {#snippet felt()}
     <div class="layout">
@@ -106,6 +113,7 @@
           focus={game.focus?.hand === 'player' ? game.focus.index : -1}
           won={game.winner === 'player'}
           backed={backed === 'player'}
+          onTurn={game.turning === 'player' ? (i) => game.turn(i) : undefined}
         />
         <BaccaratHand
           title="Banker"
@@ -114,6 +122,7 @@
           focus={game.focus?.hand === 'banker' ? game.focus.index : -1}
           won={game.winner === 'banker'}
           backed={backed === 'banker'}
+          onTurn={game.turning === 'banker' ? (i) => game.turn(i) : undefined}
         />
       </div>
 
@@ -162,7 +171,7 @@
     <SeatOverlay
       started={game.started}
       gameOver={game.gameOver}
-      intro="Back the Player or the Banker. Closest to nine wins, and the cards decide everything."
+      intro="Back the Player or the Banker, then turn its cards yourself. Closest to nine wins."
       hands={game.hands}
       biggestWin={game.biggestWin}
       onSeat={begin}
@@ -172,16 +181,26 @@
   {/snippet}
 
   {#snippet action()}
-    <BetBar
-      bank={game.bank}
-      total={game.bets.total}
-      canDeal={seq.awaiting === 'deal' && game.bets.canDeal}
-      hint={game.bets.hint}
-      onDeal={() => game.deal()}
-      onClear={() => game.bets.clearAll()}
-      onDouble={() => game.bets.double()}
-      trailing={game.autoPlay && game.started ? pause : undefined}
-    />
+    {#if seq.awaiting === 'turn'}
+      <DecisionBar
+        options={[
+          { label: 'Turn card', key: 'Space', suggested: true, pick: () => game.turnNext() },
+          { label: 'Turn all', key: 'A', pick: () => game.turnAll() },
+        ]}
+        hint={turnHint}
+      />
+    {:else}
+      <BetBar
+        bank={game.bank}
+        total={game.bets.total}
+        canDeal={seq.awaiting === 'deal' && game.bets.canDeal}
+        hint={game.bets.hint}
+        onDeal={() => game.deal()}
+        onClear={() => game.bets.clearAll()}
+        onDouble={() => game.bets.double()}
+        trailing={game.autoPlay && game.started ? pause : undefined}
+      />
+    {/if}
   {/snippet}
 
   {#snippet panels()}
