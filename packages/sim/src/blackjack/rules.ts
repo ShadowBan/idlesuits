@@ -18,6 +18,8 @@ export interface BjRules {
   splitAcesOneCard: boolean;
   /** Paid doubles on totals the house will not cover, real-money hands only. */
   paidDoubles: boolean;
+  /** Insurance is offered when the dealer shows an ace: half the bet, paying 2:1 on a dealer blackjack. */
+  insurance: boolean;
 }
 
 /** Free Bet Blackjack as dealt: six decks, H17, 3:2, push 22. */
@@ -31,6 +33,7 @@ export const FREE_BET_RULES: BjRules = {
   maxHands: 4,
   splitAcesOneCard: true,
   paidDoubles: true,
+  insurance: true,
 };
 
 /** Blackjack counts every ten-valued card the same; an ace is 11 until it must be 1. */

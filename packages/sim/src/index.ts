@@ -21,3 +21,4 @@ export * from './csp';
 export * from './lir';
 export * from './djw';
 export * from './charms';
+export * from './shoe';

@@ -26,7 +26,9 @@ export interface BjHand {
 export type BjEvent =
   | { type: 'RoundStarted'; round: number; bet: number }
   | { type: 'CardDealt'; to: 'player' | 'dealer'; hand: number; card: Card; holeCard?: boolean }
+  | { type: 'InsuranceDecided'; taken: boolean }
   | { type: 'DealerPeeked'; blackjack: boolean }
+  | { type: 'InsuranceSettled'; net: number }
   | { type: 'HandFocused'; hand: number }
   | { type: 'MoveMade'; hand: number; move: Move; free: boolean }
   | { type: 'HandStood'; hand: number; total: HandTotal }
@@ -48,8 +50,15 @@ export interface BjRoundInput {
   seed: BjSeed;
   /** Side bets by id (see BJ_BONUSES), in units of the base bet. Missing or zero is off. */
   bonuses?: Readonly<Record<string, number>>;
+  /**
+   * Deal from this shoe, starting at `next`, instead of a fresh shuffle: a
+   * table that deals a shoe down to the cut card. The seed is then unused.
+   */
+  shoe?: { readonly cards: readonly Card[]; readonly next: number };
   /** Overrides the strategy for one decision at a time, for manual play. */
   decide?: (hand: BjHand, index: number, upcard: Card, allowed: Allowed) => Move;
+  /** Whether to take insurance against a dealer ace. Basic strategy never does. */
+  insure?: (hand: BjHand, upcard: Card) => boolean;
   recordEvents?: boolean;
   /** Called as each event happens, so a caller can watch a round that is still running. */
   onEvent?: (event: BjEvent) => void;
@@ -63,8 +72,12 @@ export interface BjRoundResult {
   /** Free splits plus free doubles: what Pot of Gold counts. */
   freeBets: number;
   bonuses: BonusResult[];
-  /** Everything won or lost this round, side bets included, in units of the base bet. */
+  /** The insurance bet's result in base bets, or null if none was taken. */
+  insurance: number | null;
+  /** Everything won or lost this round, side bets and insurance included, in units of the base bet. */
   net: number;
+  /** Cards taken from the shoe. */
+  cardsUsed: number;
   events: BjEvent[];
 }
 
@@ -83,18 +96,29 @@ export function simulateBjRound(input: BjRoundInput): BjRoundResult {
     input.onEvent?.(e);
   };
 
-  const rng = new Rng(input.seed.run, 'blackjack', input.seed.round);
-  const shoe = buildBjShoe(rules);
-  let next = 0;
-  // Partial Fisher-Yates: only the cards actually dealt get shuffled.
-  const draw = (): Card => {
-    const j = next + rng.int(shoe.length - next);
-    const card = shoe[j]!;
-    shoe[j] = shoe[next]!;
-    shoe[next] = card;
-    next++;
-    return card;
-  };
+  let used = 0;
+  let draw: () => Card;
+  if (input.shoe) {
+    const { cards, next: from } = input.shoe;
+    draw = () => {
+      const card = cards[from + used];
+      if (!card) throw new Error('The shoe ran out of cards mid-round');
+      used++;
+      return card;
+    };
+  } else {
+    const rng = new Rng(input.seed.run, 'blackjack', input.seed.round);
+    const shoe = buildBjShoe(rules);
+    // Partial Fisher-Yates: only the cards actually dealt get shuffled.
+    draw = () => {
+      const j = used + rng.int(shoe.length - used);
+      const card = shoe[j]!;
+      shoe[j] = shoe[used]!;
+      shoe[used] = card;
+      used++;
+      return card;
+    };
+  }
 
   emit({ type: 'RoundStarted', round: input.seed.round, bet: 1 });
 
@@ -116,11 +140,21 @@ export function simulateBjRound(input: BjRoundInput): BjRoundResult {
   const upcard = dealer[0]!;
   const dealerBj = isBlackjack(dealer);
   const peeks = cardValue(upcard.rank) >= 10;
+  // Insurance is decided before the dealer looks under the ace.
+  const offered = rules.insurance && upcard.rank === 14;
+  const insured = offered && (input.insure?.(hands[0]!, upcard) ?? false);
+  if (offered) emit({ type: 'InsuranceDecided', taken: insured });
   if (peeks) emit({ type: 'DealerPeeked', blackjack: dealerBj });
 
   const playerBj = isBlackjack(hands[0]!.cards);
   let net = 0;
   let freeBets = 0;
+  // Half a bet, paying 2:1: a whole bet back on a dealer blackjack.
+  const insurance = insured ? (dealerBj ? 1 : -0.5) : null;
+  if (insurance !== null) {
+    net += insurance;
+    emit({ type: 'InsuranceSettled', net: insurance });
+  }
   // Push 22 needs the dealer's final total, so with it up the dealer always draws out.
   const mustDrawOut = (input.bonuses?.push22 ?? 0) > 0;
 
@@ -143,7 +177,7 @@ export function simulateBjRound(input: BjRoundInput): BjRoundResult {
       emit({ type: 'BonusSettled', result });
     }
     emit({ type: 'RoundSettled', net });
-    return { hands, dealer, dealerTotal, dealerBlackjack, freeBets, bonuses, net, events };
+    return { hands, dealer, dealerTotal, dealerBlackjack, freeBets, bonuses, insurance, net, cardsUsed: used, events };
   };
 
   const settle = (hand: BjHand, outcome: HandOutcome, amount: number) => {

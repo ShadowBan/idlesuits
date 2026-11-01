@@ -4,7 +4,8 @@ An idle casino. Pick a table from the floor and the same bankroll follows you fr
 
 - **Idle Suits** — seven cards each, biggest flush wins, with side bets that pay on your hand alone.
 - **Free Bet Blackjack** — the house pays for your doubles on 9/10/11 and every split but tens; in
-  exchange a dealer 22 pushes. Side bets: Pot of Gold, Push 22.
+  exchange a dealer 22 pushes. Dealt from a six-deck shoe down to a cut card, with insurance against
+  a dealer ace. Side bets: Pot of Gold, Push 22.
 - **Ultimate Texas Hold'em** — bet 4× before the flop, 2× on it, or 1× at the end, against a dealer
   who needs a pair to open. Side bets: Trips, 6-Card Bonus, Hole Card Bonus, Bad Beat.
 - **Mississippi Stud** — no dealer; raise 1× or 3× as each community card lands, and every bet is
@@ -116,6 +117,13 @@ shows the measured edge beside every side bet.
 
 The simulator produces an event log; the UI only plays that log back. Any hand can be reproduced
 exactly from its seed.
+
+Each game is dealt the way a casino deals it, and its entry in `GAMES` records how many decks: the
+carnival games use one deck reshuffled every hand (Pai Gow and DJ Wild add a joker), and Blackjack
+deals a six-deck shoe. The shoe (`shuffleShoe` in `packages/sim/src/shoe.ts`) is shuffled once,
+burns a card and deals down to a cut card 70–80% of the way in; the table keeps it between rounds and
+saves it. The odds audit still deals Blackjack from a fresh shoe every round, as the published edges
+assume.
 
 ## Rooms and table limits
 

@@ -2,7 +2,7 @@
   import { bankroll } from '../lib/casino.svelte';
   import { floor } from '../lib/floor.svelte';
   import { formatLimit, room } from '../lib/rooms';
-  import { GAMES, type GameEntry } from '../lib/games';
+  import { deckLabel, GAMES, type GameEntry } from '../lib/games';
   import { formatMoney } from '../lib/money';
   import CardStylePicker from './CardStylePicker.svelte';
   import { CHARMS, PULL_COST } from '@idlesuits/sim';
@@ -109,6 +109,7 @@
             <p class="tagline">{game.tagline}</p>
             <p class="blurb">{game.blurb}</p>
             <ul class="facts">
+              <li class="deck">{deckLabel(game)}</li>
               {#each game.facts as fact (fact)}
                 <li>{fact}</li>
               {/each}
@@ -384,6 +385,10 @@
     background: var(--chip-bg);
     color: var(--muted);
     font: 500 11px/1.4 var(--font-ui);
+  }
+  .facts .deck {
+    color: var(--ink);
+    box-shadow: inset 0 0 0 1px var(--line);
   }
   .pending {
     margin: 0;

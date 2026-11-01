@@ -18,6 +18,14 @@ export interface GameEntry {
   /** Suit symbols or pips drawn on the card's face. */
   motif: string[];
   accent: string;
+  /**
+   * Decks dealt from, as the game is dealt in a casino: a multi-deck shoe for
+   * blackjack, one deck reshuffled every hand for the carnival games. Only a
+   * shoe of more than one deck can be changed by a charm.
+   */
+  decks: number;
+  /** The deck carries a joker (Pai Gow, DJ Wild). */
+  joker?: boolean;
   /** Loaded only when the table is opened, so the lobby stays small. */
   load?: () => Promise<{ default: Component<GameProps> }>;
 }
@@ -29,6 +37,7 @@ export interface GameEntry {
 export const GAMES: GameEntry[] = [
   {
     id: 'suits',
+    decks: 1,
     name: 'Idle Suits',
     tagline: 'Seven cards. Biggest flush takes it.',
     blurb:
@@ -40,6 +49,7 @@ export const GAMES: GameEntry[] = [
   },
   {
     id: 'blackjack',
+    decks: 6,
     name: 'Free Bet Blackjack',
     tagline: 'The house pays for your doubles and splits.',
     blurb:
@@ -51,6 +61,7 @@ export const GAMES: GameEntry[] = [
   },
   {
     id: 'uth',
+    decks: 1,
     name: "Ultimate Texas Hold'em",
     tagline: 'Bet big early, or pay less to see more.',
     blurb:
@@ -62,6 +73,7 @@ export const GAMES: GameEntry[] = [
   },
   {
     id: 'stud',
+    decks: 1,
     name: 'Mississippi Stud',
     tagline: 'No dealer. Just you and the pay table.',
     blurb:
@@ -73,6 +85,7 @@ export const GAMES: GameEntry[] = [
   },
   {
     id: 'tcp',
+    decks: 1,
     name: 'Three Card Poker',
     tagline: 'Three cards. Play or fold.',
     blurb:
@@ -84,17 +97,20 @@ export const GAMES: GameEntry[] = [
   },
   {
     id: 'paigow',
+    decks: 1,
+    joker: true,
     name: 'Pai Gow Poker',
     tagline: 'Seven cards, two hands, one joker.',
     blurb:
       'Set your seven cards into a five-card high hand and a two-card low hand. Win both to get paid; split them and it pushes.',
-    facts: ['53 cards', 'House way', 'Lots of pushes'],
+    facts: ['House way', 'Lots of pushes'],
     motif: ['★', '♠', 'A'],
     accent: '#ffb86b',
     load: () => import('../games/paigow/PaiGowTable.svelte'),
   },
   {
     id: 'lir',
+    decks: 1,
     name: 'Let It Ride',
     tagline: 'Three bets down. Take some back.',
     blurb:
@@ -106,6 +122,7 @@ export const GAMES: GameEntry[] = [
   },
   {
     id: 'csp',
+    decks: 1,
     name: 'Caribbean Stud',
     tagline: 'Five cards. One dealer card showing.',
     blurb:
@@ -117,6 +134,7 @@ export const GAMES: GameEntry[] = [
   },
   {
     id: 'c4p',
+    decks: 1,
     name: 'Crazy 4 Poker',
     tagline: 'Best four of five.',
     blurb:
@@ -128,6 +146,8 @@ export const GAMES: GameEntry[] = [
   },
   {
     id: 'djwild',
+    decks: 1,
+    joker: true,
     name: 'DJ Wild',
     tagline: 'Deuces and the joker are wild.',
     blurb:
@@ -139,6 +159,7 @@ export const GAMES: GameEntry[] = [
   },
   {
     id: 'draw',
+    decks: 1,
     name: 'Draw Poker',
     tagline: 'Keep what you like, redraw the rest.',
     blurb: 'Five cards, one draw, a pay table to chase. Hold rules you configure once and let run.',
@@ -147,6 +168,12 @@ export const GAMES: GameEntry[] = [
     accent: '#e8b64c',
   },
 ];
+
+/** How the game is dealt, for its lobby card: "6-deck shoe", "1 deck + joker". */
+export function deckLabel(game: GameEntry): string {
+  if (game.decks > 1) return `${game.decks}-deck shoe`;
+  return game.joker ? '1 deck + joker' : '1 deck';
+}
 
 export function findGame(id: string | null): GameEntry | undefined {
   return GAMES.find((g) => g.id === id);

@@ -62,10 +62,16 @@
     <details>
       <summary>Table rules</summary>
       <ul>
-        <li>{rules.decks} decks, dealer {rules.hitsSoft17 ? 'hits' : 'stands on'} soft 17.</li>
+        <li>
+          A {rules.decks}-deck shoe, dealt down to a cut card 70–80% of the way in, then shuffled. Dealer
+          {rules.hitsSoft17 ? 'hits' : 'stands on'} soft 17.
+        </li>
         <li>Split up to {rules.maxHands} hands. Split aces take one card each.</li>
         <li>Ten-value pairs cannot be split. Doubling after a split is fine.</li>
-        <li>No surrender, no insurance.</li>
+        <li>
+          {rules.insurance ? 'Insurance against a dealer ace: half your bet, paying 2:1 if the dealer has blackjack. It costs more than it pays unless the shoe is rich in tens, so the chart never takes it.' : 'No insurance.'}
+          No surrender.
+        </li>
       </ul>
     </details>
 
@@ -82,7 +88,7 @@
     <details>
       <summary>Playing here</summary>
       <ul>
-        <li><kbd>H</kbd> hit · <kbd>S</kbd> stand · <kbd>D</kbd> double · <kbd>P</kbd> split</li>
+        <li><kbd>H</kbd> hit · <kbd>S</kbd> stand · <kbd>D</kbd> double · <kbd>P</kbd> split · <kbd>I</kbd> insurance · <kbd>N</kbd> no insurance</li>
         <li><kbd>Space</kbd> takes the suggested move, or deals the next hand.</li>
         <li>
           The suggestion comes from a strategy solved for these rules. Hands riding on house money play differently,

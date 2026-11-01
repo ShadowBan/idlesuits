@@ -1,20 +1,24 @@
 import {
   BJ_BONUSES,
+  cutCardOut,
   FREE_BET_RULES,
   handTotal,
+  shuffleShoe,
   solveStrategy,
   stepRound,
+  type BjChoice,
   type BjEvent,
   type BjRoundResult,
   type BjRules,
   type Decision,
-  type Move,
   type RoundReport,
+  type Shoe,
   type StrategyTables,
 } from '@idlesuits/sim';
 import { bankroll } from '../../lib/casino.svelte';
 import { Decimal } from '../../lib/money';
 import { meta } from '../../lib/meta.svelte';
+import { load, saveSoon } from '../../lib/save';
 import { mainBet, outcomeOf, sideBets } from '../../lib/report';
 import { Sequencer } from '../../lib/sequencer.svelte';
 import { SideStakes } from '../../lib/sidebets.svelte';
@@ -38,7 +42,12 @@ const BASE_MS: Record<BjEvent['type'], number> = {
   HandSettled: 260,
   BonusSettled: 320,
   RoundSettled: 420,
+  InsuranceDecided: 260,
+  InsuranceSettled: 320,
 };
+
+/** The dealer breaking in a new shoe. */
+const SHUFFLE_MS = 1800;
 
 /** How long a finished round stays on the table. */
 const RESULT_HOLD_MS = 1500;
@@ -59,7 +68,15 @@ export class BjGame {
   readonly rules: BjRules = FREE_BET_RULES;
   readonly tables: StrategyTables = solveStrategy(FREE_BET_RULES);
   readonly view = new BjTableView();
-  readonly seq = new Sequencer<Move>();
+  readonly seq = new Sequencer<BjChoice>();
+  /** The shoe being dealt, down to its cut card. Kept across rounds and saved, as a real table's shoe is. */
+  private shoe: Shoe;
+  private shoeSeed: string;
+  private shoeNumber: number;
+  /** What the table shows of the shoe: cards left, where the cut card sits, the discards. */
+  shoeView = $state({ size: 0, next: 0, cut: 0 });
+  /** The dealer is shuffling a new shoe. */
+  shuffling = $state(false);
 
   runSeed = $state(newSeed());
   round = $state(0);
@@ -99,6 +116,22 @@ export class BjGame {
     // Sit back down and the chips and the speed are as you left them.
     this.bets.remember('blackjack');
     this.seq.remember('blackjack');
+    const saved = load<{ seed: string; number: number; next: number } | null>('shoe.blackjack', null);
+    this.shoeSeed = saved?.seed ?? newSeed();
+    this.shoeNumber = saved?.number ?? 0;
+    this.shoe = shuffleShoe(this.rules.decks, this.shoeSeed, this.shoeNumber);
+    if (saved && saved.next > this.shoe.next && saved.next < this.shoe.cards.length) this.shoe.next = saved.next;
+    this.refreshShoe();
+  }
+
+  private refreshShoe() {
+    this.shoeView = { size: this.shoe.cards.length, next: this.shoe.next, cut: this.shoe.cut };
+    saveSoon('shoe.blackjack', () => ({ seed: this.shoeSeed, number: this.shoeNumber, next: this.shoe.next }));
+  }
+
+  /** Insurance costs half the bet on top of everything else down; the bankroll must cover it. */
+  canInsure(): boolean {
+    return this.bank.gte(this.roundBet.mul(1.5).add(this.side.total));
   }
 
   /** Too little left to deal a hand at this table, even at the smallest bet. */
@@ -138,7 +171,7 @@ export class BjGame {
   }
 
   /** The player's own choice; must be one the rules allow. */
-  choose(move: Move) {
+  choose(move: BjChoice) {
     if (this.seq.awaiting === 'move') this.seq.answer(move);
   }
 
@@ -193,13 +226,23 @@ export class BjGame {
 
   /** Plays one round; false if the game was reset part-way through. */
   private async playRound(): Promise<boolean> {
+    // The cut card came out last round: the dealer shuffles before dealing on.
+    if (cutCardOut(this.shoe)) {
+      this.shuffling = true;
+      sfx.shuffle();
+      const ok = await this.seq.wait(SHUFFLE_MS);
+      this.shoe = shuffleShoe(this.rules.decks, this.shoeSeed, ++this.shoeNumber);
+      this.refreshShoe();
+      this.shuffling = false;
+      if (!ok) return false;
+    }
     const bet = this.bet;
     const bonuses = this.side.units(bet);
     this.roundBet = bet;
     this.roundSide = bonuses;
     const seed = { run: this.runSeed, round: this.round };
-    const input = { tables: this.tables, rules: this.rules, seed, bonuses };
-    const moves: Move[] = [];
+    const input = { tables: this.tables, rules: this.rules, seed, bonuses, shoe: this.shoe };
+    const moves: BjChoice[] = [];
     let shown = 0;
 
     for (;;) {
@@ -209,12 +252,16 @@ export class BjGame {
       shown = step.events.length;
 
       if (step.kind === 'done') {
+        this.shoe.next += step.result.cardsUsed;
+        this.refreshShoe();
         this.settle(step.result, bet);
         return true;
       }
 
-      let move: Move | null = step.decision.suggestion;
-      if (!this.autoPlay) {
+      let move: BjChoice | null = step.decision.suggestion;
+      // Insurance the bankroll can't cover is never offered as a choice.
+      if (step.decision.kind === 'insurance' && !this.canInsure()) move = 'noInsurance';
+      else if (!this.autoPlay) {
         this.decision = step.decision;
         move = await this.seq.ask('move');
         this.decision = null;
@@ -233,6 +280,8 @@ export class BjGame {
         this.bets.touched = false;
       }
       this.view.apply(event);
+      // The shoe empties card by card as the table sees them dealt.
+      if (event.type === 'CardDealt') this.shoeView.next++;
       this.playSound(event);
     }
     return true;
@@ -284,6 +333,7 @@ export class BjGame {
         // The house's free money counts toward the odds a hand paid, so a free double still pays 1:1.
         ...result.hands.flatMap((h) => mainBet(h.bet + h.free, h.net ?? 0)),
         ...sideBets(result.bonuses, this.roundSide),
+        ...(result.insurance === null ? [] : [{ kind: 'side' as const, stake: 0.5, net: result.insurance }]),
       ],
       outcome: outcomeOf(false, mainNet),
       blackjack: result.hands.some((h) => h.outcome === 'blackjack'),

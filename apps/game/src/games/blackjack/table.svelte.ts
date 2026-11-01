@@ -53,6 +53,9 @@ export class BjTableView {
   /** The hand the player is acting on. */
   active = $state<number | null>(null);
   peeked = $state<boolean | null>(null);
+  /** Insurance taken against the dealer's ace, and what it paid once settled. */
+  insured = $state(false);
+  insurance = $state<number | null>(null);
   net = $state<number | null>(null);
   bonusResults = $state<Record<string, BonusResult>>({});
   breakdown = $state<BreakdownLine[]>([]);
@@ -72,6 +75,8 @@ export class BjTableView {
         this.dealerTotal = null;
         this.active = null;
         this.peeked = null;
+        this.insured = false;
+        this.insurance = null;
         this.net = null;
         this.bonusResults = {};
         this.breakdown = [];
@@ -93,6 +98,15 @@ export class BjTableView {
 
       case 'DealerPeeked':
         this.peeked = event.blackjack;
+        break;
+
+      case 'InsuranceDecided':
+        this.insured = event.taken;
+        break;
+
+      case 'InsuranceSettled':
+        this.insurance = event.net;
+        this.breakdown.push({ label: event.net > 0 ? 'Insurance · pays 2:1' : 'Insurance · no blackjack', amount: event.net });
         break;
 
       case 'HandFocused':

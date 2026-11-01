@@ -6,11 +6,13 @@ import {
   isPair,
   simulateBjRound,
   solveStrategy,
+  shuffleShoe,
+  cutCardOut,
   stepRound,
   totalOf,
+  type BjChoice,
   type BjRoundResult,
   type Card,
-  type Move,
 } from '../src';
 
 const tables = solveStrategy(FREE_BET_RULES);
@@ -122,12 +124,12 @@ describe('simulateBjRound', () => {
 });
 
 describe('stepRound', () => {
-  const step = (round: number, moves: Move[]) => stepRound({ tables, seed: { run: 'test', round } }, moves);
+  const step = (round: number, moves: BjChoice[]) => stepRound({ tables, seed: { run: 'test', round } }, moves);
 
   it('replaying the suggested moves deals exactly the same round', () => {
     let stepped = 0;
     for (let round = 0; round < 2000; round++) {
-      const moves: Move[] = [];
+      const moves: BjChoice[] = [];
       let guard = 0;
       for (;;) {
         const next = step(round, moves);
@@ -141,5 +143,58 @@ describe('stepRound', () => {
       }
     }
     expect(stepped).toBeGreaterThan(500);
+  });
+});
+
+describe('a dealt shoe', () => {
+  it('holds every card of every deck once, burns one and cuts 70-80% in', () => {
+    const shoe = shuffleShoe(6, 'test', 0);
+    expect(shoe.cards).toHaveLength(312);
+    expect(new Set(shoe.cards.map((c) => c.uid)).size).toBe(312);
+    expect(shoe.next).toBe(1);
+    expect(shoe.cut).toBeGreaterThanOrEqual(218);
+    expect(shoe.cut).toBeLessThanOrEqual(250);
+    expect(shuffleShoe(6, 'test', 0)).toEqual(shoe);
+    expect(shuffleShoe(6, 'test', 1).cards).not.toEqual(shoe.cards);
+  });
+
+  it('deals rounds in order from the shoe until the cut card comes out', () => {
+    const shoe = shuffleShoe(6, 'test', 0);
+    let rounds = 0;
+    while (!cutCardOut(shoe)) {
+      const result = play(rounds, { shoe });
+      const dealt = [...result.hands.flatMap((h) => h.cards), ...result.dealer];
+      expect(dealt.map((c) => c.uid).sort()).toEqual(
+        shoe.cards.slice(shoe.next, shoe.next + result.cardsUsed).map((c) => c.uid).sort(),
+      );
+      shoe.next += result.cardsUsed;
+      rounds++;
+    }
+    // About 5.4 cards a round over three quarters of six decks.
+    expect(rounds).toBeGreaterThan(30);
+    expect(rounds).toBeLessThan(60);
+  });
+});
+
+describe('insurance', () => {
+  const ace = (rank: number, i: number): Card => ({ uid: `i${i}`, suit: 'H', rank, source: 'player' });
+  // Player, dealer up, player, dealer hole, then the rest.
+  const stacked = (ranks: number[]) => ({ cards: ranks.map(ace), next: 0 });
+
+  it('is offered only against an ace, and basic strategy declines it', () => {
+    const offered = play(0, { shoe: stacked([10, 14, 7, 13]), recordEvents: true });
+    expect(offered.events.find((e) => e.type === 'InsuranceDecided')).toEqual({ type: 'InsuranceDecided', taken: false });
+    expect(offered.insurance).toBeNull();
+    const notOffered = play(0, { shoe: stacked([10, 13, 7, 9, 5, 5, 5]), recordEvents: true });
+    expect(notOffered.events.some((e) => e.type === 'InsuranceDecided')).toBe(false);
+  });
+
+  it('pays 2:1 on half a bet against a dealer blackjack, and loses the half otherwise', () => {
+    const blackjack = play(0, { shoe: stacked([10, 14, 7, 13]), insure: () => true });
+    expect(blackjack.insurance).toBe(1);
+    expect(blackjack.net).toBe(0); // the main bet loses one, insurance wins one
+    const noBlackjack = play(0, { shoe: stacked([10, 14, 10, 7, 5, 5, 5]), insure: () => true });
+    expect(noBlackjack.insurance).toBe(-0.5);
+    expect(noBlackjack.net).toBe(0.5); // 20 beats a soft 18, less the insurance
   });
 });

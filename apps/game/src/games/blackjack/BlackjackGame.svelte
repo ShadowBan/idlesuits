@@ -1,12 +1,13 @@
 <script lang="ts">
   import { onDestroy } from 'svelte';
   import { flip } from 'svelte/animate';
-  import { BJ_BONUSES, type Move } from '@idlesuits/sim';
+  import { BJ_BONUSES, type BjChoice } from '@idlesuits/sim';
   import BetBar from '../../components/BetBar.svelte';
   import BetSpot from '../../components/BetSpot.svelte';
   import DecisionBar from '../../components/DecisionBar.svelte';
   import FeltBand from '../../components/FeltBand.svelte';
   import SeatOverlay from '../../components/SeatOverlay.svelte';
+  import ShoeRack from '../../components/ShoeRack.svelte';
   import SideBetsPanel from '../../components/SideBetsPanel.svelte';
   import TablePanels from '../../components/TablePanels.svelte';
   import TableShell from '../../components/TableShell.svelte';
@@ -34,14 +35,21 @@
   const flipMs = $derived(FLIP_MS[seq.speed]);
   const decision = $derived(game.decision);
 
-  const KEYS: Record<string, Move> = { h: 'hit', s: 'stand', d: 'double', p: 'split' };
+  const KEYS: Record<string, BjChoice> = { h: 'hit', s: 'stand', d: 'double', p: 'split', i: 'insure', n: 'noInsurance' };
   const options = $derived.by(() => {
     if (!decision) return [];
     const free = game.freeDoubleReady();
-    const list: { label: string; move: Move; key: string; sub?: string }[] = [
+    const list: { label: string; move: BjChoice; key: string; sub?: string }[] =
+      decision.kind === 'insurance'
+        ? [
+            { label: 'No insurance', move: 'noInsurance', key: 'N' },
+            { label: 'Insurance', move: 'insure', key: 'I', sub: `${formatMoney(game.roundBet.div(2))} pays 2:1` },
+          ]
+        : [
       { label: 'Hit', move: 'hit', key: 'H' },
       { label: 'Stand', move: 'stand', key: 'S' },
     ];
+    if (decision.kind === 'insurance') return list.map((o) => ({ ...o, suggested: o.move === decision.suggestion, pick: () => game.choose(o.move) }));
     if (decision.allowed.double) {
       list.push({ label: free ? 'Free double' : 'Double', move: 'double', key: 'D', sub: free ? 'on the house' : undefined });
     }
@@ -51,7 +59,9 @@
   const hint = $derived(
     !decision
       ? ''
-      : decision.regime === 'free'
+      : decision.kind === 'insurance'
+        ? 'Dealer shows an ace. The chart never takes insurance'
+        : decision.regime === 'free'
         ? 'House money: a loss on this hand costs you nothing'
         : `Chart says ${decision.suggestion}`,
   );
@@ -150,7 +160,15 @@
           total={view.dealerTotal}
           side="dealer"
           {flipMs}
-          note={view.dealerTotal?.total === 22 ? 'Push 22' : view.peeked ? 'Blackjack' : undefined}
+          note={game.shuffling
+            ? 'Shuffling'
+            : view.dealerTotal?.total === 22
+              ? 'Push 22'
+              : view.peeked
+                ? 'Blackjack'
+                : view.insured && view.insurance === null
+                  ? 'Insured'
+                  : undefined}
         />
       </div>
 
@@ -209,6 +227,8 @@
         />
       </div>
     </div>
+
+    <ShoeRack size={game.shoeView.size} next={game.shoeView.next} cut={game.shoeView.cut} shuffling={game.shuffling} />
 
     <SeatOverlay
       started={game.started}
