@@ -1,4 +1,5 @@
 import { settleBonuses, type BonusResult } from '../bonus';
+import { seated, type Seat } from '../seats';
 import { standardDeck, type Card } from '../cards';
 import { Category, comparePoker, evaluatePoker, type PokerHand } from '../poker';
 import { Rng, type Seed } from '../rng';
@@ -52,6 +53,8 @@ export interface UthRoundInput {
   /** Forces the player's hole cards, for deriving strategy over fixed holdings. */
   hole?: readonly Card[];
   decide: (decision: UthDecision) => { move: UthMove; raise?: number };
+  /** The seat this hand is dealt to, when the player has other hands at the table. */
+  seat?: Seat;
   recordEvents?: boolean;
   onEvent?: (event: UthEvent) => void;
 }
@@ -85,7 +88,7 @@ export function simulateUthRound(input: UthRoundInput): UthRoundResult {
   const rng = new Rng(input.seed.run, 'uth', input.seed.round);
   const deck = standardDeck('player');
   let next = 0;
-  const draw = (): Card => {
+  const shuffled = (): Card => {
     const j = next + rng.int(deck.length - next);
     const card = deck[j]!;
     deck[j] = deck[next]!;
@@ -93,6 +96,8 @@ export function simulateUthRound(input: UthRoundInput): UthRoundResult {
     next++;
     return card;
   };
+  // With other hands at the table, this seat's cards come after theirs; the rest is shared.
+  const draw = seated(shuffled, 2, input.seat);
 
   const stakes = { ...input.bonuses };
   emit({ type: 'RoundStarted', round: input.seed.round, ante: 1, bonuses: stakes });

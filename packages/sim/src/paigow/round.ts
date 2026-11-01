@@ -1,4 +1,5 @@
 import { settleBonuses, type BonusResult } from '../bonus';
+import { seated, type Seat } from '../seats';
 import type { Card } from '../cards';
 import { Rng, type Seed } from '../rng';
 import { PG_BONUSES } from './bonus';
@@ -43,6 +44,8 @@ export interface PaiGowRoundInput {
   decide: (decision: PaiGowDecision) => PaiGowSet;
   /** Side bets by id (see PG_BONUSES), in units of the main bet. Missing or zero is off. */
   bonuses?: Readonly<Record<string, number>>;
+  /** The seat this hand is dealt to, when the player has other hands at the table. */
+  seat?: Seat;
   recordEvents?: boolean;
   onEvent?: (event: PaiGowEvent) => void;
 }
@@ -73,7 +76,7 @@ export function simulatePaiGowRound(input: PaiGowRoundInput): PaiGowRoundResult 
   const rng = new Rng(input.seed.run, 'paigow', input.seed.round);
   const deck = paiGowDeck();
   let next = 0;
-  const draw = (): Card => {
+  const shuffled = (): Card => {
     const j = next + rng.int(deck.length - next);
     const card = deck[j]!;
     deck[j] = deck[next]!;
@@ -81,6 +84,8 @@ export function simulatePaiGowRound(input: PaiGowRoundInput): PaiGowRoundResult 
     next++;
     return card;
   };
+  // With other hands at the table, this seat's cards come after theirs; the rest is shared.
+  const draw = seated(shuffled, 7, input.seat);
 
   const stakes = { ...input.bonuses };
   emit({ type: 'RoundStarted', round: input.seed.round, bonuses: stakes });

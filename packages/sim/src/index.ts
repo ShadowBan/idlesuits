@@ -22,3 +22,5 @@ export * from './lir';
 export * from './djw';
 export * from './charms';
 export * from './shoe';
+export * from './seats';
+export * from './blind';

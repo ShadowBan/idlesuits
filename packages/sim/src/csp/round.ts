@@ -1,4 +1,5 @@
 import { settleBonuses, type BonusResult } from '../bonus';
+import { seated, type Seat } from '../seats';
 import { standardDeck, type Card } from '../cards';
 import { comparePoker, evaluatePoker, type PokerHand } from '../poker';
 import { Rng, type Seed } from '../rng';
@@ -30,6 +31,8 @@ export interface CspRoundInput {
   decide: (decision: CspDecision) => CspMove;
   /** Side bets by id (see CSP_BONUSES), in antes. Missing or zero is off. */
   bonuses?: Readonly<Record<string, number>>;
+  /** The seat this hand is dealt to, when the player has other hands at the table. */
+  seat?: Seat;
   recordEvents?: boolean;
   onEvent?: (event: CspEvent) => void;
 }
@@ -59,7 +62,7 @@ export function simulateCspRound(input: CspRoundInput): CspRoundResult {
   const rng = new Rng(input.seed.run, 'csp', input.seed.round);
   const deck = standardDeck('player');
   let next = 0;
-  const draw = (): Card => {
+  const shuffled = (): Card => {
     const j = next + rng.int(deck.length - next);
     const card = deck[j]!;
     deck[j] = deck[next]!;
@@ -67,6 +70,8 @@ export function simulateCspRound(input: CspRoundInput): CspRoundResult {
     next++;
     return card;
   };
+  // With other hands at the table, this seat's cards come after theirs; the rest is shared.
+  const draw = seated(shuffled, 5, input.seat);
 
   const stakes = { ...input.bonuses };
   emit({ type: 'RoundStarted', round: input.seed.round, bonuses: stakes });

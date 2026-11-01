@@ -1,4 +1,5 @@
 import { settleBonuses, type BonusResult } from '../bonus';
+import { seated, type Seat } from '../seats';
 import { standardDeck, type Card } from '../cards';
 import { Rng, type Seed } from '../rng';
 import { threeCardHand, threeCardScore, type ThreeCardHand } from '../three';
@@ -29,6 +30,8 @@ export interface TcpRoundInput {
   decide: (decision: TcpDecision) => TcpMove;
   /** Side bets by id (see TCP_BONUSES), in antes. Missing or zero is off. */
   bonuses?: Readonly<Record<string, number>>;
+  /** The seat this hand is dealt to, when the player has other hands at the table. */
+  seat?: Seat;
   recordEvents?: boolean;
   onEvent?: (event: TcpEvent) => void;
 }
@@ -63,7 +66,7 @@ export function simulateTcpRound(input: TcpRoundInput): TcpRoundResult {
   const rng = new Rng(input.seed.run, 'tcp', input.seed.round);
   const deck = standardDeck('player');
   let next = 0;
-  const draw = (): Card => {
+  const shuffled = (): Card => {
     const j = next + rng.int(deck.length - next);
     const card = deck[j]!;
     deck[j] = deck[next]!;
@@ -71,6 +74,8 @@ export function simulateTcpRound(input: TcpRoundInput): TcpRoundResult {
     next++;
     return card;
   };
+  // With other hands at the table, this seat's cards come after theirs; the rest is shared.
+  const draw = seated(shuffled, 3, input.seat);
 
   const stakes = { ...input.bonuses };
   emit({ type: 'RoundStarted', round: input.seed.round, bonuses: stakes });

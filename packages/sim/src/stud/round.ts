@@ -1,4 +1,5 @@
 import { anyStaked, settleBonuses, type BonusResult } from '../bonus';
+import { seated, type Seat } from '../seats';
 import { standardDeck, type Card } from '../cards';
 import { evaluatePoker, type PokerHand } from '../poker';
 import { Rng, type Seed } from '../rng';
@@ -37,6 +38,8 @@ export interface StudRoundInput {
   decide: (decision: StudDecision) => StudChoice;
   /** Side bets by id (see STUD_BONUSES), in antes. Missing or zero is off. */
   bonuses?: Readonly<Record<string, number>>;
+  /** The seat this hand is dealt to, when the player has other hands at the table. */
+  seat?: Seat;
   recordEvents?: boolean;
   onEvent?: (event: StudEvent) => void;
 }
@@ -68,7 +71,7 @@ export function simulateStudRound(input: StudRoundInput): StudRoundResult {
   const rng = new Rng(input.seed.run, 'stud', input.seed.round);
   const deck = standardDeck('player');
   let next = 0;
-  const draw = (): Card => {
+  const shuffled = (): Card => {
     const j = next + rng.int(deck.length - next);
     const card = deck[j]!;
     deck[j] = deck[next]!;
@@ -76,6 +79,8 @@ export function simulateStudRound(input: StudRoundInput): StudRoundResult {
     next++;
     return card;
   };
+  // With other hands at the table, this seat's cards come after theirs; the rest is shared.
+  const draw = seated(shuffled, 2, input.seat);
 
   emit({ type: 'RoundStarted', round: input.seed.round });
   const hole = [draw(), draw()];

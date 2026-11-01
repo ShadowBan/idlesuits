@@ -1,4 +1,5 @@
 import { settleBonuses, type BonusResult } from '../bonus';
+import { seated, type Seat } from '../seats';
 import { deckWithJoker, type Card } from '../cards';
 import { Rng, type Seed } from '../rng';
 import { DJ_BONUSES } from './bonus';
@@ -29,6 +30,8 @@ export interface DjRoundInput {
   decide: (decision: DjDecision) => DjMove;
   /** Side bets by id (see DJ_BONUSES), in antes. Missing or zero is off. */
   bonuses?: Readonly<Record<string, number>>;
+  /** The seat this hand is dealt to, when the player has other hands at the table. */
+  seat?: Seat;
   recordEvents?: boolean;
   onEvent?: (event: DjEvent) => void;
 }
@@ -57,7 +60,7 @@ export function simulateDjRound(input: DjRoundInput): DjRoundResult {
   const rng = new Rng(input.seed.run, 'djwild', input.seed.round);
   const deck = deckWithJoker();
   let next = 0;
-  const draw = (): Card => {
+  const shuffled = (): Card => {
     const j = next + rng.int(deck.length - next);
     const card = deck[j]!;
     deck[j] = deck[next]!;
@@ -65,6 +68,8 @@ export function simulateDjRound(input: DjRoundInput): DjRoundResult {
     next++;
     return card;
   };
+  // With other hands at the table, this seat's cards come after theirs; the rest is shared.
+  const draw = seated(shuffled, 5, input.seat);
 
   const stakes = { ...input.bonuses };
   emit({ type: 'RoundStarted', round: input.seed.round, bonuses: stakes });
