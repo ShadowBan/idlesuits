@@ -12,7 +12,7 @@
   import { formatLimit } from '../../lib/rooms';
   import { route } from '../../lib/route.svelte';
   import { unlockAudio } from '../../lib/sound';
-  import { BET_STEPS, SlotGame } from './game.svelte';
+  import { BET_STEPS, SlotGame, SUMMARY_MS } from './game.svelte';
   import SlotRules from './SlotRules.svelte';
   import SlotSymbol from './SlotSymbol.svelte';
 
@@ -90,8 +90,14 @@
     picking = false;
   }
 
-  /** In hold & spin, an empty cell's own little reel: coins and blanks going by. */
-  const MINI = ['coin', '', '', 'coin', '', '', 'coin', '', '', 'coin', '', ''];
+  /** In hold & spin, an empty cell's own little reel: coins and blank vault panels going by. */
+  const MINI = ['coin', 'tile', 'tile', 'coin', 'tile', 'tile', 'coin', 'tile', 'tile', 'coin', 'tile', 'tile'];
+
+  function onTap() {
+    if (picking) picking = false;
+    else if (game.summary) game.dismiss();
+    else game.spin();
+  }
 
   function ago(at: number): string {
     const m = Math.round((Date.now() - at) / 60000);
@@ -114,12 +120,13 @@
     if (e.key !== ' ' && e.key !== 'Enter') return;
     if (target.closest('button, a')) return;
     e.preventDefault();
-    game.spin();
+    if (game.summary) game.dismiss();
+    else game.spin();
   }
 </script>
 
 <svelte:window onkeydown={onKey} />
-<SlotRules bind:this={rules} {machine} {payback} />
+<SlotRules bind:this={rules} {machine} {payback} bet={game.bet} waysScale={game.waysScale} />
 
 <TableShell
   machine
@@ -129,7 +136,7 @@
   onAuto={(on) => game.setAutoPlay(on)}
   onRules={() => rules?.open()}
   {onExit}
-  onTapFelt={() => (picking ? (picking = false) : game.spin())}
+  onTapFelt={onTap}
 >
   {#snippet felt()}
     <div class="cabinet" class:in-feature={game.feature !== null}>
@@ -165,11 +172,11 @@
                   {:else if whirling}
                     <div class="minireel" style:--delay="{-(cell * 37) % 200}ms">
                       {#each MINI as id, i (i)}
-                        <div class="mini-cell">{#if id}<SlotSymbol {id} />{/if}</div>
+                        <div class="mini-cell">{#if id === 'coin'}<SlotSymbol {id} />{:else}{@render tile()}{/if}</div>
                       {/each}
                     </div>
                   {:else}
-                    <span class="hole" aria-hidden="true"></span>
+                    {@render tile()}
                   {/if}
                 </div>
               {/each}
@@ -190,6 +197,25 @@
             {/if}
           </div>
         {/each}
+
+        {#if game.summary}
+          {@const sum = game.summary}
+          {#key sum.key}
+            <!-- The bonus win: up for a few seconds, or until a tap closes it. -->
+            <div class="summary" class:grand={sum.full} role="status" style:--ms="{SUMMARY_MS}ms">
+              <span class="eyebrow">Hold & spin</span>
+              <b>{formatMoney(sum.bonus)}</b>
+              <span class="detail">
+                {sum.coins} coins{#each sum.jackpots as tier, i (i)} · {tier[0]!.toUpperCase() + tier.slice(1)} jackpot{/each}
+              </span>
+              {#if !sum.total.eq(sum.bonus)}
+                <span class="detail">Total this spin {formatMoney(sum.total)}</span>
+              {/if}
+              <button type="button" class="primary" onclick={() => game.dismiss()}>Collect</button>
+              <i class="countdown" aria-hidden="true"></i>
+            </div>
+          {/key}
+        {/if}
 
         {#if game.banner}
           {#key game.banner.key}
@@ -268,6 +294,8 @@
       </div>
       {#if game.autoPlay && game.started}
         <button type="button" class="spin" onclick={() => seq.togglePause()}>{seq.paused ? 'Resume' : 'Pause'}</button>
+      {:else if game.summary}
+        <button type="button" class="spin primary" onclick={() => game.dismiss()}>Collect</button>
       {:else}
         <button type="button" class="spin primary" disabled={!game.canSpin} onclick={() => game.spin()}>Spin</button>
       {/if}
@@ -351,6 +379,19 @@
   {/snippet}
 </TableShell>
 
+{#snippet tile()}
+  <!-- An empty cell in the bonus: a dark vault panel with the machine's dial on it. -->
+  <span class="tile" aria-hidden="true">
+    <svg viewBox="0 0 100 100">
+      <circle cx="50" cy="50" r="26" />
+      <circle cx="50" cy="50" r="8" />
+      {#each [0, 45, 90, 135, 180, 225, 270, 315] as a (a)}
+        <line x1="50" y1="50" x2={50 + 34 * Math.cos((a * Math.PI) / 180)} y2={50 + 34 * Math.sin((a * Math.PI) / 180)} />
+      {/each}
+    </svg>
+  </span>
+{/snippet}
+
 <style>
   .cabinet {
     --cell: clamp(40px, min(calc((100cqw - 34px) / 5.1), calc((100cqh - 125px) / 3.2)), 150px);
@@ -388,7 +429,7 @@
   .plaque.grand {
     --tint: #ffd75e;
   }
-  .plaque span {
+  .plaque > span {
     font: 700 10px/1 var(--font-ui);
     letter-spacing: 0.16em;
     text-transform: uppercase;
@@ -532,13 +573,84 @@
     height: calc(var(--cell) * 0.8);
     padding: 4%;
   }
-  /* Where a coin could land. */
-  .hole {
-    display: block;
+  /* An empty bonus cell: a recessed panel, so the screen reads as a grid of vault doors. */
+  .tile {
+    display: grid;
+    place-items: center;
     width: 100%;
     height: 100%;
-    border-radius: 50%;
-    border: 2px dashed rgb(255 215 94 / 0.18);
+    border-radius: 10px;
+    background: linear-gradient(160deg, #2a1d40, #140c22);
+    box-shadow:
+      inset 0 0 0 1px rgb(255 215 94 / 0.16),
+      inset 0 2px 6px rgb(0 0 0 / 0.6);
+  }
+  .tile svg {
+    width: 62%;
+    height: 62%;
+    fill: none;
+    stroke: rgb(255 215 94 / 0.22);
+    stroke-width: 4;
+  }
+  /* The reels step back while the bonus win is up. */
+  .glass:has(.summary) .reel {
+    opacity: 0.4;
+    transition: opacity 300ms ease;
+  }
+  .summary {
+    --tint: #ffd75e;
+    position: absolute;
+    inset: 50% auto auto 50%;
+    translate: -50% -50%;
+    z-index: 3;
+    display: grid;
+    justify-items: center;
+    gap: 8px;
+    min-width: min(80%, 320px);
+    padding: 20px 28px 16px;
+    overflow: hidden;
+    border-radius: 18px;
+    background: rgb(12 7 22 / 0.94);
+    box-shadow:
+      0 0 0 2px var(--tint),
+      0 0 50px color-mix(in srgb, var(--tint) 45%, transparent);
+    animation: pop 380ms cubic-bezier(0.3, 1.6, 0.5, 1);
+    text-align: center;
+  }
+  .summary .eyebrow {
+    font: 700 13px/1 var(--font-ui);
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--tint);
+  }
+  .summary b {
+    font: 700 clamp(30px, 7cqw, 56px) / 1 var(--font-display);
+    color: #fff;
+    font-variant-numeric: tabular-nums;
+  }
+  .summary .detail {
+    font: 13px/1.3 var(--font-ui);
+    color: #d8c9f2;
+  }
+  .summary button {
+    margin-top: 6px;
+    min-width: 140px;
+  }
+  /* Time left before it closes on its own. */
+  .countdown {
+    position: absolute;
+    left: 0;
+    bottom: 0;
+    height: 3px;
+    width: 100%;
+    background: var(--tint);
+    transform-origin: left;
+    animation: countdown var(--ms) linear forwards;
+  }
+  @keyframes countdown {
+    to {
+      transform: scaleX(0);
+    }
   }
   .drop {
     width: 100%;

@@ -42,6 +42,8 @@ const CELL_STOP_MS = 70;
 const LAND_MS = 450;
 const COUNT_MS = 200;
 const RESULT_HOLD_MS = 700;
+/** How long the bonus win stays up, in real seconds whatever the speed, unless dismissed sooner. */
+export const SUMMARY_MS = 7000;
 
 export interface HistoryEntry {
   round: number;
@@ -64,6 +66,18 @@ export interface FeatureView {
   full: boolean;
   /** Every coin is counted: the meter shows the spin's whole win. */
   done: boolean;
+}
+
+/** What the bonus paid, up over the reels once it ends. */
+export interface BonusSummary {
+  key: number;
+  /** The feature's coins and jackpots, in dollars. */
+  bonus: Decimal;
+  /** Everything the spin paid, ways included. */
+  total: Decimal;
+  coins: number;
+  jackpots: JackpotTier[];
+  full: boolean;
 }
 
 /** A big moment across the reels: the feature starting, a jackpot, a big win. */
@@ -109,6 +123,7 @@ export class SlotGame {
   win = $state<Decimal | null>(null);
   feature = $state<FeatureView | null>(null);
   banner = $state<SlotBanner | null>(null);
+  summary = $state<BonusSummary | null>(null);
   roundBet = $state(new Decimal(0));
   last = $state<{ lines: BreakdownLine[]; net: number } | null>(null);
   lastBet = $state(new Decimal(0));
@@ -191,6 +206,11 @@ export class SlotGame {
     if (this.canSpin) this.seq.answer(true);
   }
 
+  /** Closes the bonus win early. */
+  dismiss() {
+    if (this.seq.awaiting === 'summary') this.seq.answer(true);
+  }
+
   dispose() {
     this.seq.dispose();
     this.started = false;
@@ -264,6 +284,7 @@ export class SlotGame {
     this.coins = {};
     this.feature = null;
     this.banner = null;
+    this.summary = null;
     this.spinning = machine.reels.map(() => true);
     sfx.spin();
     if (!(await this.wait(SPIN_MS))) return false;
@@ -300,6 +321,20 @@ export class SlotGame {
       if (!(await this.playFeature(result.feature, bet, spin.meters))) return false;
       this.win = bet.mul(result.pay);
       this.feature!.done = true;
+      // The bonus win stays up for a few seconds, in real time, or until the player closes it.
+      this.summary = {
+        key: ++this.banners,
+        bonus: bet.mul(result.feature.pay),
+        total: bet.mul(result.pay),
+        coins: result.feature.coins.length,
+        jackpots: result.feature.jackpots,
+        full: result.feature.full,
+      };
+      const timer = setTimeout(() => this.dismiss(), SUMMARY_MS);
+      const closed = await this.seq.ask('summary');
+      clearTimeout(timer);
+      this.summary = null;
+      if (closed === null) return false;
     }
 
     if (spin.mystery) {

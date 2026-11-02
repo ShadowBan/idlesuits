@@ -138,12 +138,14 @@
     font: 600 13px/1.2 var(--font-ui);
   }
   .body :global(details p),
-  .body :global(details ul) {
+  .body :global(details ul),
+  .body :global(details ol) {
     margin: 8px 0 0;
     font: 13px/1.5 var(--font-ui);
     color: var(--muted);
   }
-  .body :global(details ul) {
+  .body :global(details ul),
+  .body :global(details ol) {
     padding-left: 20px;
     display: grid;
     gap: 4px;
