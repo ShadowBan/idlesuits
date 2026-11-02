@@ -16,7 +16,7 @@ import {
   type PokerHand,
   type RoundReport,
 } from '@idlesuits/sim';
-import { BlindHands, blindHands, unitsDown } from '../../lib/blind.svelte';
+import { BlindHands } from '../../lib/blind.svelte';
 import type { BreakdownLine } from '../../lib/breakdown';
 import { bankroll } from '../../lib/casino.svelte';
 import { Decimal } from '../../lib/money';
@@ -97,9 +97,9 @@ export class LirGame {
   /** Side bets riding on this hand, in bets. */
   roundSide = $state<Record<string, number>>({});
   /** Hands the Lucky Seat deals blind beside the player's, played all in. */
-  readonly blind = new BlindHands<LirRoundResult>({
+  readonly blind = new BlindHands<LirRoundResult>('lir', {
     show: (r) => ({ cards: r.hole, label: handName(r.hand) }),
-    report: (r) => this.reportFor(r),
+    report: (r, sides) => this.reportFor(r, sides),
     net: (r) => r.net,
   });
   bonusResults = $state<Record<string, BonusResult>>({});
@@ -216,14 +216,12 @@ export class LirGame {
     this.roundBet = bet;
     const seed = { run: this.runSeed, round: this.round };
     // Blind hands sit in the seats dealt before the player's; each puts down all three bets, left to ride.
-    const extra = blindHands(this.bank, bet.mul(3).add(this.side.total));
-    const of = extra + 1;
-    this.blind.deal(
-      Array.from({ length: extra }, (_, index) => simulateLirRound({ rules: this.rules, seed, seat: { index, of }, bonuses, decide: BLIND.lir })),
+    const mine = this.blind.deal(this.bank, { unit: bet, sides: bonuses }, 3, (stake, seat) =>
+      simulateLirRound({ rules: this.rules, seed, seat, bonuses: stake.sides, decide: BLIND.lir }),
     );
-    this.blind.start(() => bet.mul(unitsDown(3, bonuses)));
+    this.blind.start(() => 3);
     const run = (decide: (d: LirDecision) => LirMove, onEvent: (e: LirEvent) => void) =>
-      simulateLirRound({ rules: this.rules, seed, bonuses, decide, onEvent, seat: { index: extra, of } });
+      simulateLirRound({ rules: this.rules, seed, bonuses, decide, onEvent, seat: mine });
 
     const choices: LirMove[] = [];
     let shown = 0;
@@ -304,7 +302,7 @@ export class LirGame {
         if (event.result.net > 0) sfx.chip();
         break;
       case 'RoundSettled':
-        this.blind.showResults(this.roundBet);
+        this.blind.showResults();
         this.net = event.net;
         this.last = { lines: [...this.breakdown], net: event.net };
         if (event.net >= 10) sfx.bigWin();
@@ -317,13 +315,13 @@ export class LirGame {
   }
 
   /** What the casino is told about one settled hand, for charms and Tokens. */
-  private reportFor(r: LirRoundResult): RoundReport {
+  private reportFor(r: LirRoundResult, sides = this.roundSide): RoundReport {
     return {
       game: 'lir',
       seed: { run: this.runSeed, round: this.round },
       bets: [
         ...r.riding.flatMap((up) => mainBet(up ? 1 : 0, r.multiplier)),
-        ...sideBets(r.bonuses, this.roundSide),
+        ...sideBets(r.bonuses, sides),
       ],
       outcome: outcomeOf(false, r.multiplier),
       tier: r.hand.category,

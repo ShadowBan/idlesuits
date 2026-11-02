@@ -15,7 +15,7 @@ import {
   type ThreeCardHand,
   type RoundReport,
 } from '@idlesuits/sim';
-import { BlindHands, blindHands, unitsDown } from '../../lib/blind.svelte';
+import { BlindHands } from '../../lib/blind.svelte';
 import type { BreakdownLine } from '../../lib/breakdown';
 import { bankroll } from '../../lib/casino.svelte';
 import { Decimal } from '../../lib/money';
@@ -104,9 +104,9 @@ export class TcpGame {
   breakdown = $state<BreakdownLine[]>([]);
   last = $state<{ lines: BreakdownLine[]; net: number } | null>(null);
   /** Hands the Lucky Seat deals blind beside the player's, played all in. */
-  readonly blind = new BlindHands<TcpRoundResult>({
+  readonly blind = new BlindHands<TcpRoundResult>('tcp', {
     show: (r) => ({ cards: r.player, label: THREE_CARD_NAMES[r.playerHand] }),
-    report: (r) => this.reportFor(r),
+    report: (r, sides) => this.reportFor(r, sides),
     net: (r) => r.net,
   });
 
@@ -209,13 +209,11 @@ export class TcpGame {
     this.roundAnte = ante;
     const seed = { run: this.runSeed, round: this.round };
     // Blind hands sit in the seats dealt before the player's; each can lose its ante, play and side bets.
-    const extra = blindHands(this.bank, ante.mul(2).add(this.side.total));
-    const of = extra + 1;
-    this.blind.deal(
-      Array.from({ length: extra }, (_, index) => simulateTcpRound({ rules: this.rules, seed, seat: { index, of }, bonuses, decide: BLIND.tcp })),
+    const mine = this.blind.deal(this.bank, { unit: ante, sides: bonuses }, 2, (stake, seat) =>
+      simulateTcpRound({ rules: this.rules, seed, seat, bonuses: stake.sides, decide: BLIND.tcp }),
     );
     const run = (decide: (d: TcpDecision) => TcpMove, onEvent: (e: TcpEvent) => void) =>
-      simulateTcpRound({ rules: this.rules, seed, seat: { index: extra, of }, bonuses, decide, onEvent });
+      simulateTcpRound({ rules: this.rules, seed, seat: mine, bonuses, decide, onEvent });
 
     const choices: TcpMove[] = [];
     let shown = 0;
@@ -285,7 +283,7 @@ export class TcpGame {
         this.net = null;
         this.breakdown = [];
         // Blind hands always play: the ante and the play bet, plus the side bets.
-        this.blind.start(() => this.roundAnte.mul(unitsDown(2, this.roundSide)));
+        this.blind.start(() => 2);
         break;
       case 'PlayerCards':
         this.player = [...event.cards];
@@ -317,7 +315,7 @@ export class TcpGame {
         if (event.result.net > 0) sfx.chip();
         break;
       case 'RoundSettled':
-        this.blind.showResults(this.roundAnte);
+        this.blind.showResults();
         this.net = event.net;
         this.last = { lines: [...this.breakdown], net: event.net };
         if (event.net >= 5) sfx.bigWin();
@@ -331,7 +329,7 @@ export class TcpGame {
   }
 
   /** What the casino is told about one settled hand, for charms and Tokens. */
-  private reportFor(result: TcpRoundResult): RoundReport {
+  private reportFor(result: TcpRoundResult, sides = this.roundSide): RoundReport {
     return {
       game: 'tcp',
       seed: { run: this.runSeed, round: this.round },
@@ -339,7 +337,7 @@ export class TcpGame {
         ...mainBet(1, result.parts.ante),
         ...mainBet(result.folded ? 0 : 1, result.parts.play),
         ...(result.parts.anteBonus > 0 ? mainBet(1, result.parts.anteBonus) : []),
-        ...sideBets(result.bonuses, this.roundSide),
+        ...sideBets(result.bonuses, sides),
       ],
       outcome: outcomeOf(result.folded, result.parts.ante + result.parts.play),
       tier: ({ high: 0, pair: 1, straight: 4, flush: 5, trips: 3, straightFlush: 8, miniRoyal: 9 } as const)[result.playerHand],

@@ -1,11 +1,12 @@
 <script lang="ts">
-  import type { Snippet } from 'svelte';
+  import type { ComponentProps, Snippet } from 'svelte';
   import type { BreakdownLine } from '../lib/breakdown';
   import { floor } from '../lib/floor.svelte';
   import { formatMoney, type Decimal } from '../lib/money';
   import { formatLimit } from '../lib/rooms';
   import { SPEEDS, type SpeedControl } from '../lib/sequencer.svelte';
   import { ui, type PanelTab } from '../lib/ui.svelte';
+  import BlindBetsPanel from './BlindBetsPanel.svelte';
   import Breakdown from './Breakdown.svelte';
   import CharmsPanel from './charms/CharmsPanel.svelte';
 
@@ -30,6 +31,8 @@
     options?: Snippet;
     /** A record of the table's own, at the top of the Stats tab (a baccarat scoreboard). */
     record?: Snippet;
+    /** The table's blind hands and the player's bets, for setting how the extra hands bet. */
+    blind?: ComponentProps<typeof BlindBetsPanel>;
   }
 
   let {
@@ -47,6 +50,7 @@
     automation,
     options,
     record,
+    blind,
   }: Props = $props();
 
   const TABS: { id: PanelTab; label: string }[] = [
@@ -80,6 +84,8 @@
 </section>
 
 {@render automation?.()}
+
+{#if blind}<BlindBetsPanel {...blind} />{/if}
 
 <div class="tabs" role="tablist" aria-label="Table information">
   {#each TABS as tab (tab.id)}

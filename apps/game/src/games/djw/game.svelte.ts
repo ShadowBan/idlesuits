@@ -15,7 +15,7 @@ import {
   type DjRoundResult,
   type RoundReport,
 } from '@idlesuits/sim';
-import { BlindHands, blindHands, unitsDown } from '../../lib/blind.svelte';
+import { BlindHands } from '../../lib/blind.svelte';
 import type { BreakdownLine } from '../../lib/breakdown';
 import { bankroll } from '../../lib/casino.svelte';
 import { Decimal } from '../../lib/money';
@@ -98,9 +98,9 @@ export class DjGame {
   /** Side bets riding on this hand, in antes. */
   roundSide = $state<Record<string, number>>({});
   /** Hands the Lucky Seat deals blind beside the player's, played all in. */
-  readonly blind = new BlindHands<DjRoundResult>({
+  readonly blind = new BlindHands<DjRoundResult>('djw', {
     show: (r) => ({ cards: r.player, label: DJ_CATEGORY_NAMES[djCategoryOf(r.playerScore)] }),
-    report: (r) => this.reportFor(r),
+    report: (r, sides) => this.reportFor(r, sides),
     net: (r) => r.net,
   });
   bonusResults = $state<Record<string, BonusResult>>({});
@@ -206,14 +206,12 @@ export class DjGame {
     this.roundAnte = ante;
     const seed = { run: this.runSeed, round: this.round };
     // Blind hands sit in the seats dealt before the player's; each puts down the ante, the blind and the 2× play.
-    const extra = blindHands(this.bank, ante.mul(4).add(this.side.total));
-    const of = extra + 1;
-    this.blind.deal(
-      Array.from({ length: extra }, (_, index) => simulateDjRound({ rules: this.rules, seed, seat: { index, of }, bonuses, decide: BLIND.djw })),
+    const mine = this.blind.deal(this.bank, { unit: ante, sides: bonuses }, 4, (stake, seat) =>
+      simulateDjRound({ rules: this.rules, seed, seat, bonuses: stake.sides, decide: BLIND.djw }),
     );
-    this.blind.start(() => ante.mul(unitsDown(4, bonuses)));
+    this.blind.start(() => 4);
     const run = (decide: (d: DjDecision) => DjMove, onEvent: (e: DjEvent) => void) =>
-      simulateDjRound({ rules: this.rules, seed, bonuses, decide, onEvent, seat: { index: extra, of } });
+      simulateDjRound({ rules: this.rules, seed, bonuses, decide, onEvent, seat: mine });
 
     const choices: DjMove[] = [];
     let shown = 0;
@@ -311,7 +309,7 @@ export class DjGame {
         if (event.result.net > 0) sfx.chip();
         break;
       case 'RoundSettled':
-        this.blind.showResults(this.roundAnte);
+        this.blind.showResults();
         this.net = event.net;
         this.last = { lines: [...this.breakdown], net: event.net };
         if (event.net >= 8) sfx.bigWin();
@@ -325,7 +323,7 @@ export class DjGame {
   }
 
   /** What the casino is told about one settled hand, for charms and Tokens. */
-  private reportFor(r: DjRoundResult): RoundReport {
+  private reportFor(r: DjRoundResult, sides = this.roundSide): RoundReport {
     return {
       game: 'djw',
       seed: { run: this.runSeed, round: this.round },
@@ -333,7 +331,7 @@ export class DjGame {
         ...mainBet(1, r.parts.ante),
         ...mainBet(1, r.parts.blind),
         ...mainBet(r.folded ? 0 : this.rules.play, r.parts.play),
-        ...sideBets(r.bonuses, this.roundSide),
+        ...sideBets(r.bonuses, sides),
       ],
       outcome: outcomeOf(r.folded, r.parts.ante + r.parts.play),
       tier: Math.min(9, djCategoryOf(r.playerScore)),

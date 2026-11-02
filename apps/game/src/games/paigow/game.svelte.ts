@@ -20,7 +20,7 @@ import {
   pgCategoryOf,
   type RoundReport,
 } from '@idlesuits/sim';
-import { BlindHands, blindHands, unitsDown } from '../../lib/blind.svelte';
+import { BlindHands } from '../../lib/blind.svelte';
 import type { BreakdownLine } from '../../lib/breakdown';
 import { bankroll } from '../../lib/casino.svelte';
 import { Decimal } from '../../lib/money';
@@ -111,9 +111,9 @@ export class PaiGowGame {
   /** Side bets riding on this hand, in bets. */
   roundSide = $state<Record<string, number>>({});
   /** Hands the Lucky Seat deals blind beside the player's, played all in. */
-  readonly blind = new BlindHands<PaiGowRoundResult>({
+  readonly blind = new BlindHands<PaiGowRoundResult>('paigow', {
     show: (r) => ({ cards: r.player, label: pgHandName(r.playerSet.highScore) }),
-    report: (r) => this.reportFor(r),
+    report: (r, sides) => this.reportFor(r, sides),
     net: (r) => r.net,
   });
   bonusResults = $state<Record<string, BonusResult>>({});
@@ -245,14 +245,12 @@ export class PaiGowGame {
     this.roundBet = bet;
     const seed = { run: this.runSeed, round: this.round };
     // Blind hands sit in the seats dealt before the player's; each puts down the bet, set the house way.
-    const extra = blindHands(this.bank, bet.mul(1).add(this.side.total));
-    const of = extra + 1;
-    this.blind.deal(
-      Array.from({ length: extra }, (_, index) => simulatePaiGowRound({ rules: this.rules, seed, seat: { index, of }, bonuses, decide: BLIND.paigow })),
+    const mine = this.blind.deal(this.bank, { unit: bet, sides: bonuses }, 1, (stake, seat) =>
+      simulatePaiGowRound({ rules: this.rules, seed, seat, bonuses: stake.sides, decide: BLIND.paigow }),
     );
-    this.blind.start(() => bet.mul(unitsDown(1, bonuses)));
+    this.blind.start(() => 1);
     const run = (decide: (d: PaiGowDecision) => PaiGowSet, onEvent: (e: PaiGowEvent) => void) =>
-      simulatePaiGowRound({ rules: this.rules, seed, bonuses, decide, onEvent, seat: { index: extra, of } });
+      simulatePaiGowRound({ rules: this.rules, seed, bonuses, decide, onEvent, seat: mine });
 
     const choices: PaiGowSet[] = [];
     let shown = 0;
@@ -348,7 +346,7 @@ export class PaiGowGame {
         if (event.result.net > 0) sfx.chip();
         break;
       case 'RoundSettled':
-        this.blind.showResults(this.roundBet);
+        this.blind.showResults();
         this.net = event.net;
         this.last = { lines: [...this.breakdown], net: event.net };
         if (event.net >= 5) sfx.bigWin();
@@ -362,11 +360,11 @@ export class PaiGowGame {
   }
 
   /** What the casino is told about one settled hand, for charms and Tokens. */
-  private reportFor(r: PaiGowRoundResult): RoundReport {
+  private reportFor(r: PaiGowRoundResult, sides = this.roundSide): RoundReport {
     return {
       game: 'paigow',
       seed: { run: this.runSeed, round: this.round },
-      bets: [...mainBet(1, r.main), ...sideBets(r.bonuses, this.roundSide)],
+      bets: [...mainBet(1, r.main), ...sideBets(r.bonuses, sides)],
       outcome: r.outcome,
       tier: Math.min(9, pgCategoryOf(r.playerSet.highScore)),
     };

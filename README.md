@@ -169,7 +169,9 @@ odds (`SECRET_ODDS` in `machine.ts`, 0.001% each to start), topping out after tw
   off the deck in turn and the dealer and board are shared after them, so the extra hands sit in the
   seats dealt before the player's and change the cards the player gets. They're face down until the
   dealer shows and play all in (`BLIND` in `blind.ts`): never fold, always the biggest raise. Each
-  settles through the charms as a hand of its own. `BlindHands` (`lib/blind.svelte.ts`) and
+  settles through the charms as a hand of its own. Between hands the player sets how each extra
+  seat bets, in the sidebar's Extra hands panel: the same as their own hand, a main bet and side bets
+  of its own, or sitting out. `BlindHands` (`lib/blind.svelte.ts`), `BlindBetsPanel` and
   `BlindSeats` carry this for a table.
 - **The Thin Shoe** takes decks out of the Blackjack shoe at its next shuffle.
 

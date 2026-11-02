@@ -14,7 +14,7 @@ import {
   type PokerHand,
   type RoundReport,
 } from '@idlesuits/sim';
-import { BlindHands, blindHands, unitsDown } from '../../lib/blind.svelte';
+import { BlindHands } from '../../lib/blind.svelte';
 import type { BreakdownLine } from '../../lib/breakdown';
 import { bankroll } from '../../lib/casino.svelte';
 import { Decimal } from '../../lib/money';
@@ -98,9 +98,9 @@ export class CspGame {
   /** Side bets riding on this hand, in antes. */
   roundSide = $state<Record<string, number>>({});
   /** Hands the Lucky Seat deals blind beside the player's, played all in. */
-  readonly blind = new BlindHands<CspRoundResult>({
+  readonly blind = new BlindHands<CspRoundResult>('csp', {
     show: (r) => ({ cards: r.player, label: SHORT[r.playerHand.category]! }),
-    report: (r) => this.reportFor(r),
+    report: (r, sides) => this.reportFor(r, sides),
     net: (r) => r.net,
   });
   bonusResults = $state<Record<string, BonusResult>>({});
@@ -206,14 +206,12 @@ export class CspGame {
     this.roundAnte = ante;
     const seed = { run: this.runSeed, round: this.round };
     // Blind hands sit in the seats dealt before the player's; each puts down the ante and the 2× raise.
-    const extra = blindHands(this.bank, ante.mul(3).add(this.side.total));
-    const of = extra + 1;
-    this.blind.deal(
-      Array.from({ length: extra }, (_, index) => simulateCspRound({ rules: this.rules, seed, seat: { index, of }, bonuses, decide: BLIND.csp })),
+    const mine = this.blind.deal(this.bank, { unit: ante, sides: bonuses }, 3, (stake, seat) =>
+      simulateCspRound({ rules: this.rules, seed, seat, bonuses: stake.sides, decide: BLIND.csp }),
     );
-    this.blind.start(() => ante.mul(unitsDown(3, bonuses)));
+    this.blind.start(() => 3);
     const run = (decide: (d: CspDecision) => CspMove, onEvent: (e: CspEvent) => void) =>
-      simulateCspRound({ rules: this.rules, seed, bonuses, decide, onEvent, seat: { index: extra, of } });
+      simulateCspRound({ rules: this.rules, seed, bonuses, decide, onEvent, seat: mine });
 
     const choices: CspMove[] = [];
     let shown = 0;
@@ -317,7 +315,7 @@ export class CspGame {
         if (event.result.net > 0) sfx.chip();
         break;
       case 'RoundSettled':
-        this.blind.showResults(this.roundAnte);
+        this.blind.showResults();
         this.net = event.net;
         this.last = { lines: [...this.breakdown], net: event.net };
         if (event.net >= 8) sfx.bigWin();
@@ -330,14 +328,14 @@ export class CspGame {
   }
 
   /** What the casino is told about one settled hand, for charms and Tokens. */
-  private reportFor(r: CspRoundResult): RoundReport {
+  private reportFor(r: CspRoundResult, sides = this.roundSide): RoundReport {
     return {
       game: 'csp',
       seed: { run: this.runSeed, round: this.round },
       bets: [
         ...mainBet(1, r.parts.ante),
         ...mainBet(r.folded ? 0 : this.rules.raise, r.parts.raise),
-        ...sideBets(r.bonuses, this.roundSide),
+        ...sideBets(r.bonuses, sides),
       ],
       outcome: outcomeOf(r.folded, r.parts.ante + r.parts.raise),
       tier: r.playerHand.category,

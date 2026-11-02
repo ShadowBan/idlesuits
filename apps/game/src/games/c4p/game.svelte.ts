@@ -15,7 +15,7 @@ import {
   type Card,
   type RoundReport,
 } from '@idlesuits/sim';
-import { BlindHands, blindHands, unitsDown } from '../../lib/blind.svelte';
+import { BlindHands } from '../../lib/blind.svelte';
 import type { BreakdownLine } from '../../lib/breakdown';
 import { bankroll } from '../../lib/casino.svelte';
 import { Decimal } from '../../lib/money';
@@ -105,9 +105,9 @@ export class C4pGame {
   /** Side bets riding on this hand, in antes. */
   roundSide = $state<Record<string, number>>({});
   /** Hands the Lucky Seat deals blind beside the player's, played all in. */
-  readonly blind = new BlindHands<C4pRoundResult>({
+  readonly blind = new BlindHands<C4pRoundResult>('c4p', {
     show: (r) => ({ cards: r.player, label: FOUR_CARD_NAMES[fourCategoryOf(r.playerScore)] }),
-    report: (r) => this.reportFor(r),
+    report: (r, sides) => this.reportFor(r, sides),
     net: (r) => r.net,
   });
   bonusResults = $state<Record<string, BonusResult>>({});
@@ -213,14 +213,12 @@ export class C4pGame {
     this.roundAnte = ante;
     const seed = { run: this.runSeed, round: this.round };
     // Blind hands sit in the seats dealt before the player's; each puts down the ante, the Super Bonus and the biggest play.
-    const extra = blindHands(this.bank, ante.mul(5).add(this.side.total));
-    const of = extra + 1;
-    this.blind.deal(
-      Array.from({ length: extra }, (_, index) => simulateC4pRound({ rules: this.rules, seed, seat: { index, of }, bonuses, decide: BLIND.c4p })),
+    const mine = this.blind.deal(this.bank, { unit: ante, sides: bonuses }, 5, (stake, seat) =>
+      simulateC4pRound({ rules: this.rules, seed, seat, bonuses: stake.sides, decide: BLIND.c4p }),
     );
-    this.blind.start((r) => ante.mul(unitsDown(2 + r.play, bonuses)));
+    this.blind.start((r) => 2 + r.play);
     const run = (decide: (d: C4pDecision) => C4pChoice, onEvent: (e: C4pEvent) => void) =>
-      simulateC4pRound({ rules: this.rules, seed, bonuses, decide, onEvent, seat: { index: extra, of } });
+      simulateC4pRound({ rules: this.rules, seed, bonuses, decide, onEvent, seat: mine });
 
     const choices: C4pChoice[] = [];
     let shown = 0;
@@ -325,7 +323,7 @@ export class C4pGame {
         if (event.result.net > 0) sfx.chip();
         break;
       case 'RoundSettled':
-        this.blind.showResults(this.roundAnte);
+        this.blind.showResults();
         this.net = event.net;
         this.last = { lines: [...this.breakdown], net: event.net };
         if (event.net >= 8) sfx.bigWin();
@@ -339,7 +337,7 @@ export class C4pGame {
   }
 
   /** What the casino is told about one settled hand, for charms and Tokens. */
-  private reportFor(r: C4pRoundResult): RoundReport {
+  private reportFor(r: C4pRoundResult, sides = this.roundSide): RoundReport {
     return {
       game: 'c4p',
       seed: { run: this.runSeed, round: this.round },
@@ -347,7 +345,7 @@ export class C4pGame {
         ...mainBet(1, r.parts.ante),
         ...mainBet(r.play, r.parts.play),
         ...mainBet(1, r.parts.superBonus),
-        ...sideBets(r.bonuses, this.roundSide),
+        ...sideBets(r.bonuses, sides),
       ],
       outcome: outcomeOf(r.folded, r.parts.ante + r.parts.play),
       tier: [0, 1, 2, 4, 5, 3, 8, 7][fourCategoryOf(r.playerScore)],

@@ -24,6 +24,7 @@
   seq={game.seq}
   autoPlay={game.autoPlay}
   onAuto={(on) => game.setAutoPlay(on)}
+  blind={{ hands: game.blind, bet: game.ante, sides: game.side, bank: game.bank }}
   seed={game.runSeed}
   round={game.round}
   last={game.last}

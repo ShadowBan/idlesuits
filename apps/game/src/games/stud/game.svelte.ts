@@ -15,7 +15,7 @@ import {
   type StudRoundResult,
   type RoundReport,
 } from '@idlesuits/sim';
-import { BlindHands, blindHands, unitsDown } from '../../lib/blind.svelte';
+import { BlindHands } from '../../lib/blind.svelte';
 import type { BreakdownLine } from '../../lib/breakdown';
 import { bankroll } from '../../lib/casino.svelte';
 import { Decimal } from '../../lib/money';
@@ -98,9 +98,9 @@ export class StudGame {
   /** Side bets riding on this hand, in antes. */
   roundSide = $state<Record<string, number>>({});
   /** Hands the Lucky Seat deals blind beside the player's, played all in. */
-  readonly blind = new BlindHands<StudRoundResult>({
+  readonly blind = new BlindHands<StudRoundResult>('stud', {
     show: (r) => ({ cards: r.hole, label: r.hand ? shortName(r.hand) : '' }),
-    report: (r) => this.reportFor(r),
+    report: (r, sides) => this.reportFor(r, sides),
     net: (r) => r.net,
   });
   bonusResults = $state<Record<string, BonusResult>>({});
@@ -220,14 +220,12 @@ export class StudGame {
     this.roundSide = bonuses;
     const seed = { run: this.runSeed, round: this.round };
     // Blind hands sit in the seats dealt before the player's; each puts down the ante and 3× on every street.
-    const extra = blindHands(this.bank, ante.mul(10).add(this.side.total));
-    const of = extra + 1;
-    this.blind.deal(
-      Array.from({ length: extra }, (_, index) => simulateStudRound({ rules: this.rules, seed, seat: { index, of }, bonuses, decide: BLIND.stud })),
+    const mine = this.blind.deal(this.bank, { unit: ante, sides: bonuses }, 10, (stake, seat) =>
+      simulateStudRound({ rules: this.rules, seed, seat, bonuses: stake.sides, decide: BLIND.stud }),
     );
-    this.blind.start(() => ante.mul(unitsDown(10, bonuses)));
+    this.blind.start(() => 10);
     const run = (decide: (d: StudDecision) => StudChoice, onEvent: (e: StudEvent) => void) =>
-      simulateStudRound({ rules: this.rules, seed, decide, bonuses, onEvent, seat: { index: extra, of } });
+      simulateStudRound({ rules: this.rules, seed, decide, bonuses, onEvent, seat: mine });
 
     const choices: StudChoice[] = [];
     let shown = 0;
@@ -320,7 +318,7 @@ export class StudGame {
         if (event.result.net > 0) sfx.chip();
         break;
       case 'RoundSettled':
-        this.blind.showResults(this.roundAnte);
+        this.blind.showResults();
         this.net = event.net;
         this.last = { lines: [...this.breakdown], net: event.net };
         if (event.net >= 10) sfx.bigWin();
@@ -333,13 +331,13 @@ export class StudGame {
   }
 
   /** What the casino is told about one settled hand, for charms and Tokens. */
-  private reportFor(r: StudRoundResult): RoundReport {
+  private reportFor(r: StudRoundResult, sides = this.roundSide): RoundReport {
     return {
       game: 'stud',
       seed: { run: this.runSeed, round: this.round },
       bets: [
         ...[1, ...r.bets].flatMap((stake) => mainBet(stake, r.folded ? -stake : stake * (r.multiplier ?? -1))),
-        ...sideBets(r.bonuses, this.roundSide),
+        ...sideBets(r.bonuses, sides),
       ],
       outcome: outcomeOf(r.folded, r.multiplier ?? -1),
       tier: r.hand?.category,
