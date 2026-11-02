@@ -27,6 +27,8 @@
     felt: Snippet;
     action: Snippet;
     panels: Snippet;
+    /** A slot machine: a cabinet in place of the felt and rail, and no chip tray. */
+    machine?: boolean;
   }
 
   let {
@@ -41,6 +43,7 @@
     felt,
     action,
     panels,
+    machine = false,
   }: Props = $props();
 
   /**
@@ -77,7 +80,7 @@
   </dialog>
 {/if}
 
-<div class="app" class:compact={compact.current}>
+<div class="app" class:compact={compact.current} class:machine>
   <header class="bar">
     <h1>{title[0]} <span>{title[1]}</span></h1>
 
@@ -104,11 +107,13 @@
   <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_noninteractive_element_interactions -->
   <main class="table" onclick={tap}>
     <div class="felt">
-      <div class="tray" aria-hidden="true">
-        {#each ['#f2efe8', '#c42332', '#1e8a4f', '#1b1b21', '#6c3fa8', '#1b1b21', '#1e8a4f', '#c42332', '#f2efe8'] as color, i (i)}
-          <span style:--c={color}></span>
-        {/each}
-      </div>
+      {#if !machine}
+        <div class="tray" aria-hidden="true">
+          {#each ['#f2efe8', '#c42332', '#1e8a4f', '#1b1b21', '#6c3fa8', '#1b1b21', '#1e8a4f', '#c42332', '#f2efe8'] as color, i (i)}
+            <span style:--c={color}></span>
+          {/each}
+        </div>
+      {/if}
       {#if ui.admin}
         <!-- The pit boss's marker, left of the tray: only there once the pit boss is switched on. -->
         <button type="button" class="marker" onclick={() => (ui.adminOpen = !ui.adminOpen)} aria-label="Pit boss">PB</button>
@@ -235,6 +240,38 @@
   }
   .surface {
     display: contents;
+  }
+  /* A slot cabinet: brushed dark metal with a gold bezel, the glass inside it. */
+  .machine .table,
+  .machine.compact .table {
+    border-radius: 26px;
+    background:
+      linear-gradient(160deg, rgb(255 255 255 / 0.1), transparent 40%),
+      linear-gradient(#2c2238, #17111f 60%, #0d0913);
+    box-shadow:
+      0 10px 30px rgb(0 0 0 / 0.55),
+      inset 0 0 0 2px #b8913a,
+      inset 0 0 0 5px #2c2238,
+      inset 0 0 0 6px rgb(242 198 78 / 0.35);
+  }
+  /* The limit sign and the pit boss's marker move to the corners, clear of the jackpot marquee. */
+  .machine .limits,
+  .machine.compact .limits {
+    left: auto;
+    right: 10px;
+  }
+  .machine .marker {
+    right: auto;
+    left: 10px;
+  }
+  .machine .felt,
+  .machine.compact .felt {
+    padding: 26px 12px 14px;
+    border-radius: 18px;
+    background: radial-gradient(ellipse 90% 80% at 50% 40%, #2a1745 0%, #160d26 60%, #0b0712 100%);
+    box-shadow:
+      inset 0 0 0 2px rgb(0 0 0 / 0.5),
+      inset 0 0 60px rgb(0 0 0 / 0.6);
   }
   .compact .felt {
     /* The bottom corners curve in: enough room that the outer cards of a low row clear them. */

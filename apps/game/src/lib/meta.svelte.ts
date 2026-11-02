@@ -17,6 +17,7 @@ import {
 import type { BreakdownLine } from './breakdown';
 import { bankroll } from './casino.svelte';
 import { floor } from './floor.svelte';
+import { jackpots } from './jackpot.svelte';
 import type { Decimal } from './money';
 import { load, saveSoon } from './save';
 import { tuning } from './tuning.svelte';
@@ -137,6 +138,8 @@ class Meta {
     const out = applyCharms(report, this.equipped, this.run);
     this.run = out.state;
     this.hands++;
+    // Every hand anywhere feeds the linked progressives.
+    jackpots.contribute();
     // Higher rooms comp more: their Token bonus multiplies everything earned on the hand.
     const tokens = out.tokens * floor.room.tokenBonus * tuning.values.tokenRate;
     if (tokens > 0) {

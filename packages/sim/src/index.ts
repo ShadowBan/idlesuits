@@ -25,3 +25,4 @@ export * from './shoe';
 export * from './seats';
 export * from './blind';
 export * from './baccarat';
+export * from './slots';

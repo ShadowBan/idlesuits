@@ -181,12 +181,67 @@ export const GAMES: GameEntry[] = [
   },
 ];
 
+/** A machine on the slot floor. Its route is #/<id>, as a table's is. */
+export interface SlotEntry {
+  id: string;
+  name: string;
+  tagline: string;
+  blurb: string;
+  /** The feature it's built around, shown on its lobby card. */
+  feature: string;
+  /** Drawn on the card's face, as a reel's worth of symbols. */
+  motif: string[];
+  facts: string[];
+  accent: string;
+  load?: () => Promise<{ default: Component<GameProps> }>;
+}
+
+/**
+ * The slot floor: original machines on one shared slot engine
+ * (`packages/sim/src/slots`), each built around a feature of its own.
+ */
+export const SLOTS: SlotEntry[] = [
+  {
+    id: 'vault',
+    name: 'Midnight Vault',
+    tagline: 'Six coins crack the vault.',
+    blurb:
+      'Five reels, 243 ways. Land six gold coins for hold & spin: coins stick, every new one resets the respins, and a full screen wins the Grand.',
+    feature: 'Hold & spin',
+    motif: ['$', '●', '$'],
+    facts: ['243 ways', '4 jackpots', 'Linked progressive'],
+    accent: '#f2c64e',
+    load: () => import('../games/slots/SlotTable.svelte'),
+  },
+  {
+    id: 'forge',
+    name: 'Lucky Forge',
+    tagline: 'Bronze to silver to gold.',
+    blurb: 'Every hammer strike in the bonus upgrades the symbols a tier, and the bigger tiers pay the bigger wins.',
+    feature: 'Upgrading symbols',
+    motif: ['▲', '7', '▲'],
+    facts: ['Symbol tiers', 'Free spins'],
+    accent: '#ff8a4c',
+  },
+  {
+    id: 'haul',
+    name: "Pirate's Haul",
+    tagline: 'The captain takes every coin.',
+    blurb: 'Coins land with cash on them, and the captain collects them all. In free spins, every captain collects again.',
+    feature: 'Collector',
+    motif: ['●', '✕', '●'],
+    facts: ['Cash on reels', 'Collect feature'],
+    accent: '#4cc9b0',
+  },
+];
+
 /** How the game is dealt, for its lobby card: "6-deck shoe", "1 deck + joker". */
 export function deckLabel(game: GameEntry): string {
   if (game.decks > 1) return `${game.decks}-deck shoe`;
   return game.joker ? '1 deck + joker' : '1 deck';
 }
 
-export function findGame(id: string | null): GameEntry | undefined {
-  return GAMES.find((g) => g.id === id);
+/** A table or a machine by its route id. */
+export function findGame(id: string | null): GameEntry | SlotEntry | undefined {
+  return GAMES.find((g) => g.id === id) ?? SLOTS.find((s) => s.id === id);
 }

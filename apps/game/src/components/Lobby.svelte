@@ -3,7 +3,8 @@
   import { floor } from '../lib/floor.svelte';
   import { formatLimit, room } from '../lib/rooms';
   import { ui } from '../lib/ui.svelte';
-  import { deckLabel, GAMES, type GameEntry } from '../lib/games';
+  import { deckLabel, GAMES, SLOTS } from '../lib/games';
+  import { jackpots } from '../lib/jackpot.svelte';
   import { formatMoney } from '../lib/money';
   import { CHARMS } from '@idlesuits/sim';
   import { tuning } from '../lib/tuning.svelte';
@@ -11,8 +12,7 @@
   import CharmArt from './charms/CharmArt.svelte';
   import TokenCounter from './charms/TokenCounter.svelte';
 
-  let { onPlay }: { onPlay: (game: GameEntry) => void } = $props();
-
+  let { onPlay }: { onPlay: (game: { id: string }) => void } = $props();
 
   /** Every opened room, and the next one as something to aim for. */
   const rooms = $derived(Array.from({ length: floor.best + 2 }, (_, i) => room(i)));
@@ -84,6 +84,7 @@
     <span class="go">Open ›</span>
   </a>
 
+  <h2 class="section">Tables</h2>
   <ul class="games">
     {#each GAMES as game (game.id)}
       {@const open = game.load !== undefined}
@@ -114,6 +115,50 @@
       </li>
     {/each}
   </ul>
+
+  <!-- The slot floor: its machines share the linked progressives, which every hand in the casino feeds. -->
+  <section class="slot-floor" aria-labelledby="slot-floor">
+    <div class="floor-head">
+      <h2 class="section" id="slot-floor">Slot floor</h2>
+      <div class="meters" aria-label="Linked progressive jackpots">
+        {#each [['Grand', jackpots.grand], ['Major', jackpots.major]] as const as [name, x] (name)}
+          <span class="meter-box {name.toLowerCase()}">
+            <span class="k">{name}</span>
+            <b>{formatMoney(floor.room.min.mul(x))}</b>
+          </span>
+        {/each}
+        <span class="at">at a {formatLimit(floor.room.min)} spin · grows with every hand</span>
+      </div>
+    </div>
+    <ul class="games">
+      {#each SLOTS as slot (slot.id)}
+        {@const open = slot.load !== undefined}
+        <li>
+          <article class="card slot" class:soon={!open} style:--accent={slot.accent}>
+            <div class="motif reels" aria-hidden="true">
+              {#each slot.motif as m, i (i)}<span>{m}</span>{/each}
+            </div>
+            <div class="text">
+              <h2>{slot.name}</h2>
+              <p class="tagline">{slot.tagline}</p>
+              <p class="blurb">{slot.blurb}</p>
+              <ul class="facts">
+                <li class="deck">{slot.feature}</li>
+                {#each slot.facts as fact (fact)}
+                  <li>{fact}</li>
+                {/each}
+              </ul>
+            </div>
+            {#if open}
+              <button type="button" class="primary" onclick={() => onPlay(slot)}>Play {slot.name}</button>
+            {:else}
+              <p class="pending">Machine coming · in development</p>
+            {/if}
+          </article>
+        </li>
+      {/each}
+    </ul>
+  </section>
 </div>
 
 <style>
@@ -354,6 +399,57 @@
     text-transform: uppercase;
     color: var(--muted);
     padding: 12px 0;
+  }
+  h2.section {
+    margin: 0 0 -10px;
+    font: 700 15px/1 var(--font-display);
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .floor-head h2.section {
+    margin: 0;
+  }
+  .slot-floor {
+    display: grid;
+    gap: 24px;
+  }
+  .floor-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: end;
+    justify-content: space-between;
+    gap: 10px 16px;
+  }
+  .meters {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 10px;
+  }
+  .meter-box {
+    display: grid;
+    gap: 3px;
+    padding: 6px 12px;
+    border-radius: 10px;
+    background: #120a1e;
+    box-shadow: inset 0 0 0 1px rgb(242 198 78 / 0.4);
+  }
+  .meter-box b {
+    font: 700 20px/1 var(--font-display);
+    font-variant-numeric: tabular-nums;
+    color: #ffd75e;
+  }
+  .meter-box.major b {
+    color: #ff6b8b;
+  }
+  .at {
+    font: 12px/1.3 var(--font-ui);
+    color: var(--muted);
+  }
+  /* A slot's motif sits on a dark cabinet glass rather than felt. */
+  .motif.reels {
+    background: radial-gradient(ellipse at center, #2a1745 0%, #110a1c 100%);
   }
   .card .primary {
     width: 100%;

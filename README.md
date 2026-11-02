@@ -28,6 +28,13 @@ An idle casino. Pick a table from the floor and the same bankroll follows you fr
   straight or better pays the Blind. Side bets: Trips, which pays more for natural hands, and the
   Two-Way Bad Beat.
 
+And on the **slot floor**, original machines on one shared slot engine:
+
+- **Midnight Vault** — five reels of three rows, 243 ways, wilds on reels 2–4. Six gold coins start
+  hold & spin: the coins stick, each new one resets three respins, and every coin pays its cash or a
+  Mini, Minor or Major jackpot. A full screen pays the Grand on top.
+- **Lucky Forge** (upgrading symbols) and **Pirate's Haul** (a collector) are next, in development.
+
 See
 [docs/idle_suits_game_concept_v0_2.md](docs/idle_suits_game_concept_v0_2.md) for the design concept and
 [docs/decisions_v0_3.md](docs/decisions_v0_3.md) for the rules and decisions the build follows.
@@ -136,6 +143,25 @@ deals a six-deck shoe. The shoe (`shuffleShoe` in `packages/sim/src/shoe.ts`) is
 burns a card and deals down to a cut card 70–80% of the way in; the table keeps it between rounds and
 saves it. The odds audit still deals Blackjack from a fresh shoe every round, as the published edges
 assume.
+
+## The slot floor
+
+A machine is data (`MachineDef` in `packages/sim/src/slots/types.ts`): reel strips, symbols and
+their pays, the hold & spin rules and the jackpots. `spinSlot` plays one seeded spin, feature and
+all, so any spin replays exactly. Coin stacks are laid into the strips by design (`buildStrip`), so
+how often the feature lands is a dial rather than an accident of the shuffle.
+
+The payback is exact, not simulated (`slotPayback` in `rtp.ts`). The reels stop independently, so
+the expected way-pays factor reel by reel; the coin count is a convolution of each reel's own
+counts; and hold & spin is a small Markov chain on coins held and respins left. Midnight Vault is
+designed at 91.8%, with hold & spin about once in 108 spins. The pit boss sets the payback (94% to
+start) and the way-pays scale to hit it, leaving the feature as designed. `packages/sim/test/slots.test.ts`
+holds simulated spins to the exact figures.
+
+The Major and Grand are linked progressives across every machine (`lib/jackpot.svelte.ts`). They're
+counted in bets, so they pay the same share in every room, and every hand anywhere in the casino,
+table or machine, adds to them; whoever hits one starts it over. As they grow, the machines pay back
+more than their designed figure.
 
 ## Rooms and table limits
 

@@ -5,7 +5,7 @@
   import AdminPanel from './components/AdminPanel.svelte';
   import SettingsDialog from './components/SettingsDialog.svelte';
   import { ui } from './lib/ui.svelte';
-  import { findGame, type GameEntry, type GameProps } from './lib/games';
+  import { findGame, type GameProps } from './lib/games';
   import { route } from './lib/route.svelte';
 
   /** The table being played, if the route names one that exists and is built. */
@@ -30,7 +30,7 @@
     return () => (current = false);
   });
 
-  function play(game: GameEntry) {
+  function play(game: { id: string }) {
     route.go(game.id);
   }
 

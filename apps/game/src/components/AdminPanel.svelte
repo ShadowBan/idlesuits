@@ -2,6 +2,7 @@
   import { CHARMS, MAX_SLOTS, maxLevelOf, copiesFor } from '@idlesuits/sim';
   import { bankroll } from '../lib/casino.svelte';
   import { floor } from '../lib/floor.svelte';
+  import { JACKPOT_SEEDS, jackpots, slotTest } from '../lib/jackpot.svelte';
   import { meta } from '../lib/meta.svelte';
   import { Decimal, formatMoney } from '../lib/money';
   import { room } from '../lib/rooms';
@@ -141,6 +142,19 @@
           </button>
           <button type="button" onclick={maxAll}>Max all</button>
           <button type="button" onclick={() => meta.openAllSlots()}>Open slots</button>
+        </div>
+      </section>
+      <section>
+        <h3>Slots <span>Grand {jackpots.grand.toFixed(1)}× · Major {jackpots.major.toFixed(1)}×</span></h3>
+        <div class="row">
+          <button type="button" aria-pressed={slotTest.forceFeature} onclick={() => (slotTest.forceFeature = !slotTest.forceFeature)}>
+            {slotTest.forceFeature ? 'Next spin: hold & spin ✓' : 'Next spin lands hold & spin'}
+          </button>
+        </div>
+        <div class="row">
+          <button type="button" onclick={() => jackpots.set('grand', jackpots.grand * 2)}>Grand ×2</button>
+          <button type="button" onclick={() => jackpots.set('major', jackpots.major * 2)}>Major ×2</button>
+          <button type="button" onclick={() => (jackpots.set('grand', JACKPOT_SEEDS.grand), jackpots.set('major', JACKPOT_SEEDS.major))}>Reset meters</button>
         </div>
       </section>
       <section>
