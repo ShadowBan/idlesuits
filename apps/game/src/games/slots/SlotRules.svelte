@@ -63,7 +63,7 @@
     <ol>
       <li>Land {machine.holdSpin.trigger} or more gold coins anywhere in one spin. On ordinary spins coins pay nothing; they're keys to the bonus.</li>
       <li>The coins lock in place. Every other cell becomes a reel of its own, and you get <b>{machine.holdSpin.respins} respins</b>.</li>
-      <li>On each respin, the empty cells spin. Any coin that lands locks too, and puts the respins back to {machine.holdSpin.respins}.</li>
+      <li>Press Respin and the empty cells spin. Any coin that lands locks too, and puts the respins back to {machine.holdSpin.respins}.</li>
       <li>A respin with no new coin uses one up. The bonus ends when none are left.</li>
       <li>Then every coin is counted: its cash ({money(1)} to {money(25)} at your bet), or the jackpot on it.</li>
       <li>Fill all {cells} cells and the <b>Grand</b> pays on top of every coin.</li>
@@ -119,6 +119,10 @@
     <ul>
       <li>Space or Enter spins, or tap the reels. The arrow keys raise and lower the bet.</li>
       <li>Auto play spins on its own and stops if you bust. Deal speed sets how fast the reels turn.</li>
+      <li>
+        Hold & Spin waits for you to press <b>Respin</b> (or tap, or Space) before each respin, even in auto play, which carries on
+        once you collect. Turn off "Play the bonus yourself" under Automation to let it play itself while you're away.
+      </li>
       <li>Hold & Spin plays at normal speed even at 2× or 5×, so it gets its full drama. Turn off "Bonus at normal speed" under Automation to have it follow the deal speed.</li>
     </ul>
   </details>

@@ -166,9 +166,16 @@
                 {@const cell = r * machine.rows + row}
                 {@const coin = game.feature.held[cell]}
                 {@const whirling = !coin && game.feature.spinning.includes(cell)}
-                <div class="cell hs" class:counting={game.feature.counting === cell} class:empty={!coin} class:tense={whirling && game.feature.tense.includes(cell)}>
+                <div
+                  class="cell hs"
+                  class:counting={game.feature.counting === cell}
+                  class:empty={!coin}
+                  class:fresh={game.feature.fresh.includes(cell)}
+                  class:tense={whirling && game.feature.tense.includes(cell)}
+                >
                   {#if coin}
                     {#key coin}<div class="drop"><SlotSymbol id="coin" coin={coin} label={coinLabel(coin, shownBet)} /></div>{/key}
+                    {#if game.feature.fresh.includes(cell)}<span class="gain">{coinLabel(coin, shownBet)}</span>{/if}
                   {:else if whirling}
                     <div class="minireel" style:--delay="{-(cell * 37) % 200}ms">
                       {#each MINI as id, i (i)}
@@ -197,6 +204,12 @@
             {/if}
           </div>
         {/each}
+
+        {#if game.feature?.note}
+          {#key game.feature.note + game.feature.left}
+            <div class="respin-note" class:good={game.feature.fresh.length > 0} aria-live="polite">{game.feature.note}</div>
+          {/key}
+        {/if}
 
         {#if game.summary}
           {@const sum = game.summary}
@@ -259,6 +272,7 @@
               </span>
             {/key}
             {#if game.feature.last}<span class="last-spin">Last spin</span>{/if}
+            {#if seq.awaiting === 'respin'}<span class="prompt">Press Respin</span>{/if}
             <span>{Object.keys(game.feature.held).length} / {cells}</span>
             <b>{formatMoney(game.feature.collected)}</b>
           {:else if game.win}
@@ -295,7 +309,9 @@
         <span class="k">Bet</span>
         <b>{formatMoney(game.bet)}</b>
       </div>
-      {#if game.autoPlay && game.started}
+      {#if seq.awaiting === 'respin'}
+        <button type="button" class="spin primary respin-go" onclick={() => game.spin()}>Respin</button>
+      {:else if game.autoPlay && game.started}
         <button type="button" class="spin" onclick={() => seq.togglePause()}>{seq.paused ? 'Resume' : 'Pause'}</button>
       {:else if game.summary}
         <button type="button" class="spin primary" onclick={() => game.dismiss()}>Collect</button>
@@ -334,6 +350,14 @@
             Bonus at normal speed
           </label>
           <p class="note">Hold & spin plays out in full even when the deal speed is faster. Off, it follows the deal speed.</p>
+          <label class="switch">
+            <input type="checkbox" checked={game.bonusControl} onchange={(e) => game.setBonusControl(e.currentTarget.checked)} />
+            Play the bonus yourself
+          </label>
+          <p class="note">
+            Hold & spin stops and waits for you to start each respin, even in auto play, which carries on once you collect. Off,
+            it plays itself, for running unattended.
+          </p>
         </section>
       {/snippet}
       <section class="panel">
@@ -675,6 +699,75 @@
   .cell.tense .minireel {
     animation-duration: 900ms;
   }
+  /* A coin that just landed: it stays lit, its value floating up, until the next respin. */
+  .cell.fresh {
+    position: relative;
+    border-radius: 50%;
+    filter: drop-shadow(0 0 14px rgb(255 215 94 / 0.9));
+  }
+  .gain {
+    position: absolute;
+    left: 50%;
+    top: 4%;
+    translate: -50% 0;
+    padding: 2px 8px;
+    border-radius: 999px;
+    background: #ffd75e;
+    color: #2a1745;
+    font: 700 13px/1.2 var(--font-display);
+    white-space: nowrap;
+    animation: rise 1.2s ease-out forwards;
+    pointer-events: none;
+  }
+  @keyframes rise {
+    from {
+      translate: -50% 40%;
+      opacity: 0;
+    }
+    25% {
+      opacity: 1;
+    }
+    to {
+      translate: -50% 0;
+    }
+  }
+  /* A bonus cell stopping on nothing settles with a small thud. */
+  .cell.hs .tile {
+    animation: thud 240ms cubic-bezier(0.3, 1.6, 0.5, 1);
+  }
+  @keyframes thud {
+    from {
+      transform: translateY(-14%);
+    }
+  }
+  .minireel .tile {
+    animation: none;
+  }
+  /* Between respins: what the last one did. */
+  /* Pinned on the reels' top frame, clear of every cell. */
+  .respin-note {
+    position: absolute;
+    left: 50%;
+    top: 0;
+    translate: -50% -50%;
+    z-index: 2;
+    padding: 6px 16px;
+    border-radius: 999px;
+    background: rgb(12 7 22 / 0.9);
+    box-shadow: 0 0 0 1px rgb(255 255 255 / 0.25);
+    color: #d8c9f2;
+    font: 700 12px/1 var(--font-ui);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    white-space: nowrap;
+    animation: pop 300ms cubic-bezier(0.3, 1.6, 0.5, 1);
+    pointer-events: none;
+  }
+  .respin-note.good {
+    color: #2a1745;
+    background: #ffd75e;
+    box-shadow: 0 0 24px rgb(255 215 94 / 0.6);
+  }
   .respins.flash {
     animation: flash 600ms ease;
   }
@@ -683,6 +776,23 @@
       color: #fff;
       text-shadow: 0 0 10px #ffd75e;
       scale: 1.15;
+    }
+  }
+  .prompt {
+    color: #ffd75e;
+    animation: blink 0.8s ease-in-out infinite alternate;
+  }
+  @keyframes blink {
+    to {
+      opacity: 0.45;
+    }
+  }
+  .respin-go {
+    animation: beckon 1s ease-in-out infinite;
+  }
+  @keyframes beckon {
+    50% {
+      box-shadow: 0 0 22px rgb(255 215 94 / 0.8);
     }
   }
   .last-spin {

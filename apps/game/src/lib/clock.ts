@@ -5,11 +5,15 @@ export class Clock {
   paused = false;
   private generation = 0;
 
-  /** Resolves true when the time has elapsed, false if the clock was reset meanwhile. */
-  async wait(ms: number): Promise<boolean> {
+  /**
+   * Resolves true when the time has elapsed, false if the clock was reset
+   * meanwhile. `boosted` false keeps it to real time even under the admin
+   * panel's speed boost.
+   */
+  async wait(ms: number, boosted = true): Promise<boolean> {
     const gen = this.generation;
     // The admin panel's speed boost runs every table faster (or slower) at once.
-    let remaining = ms / tuning.values.speedBoost;
+    let remaining = boosted ? ms / tuning.values.speedBoost : ms;
     let last = performance.now();
     while (remaining > 0 || this.paused) {
       await new Promise((r) => setTimeout(r, Math.min(Math.max(remaining, 0), 50) || 50));

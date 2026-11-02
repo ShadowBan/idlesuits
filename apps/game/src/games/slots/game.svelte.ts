@@ -42,13 +42,14 @@ const BONUS_BREATH_MS = 500;
 /** Every empty cell spins this long before the first one stops. */
 const RESPIN_SPIN_MS = 1000;
 /** Between cells stopping; slower on the last respin, and slowest with a full screen in reach. */
-const CELL_MS = 150;
+const CELL_MS = 220;
 const LAST_CELL_MS = 300;
 const TENSE_CELL_MS = 1100;
 /** Empty cells left that count as a shot at the Grand. */
 const NEAR_GRAND = 3;
-const AFTER_LAND_MS = 800;
-const AFTER_MISS_MS = 550;
+/** The pause after a respin, so its result registers: longer when coins landed. */
+const AFTER_LAND_MS = 1600;
+const AFTER_MISS_MS = 1100;
 const COUNT_MS = 320;
 const COUNT_MIN_MS = 120;
 const RESULT_HOLD_MS = 700;
@@ -75,6 +76,10 @@ export interface FeatureView {
   resets: number;
   /** This is the last respin unless a coin lands. */
   last: boolean;
+  /** Coins that landed on the respin just played, held up so they register. */
+  fresh: number[];
+  /** What the respin just played did, said between respins. */
+  note: string | null;
   /** Paid so far as the coins are counted, in dollars. */
   collected: Decimal;
   /** The cell being counted, or -1. */
@@ -148,6 +153,8 @@ export class SlotGame {
   autoPlay = $state(false);
   /** The bonus plays at normal speed whatever the deal speed. Saved per machine. */
   bonusFull = $state(true);
+  /** The bonus waits for the player to start each respin, auto play or not. Saved per machine. */
+  bonusControl = $state(true);
 
   spins = $state(0);
   features = $state(0);
@@ -163,6 +170,7 @@ export class SlotGame {
     const step = load<number>(`slot.${machine.id}.bet`, 0);
     this.step = Number.isInteger(step) && step >= 0 && step < BET_STEPS.length ? step : 0;
     this.bonusFull = load<boolean>(`slot.${machine.id}.bonusFull`, true) !== false;
+    this.bonusControl = load<boolean>(`slot.${machine.id}.bonusControl`, true) !== false;
     // A screen to look at before the first spin.
     const rng = new Rng(this.runSeed, 'idle');
     this.grid = machine.reels.map((strip) => windowAt(strip, rng.int(strip.length), machine.rows));
@@ -221,13 +229,21 @@ export class SlotGame {
     if (on && this.canSpin) this.seq.answer(true);
   }
 
+  /** Spins, or starts the next respin when the bonus is waiting for one. */
   spin() {
-    if (this.canSpin) this.seq.answer(true);
+    if (this.canSpin || this.seq.awaiting === 'respin') this.seq.answer(true);
   }
 
   setBonusFull(on: boolean) {
     this.bonusFull = on;
     save(`slot.${this.machine.id}.bonusFull`, on);
+  }
+
+  setBonusControl(on: boolean) {
+    this.bonusControl = on;
+    save(`slot.${this.machine.id}.bonusControl`, on);
+    // Switched off while a respin waits: it goes now.
+    if (!on && this.seq.awaiting === 'respin') this.seq.answer(true);
   }
 
   /** Closes the bonus win early. */
@@ -394,6 +410,8 @@ export class SlotGame {
       left: respins,
       resets: 0,
       last: false,
+      fresh: [],
+      note: null,
       collected: new Decimal(0),
       counting: -1,
       full: false,
@@ -414,6 +432,10 @@ export class SlotGame {
       // The last respin is the last chance; a nearly full screen is a shot at the Grand.
       view.last = view.left === 1;
       const nearGrand = empty.length <= NEAR_GRAND;
+      // Played by hand, each respin waits for the player; the last one's result stays up meanwhile.
+      if (this.bonusControl && (await this.seq.ask('respin')) === null) return false;
+      view.fresh = [];
+      view.note = null;
       view.spinning = empty;
       view.tense = nearGrand ? empty : [];
       if (drama && (view.last || nearGrand)) sfx.tension();
@@ -427,6 +449,7 @@ export class SlotGame {
         const value = landed.get(cell);
         if (value) {
           view.held[cell] = value;
+          view.fresh = [...view.fresh, cell];
           // A coin puts the respins back to full, and the counter flashes to say so.
           if (view.left !== respins) view.resets++;
           view.left = respins;
@@ -436,8 +459,18 @@ export class SlotGame {
       }
       view.left = respin.left;
       view.last = false;
-      if (respin.landed.length) sfx.reset();
-      if (!(await wait(respin.landed.length ? AFTER_LAND_MS : AFTER_MISS_MS))) return false;
+      // Hold the result up long enough to take in: what landed, and where that leaves the respins.
+      const n = respin.landed.length;
+      if (n) {
+        sfx.reset();
+        view.note = Object.keys(view.held).length === cells ? 'Full screen!' : `+${n} ${n === 1 ? 'coin' : 'coins'} · back to ${respins} respins`;
+      } else view.note = respin.left ? `No coins · ${respin.left} ${respin.left === 1 ? 'respin' : 'respins'} left` : 'No coins · that’s the last respin';
+      // Played by hand, the result stays up until the next respin; played for you, it holds a moment.
+      if (!this.bonusControl || respin === f.respins.at(-1)) {
+        if (!(await wait(n ? AFTER_LAND_MS : AFTER_MISS_MS))) return false;
+        view.fresh = [];
+        view.note = null;
+      }
     }
 
     // Count the coins in, one by one and faster as they go, then any Grand for the full screen.
