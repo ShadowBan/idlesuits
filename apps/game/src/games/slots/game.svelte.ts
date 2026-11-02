@@ -36,11 +36,21 @@ const REEL_MS = 170;
 const ANTICIPATE_MS = 900;
 const WIN_MS = 900;
 const BANNER_MS = 1300;
-const RESPIN_MS = 450;
-/** Between each empty cell stopping in a respin. */
-const CELL_STOP_MS = 70;
-const LAND_MS = 450;
-const COUNT_MS = 200;
+/** The bonus, at normal speed. It keeps these timings even at 5× unless the player lets it follow the table. */
+const BONUS_INTRO_MS = 1800;
+const BONUS_BREATH_MS = 500;
+/** Every empty cell spins this long before the first one stops. */
+const RESPIN_SPIN_MS = 1000;
+/** Between cells stopping; slower on the last respin, and slowest with a full screen in reach. */
+const CELL_MS = 150;
+const LAST_CELL_MS = 300;
+const TENSE_CELL_MS = 1100;
+/** Empty cells left that count as a shot at the Grand. */
+const NEAR_GRAND = 3;
+const AFTER_LAND_MS = 800;
+const AFTER_MISS_MS = 550;
+const COUNT_MS = 320;
+const COUNT_MIN_MS = 120;
 const RESULT_HOLD_MS = 700;
 /** How long the bonus win stays up, in real seconds whatever the speed, unless dismissed sooner. */
 export const SUMMARY_MS = 7000;
@@ -58,7 +68,13 @@ export interface FeatureView {
   held: Record<number, CoinValue>;
   /** Empty cells still spinning, each a reel of its own. */
   spinning: number[];
+  /** Spinning cells taking their time: a full screen is in reach. */
+  tense: number[];
   left: number;
+  /** Counts the respins going back to full, so the counter can flash. */
+  resets: number;
+  /** This is the last respin unless a coin lands. */
+  last: boolean;
   /** Paid so far as the coins are counted, in dollars. */
   collected: Decimal;
   /** The cell being counted, or -1. */
@@ -130,6 +146,8 @@ export class SlotGame {
   started = $state(false);
   gameOver = $state(false);
   autoPlay = $state(false);
+  /** The bonus plays at normal speed whatever the deal speed. Saved per machine. */
+  bonusFull = $state(true);
 
   spins = $state(0);
   features = $state(0);
@@ -144,6 +162,7 @@ export class SlotGame {
     this.seq.remember(`slot.${machine.id}`);
     const step = load<number>(`slot.${machine.id}.bet`, 0);
     this.step = Number.isInteger(step) && step >= 0 && step < BET_STEPS.length ? step : 0;
+    this.bonusFull = load<boolean>(`slot.${machine.id}.bonusFull`, true) !== false;
     // A screen to look at before the first spin.
     const rng = new Rng(this.runSeed, 'idle');
     this.grid = machine.reels.map((strip) => windowAt(strip, rng.int(strip.length), machine.rows));
@@ -204,6 +223,11 @@ export class SlotGame {
 
   spin() {
     if (this.canSpin) this.seq.answer(true);
+  }
+
+  setBonusFull(on: boolean) {
+    this.bonusFull = on;
+    save(`slot.${this.machine.id}.bonusFull`, on);
   }
 
   /** Closes the bonus win early. */
@@ -340,20 +364,36 @@ export class SlotGame {
     if (spin.mystery) {
       this.showBanner('Must-hit Major', bet.mul(spin.meters.major), 'major');
       sfx.bigWin();
-      if (!(await this.wait(BANNER_MS * 1.5))) return false;
+      if (!(await this.bonusWait(BANNER_MS * 1.5))) return false;
       this.banner = null;
       this.win = bet.mul(spin.pay);
     }
     return true;
   }
 
+  /** A wait in the bonus: at full length when the bonus plays at normal speed, else at the table's speed. */
+  private bonusWait(ms: number): Promise<boolean> {
+    return this.bonusFull ? this.seq.waitFull(ms) : this.wait(ms);
+  }
+
+  /**
+   * Hold & spin, paced like a real machine's: the empty cells spin a while,
+   * then stop one by one; the last respin stops slowly; and with only a few
+   * cells left before a full screen, each of them takes its time.
+   */
   private async playFeature(f: HoldSpinResult, bet: Decimal, meters: JackpotMeters): Promise<boolean> {
     const { machine } = this;
     const cells = machine.reels.length * machine.rows;
+    const respins = machine.holdSpin.respins;
+    const drama = this.bonusFull || this.seq.speed === 'smart';
+    const wait = (ms: number) => this.bonusWait(ms);
     this.feature = {
       held: Object.fromEntries(f.start.map((c) => [c.cell, c.value])),
       spinning: [],
-      left: machine.holdSpin.respins,
+      tense: [],
+      left: respins,
+      resets: 0,
+      last: false,
       collected: new Decimal(0),
       counting: -1,
       full: false,
@@ -361,44 +401,57 @@ export class SlotGame {
     };
     this.showBanner('Hold & spin', null);
     sfx.bigWin();
-    if (!(await this.wait(BANNER_MS))) return false;
+    if (!(await wait(BONUS_INTRO_MS))) return false;
     this.banner = null;
+    if (!(await wait(BONUS_BREATH_MS))) return false;
 
+    let streak = 0;
     for (const respin of f.respins) {
+      const view = this.feature;
       // Every empty cell is a reel of its own: they all spin, then stop one by one, left to right.
-      const empty = Array.from({ length: cells }, (_, c) => c).filter((c) => !(c in this.feature!.held));
+      const empty = Array.from({ length: cells }, (_, c) => c).filter((c) => !(c in view.held));
       const landed = new Map(respin.landed.map((c) => [c.cell, c.value]));
-      // The last respin is the last chance: its cells stop slowly.
-      const last = this.feature.left === 1;
-      this.feature.spinning = empty;
-      if (last && this.seq.speed === 'smart') sfx.tension();
-      if (!(await this.wait(RESPIN_MS))) return false;
+      // The last respin is the last chance; a nearly full screen is a shot at the Grand.
+      view.last = view.left === 1;
+      const nearGrand = empty.length <= NEAR_GRAND;
+      view.spinning = empty;
+      view.tense = nearGrand ? empty : [];
+      if (drama && (view.last || nearGrand)) sfx.tension();
+      if (!(await wait(view.last || nearGrand ? RESPIN_SPIN_MS * 1.4 : RESPIN_SPIN_MS))) return false;
+
       for (const cell of empty) {
-        if (!(await this.wait(last ? CELL_STOP_MS * 2 : CELL_STOP_MS))) return false;
-        this.feature.spinning = this.feature.spinning.filter((c) => c !== cell);
+        const pause = nearGrand ? TENSE_CELL_MS : view.last ? LAST_CELL_MS : CELL_MS;
+        if (!(await wait(pause))) return false;
+        view.spinning = view.spinning.filter((c) => c !== cell);
+        view.tense = view.tense.filter((c) => c !== cell);
         const value = landed.get(cell);
         if (value) {
-          this.feature.held[cell] = value;
-          this.feature.left = machine.holdSpin.respins;
-          sfx.coin();
-        }
+          view.held[cell] = value;
+          // A coin puts the respins back to full, and the counter flashes to say so.
+          if (view.left !== respins) view.resets++;
+          view.left = respins;
+          view.last = false;
+          sfx.coin(streak++);
+        } else if (drama) sfx.tick();
       }
-      this.feature.left = respin.left;
-      if (!respin.landed.length) sfx.reel();
-      if (!(await this.wait(respin.landed.length ? LAND_MS : LAND_MS * 0.6))) return false;
+      view.left = respin.left;
+      view.last = false;
+      if (respin.landed.length) sfx.reset();
+      if (!(await wait(respin.landed.length ? AFTER_LAND_MS : AFTER_MISS_MS))) return false;
     }
 
-    // Count the coins in, one by one, then any Grand for the full screen.
-    for (const c of f.coins) {
+    // Count the coins in, one by one and faster as they go, then any Grand for the full screen.
+    if (!(await wait(BONUS_BREATH_MS))) return false;
+    for (const [i, c] of f.coins.entries()) {
       this.feature.counting = c.cell;
       this.feature.collected = this.feature.collected.add(bet.mul(coinPay(machine, c.value, meters)));
-      sfx.chip();
+      sfx.coin(i);
       if (c.value.kind === 'jackpot' && c.value.tier !== 'mini') {
         this.showBanner(`${c.value.tier} jackpot`, bet.mul(jackpotPay(machine, c.value.tier, meters)), c.value.tier);
         sfx.bigWin();
-        if (!(await this.wait(BANNER_MS))) return false;
+        if (!(await wait(BANNER_MS))) return false;
         this.banner = null;
-      } else if (!(await this.wait(COUNT_MS))) return false;
+      } else if (!(await wait(Math.max(COUNT_MIN_MS, COUNT_MS - i * 18)))) return false;
     }
     this.feature.counting = -1;
     if (f.full) {
@@ -406,7 +459,7 @@ export class SlotGame {
       this.feature.collected = this.feature.collected.add(bet.mul(meters.grand));
       this.showBanner('Grand jackpot', bet.mul(meters.grand), 'grand');
       sfx.bigWin();
-      if (!(await this.wait(BANNER_MS * 1.5))) return false;
+      if (!(await wait(BANNER_MS * 1.8))) return false;
       this.banner = null;
     }
     return true;

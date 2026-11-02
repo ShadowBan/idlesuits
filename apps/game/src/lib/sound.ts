@@ -52,8 +52,12 @@ export const sfx = {
   spin: () => play(0.25, 0.1, 120, 0.04, 0.12, 0.12, 3, 1, 2),
   /** A slot reel stopping: a short clunk. */
   reel: () => play(0.4, 0.05, 170, 0, 0.01, 0.07, 1, 1.5),
-  /** A coin landing on the reels or in hold & spin: a bright ping. */
-  coin: () => play(0.4, 0, 1320, 0, 0.02, 0.15, 0, 1, 0, 0, 660, 0.05),
+  /** A coin landing on the reels or in hold & spin: a bright ping, a step higher for each in a row. */
+  coin: (step = 0) => play(0.4, 0, 1320 * 1.06 ** Math.min(step, 14), 0, 0.02, 0.15, 0, 1, 0, 0, 660, 0.05),
+  /** A bonus cell stopping on nothing: a soft tick. */
+  tick: () => play(0.18, 0.05, 520, 0, 0.005, 0.03, 1, 2),
+  /** The respins going back to full: a quick rising chime. */
+  reset: () => play(0.35, 0, 660, 0.01, 0.08, 0.12, 0, 1, 0, 0, 330, 0.04, 0.05),
   /** A riffle: a new shoe being shuffled. */
   shuffle: () => play(0.3, 0.2, 1100, 0.02, 0.5, 0.15, 4, 1, 0, 0, 0, 0, 0.035),
 };

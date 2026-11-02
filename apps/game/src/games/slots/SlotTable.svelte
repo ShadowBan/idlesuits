@@ -166,7 +166,7 @@
                 {@const cell = r * machine.rows + row}
                 {@const coin = game.feature.held[cell]}
                 {@const whirling = !coin && game.feature.spinning.includes(cell)}
-                <div class="cell hs" class:counting={game.feature.counting === cell} class:empty={!coin}>
+                <div class="cell hs" class:counting={game.feature.counting === cell} class:empty={!coin} class:tense={whirling && game.feature.tense.includes(cell)}>
                   {#if coin}
                     {#key coin}<div class="drop"><SlotSymbol id="coin" coin={coin} label={coinLabel(coin, shownBet)} /></div>{/key}
                   {:else if whirling}
@@ -250,12 +250,15 @@
 
         <div class="meter" aria-live="polite">
           {#if game.feature && !game.feature.done}
-            <span class="respins" aria-label="{game.feature.left} respins left">
-              Respins
-              {#each Array.from({ length: machine.holdSpin.respins }, (_, i) => i) as i (i)}
-                <i class:on={i < game.feature.left}></i>
-              {/each}
-            </span>
+            {#key game.feature.resets}
+              <span class="respins" class:flash={game.feature.resets > 0} aria-label="{game.feature.left} respins left">
+                Respins
+                {#each Array.from({ length: machine.holdSpin.respins }, (_, i) => i) as i (i)}
+                  <i class:on={i < game.feature.left}></i>
+                {/each}
+              </span>
+            {/key}
+            {#if game.feature.last}<span class="last-spin">Last spin</span>{/if}
             <span>{Object.keys(game.feature.held).length} / {cells}</span>
             <b>{formatMoney(game.feature.collected)}</b>
           {:else if game.win}
@@ -324,6 +327,15 @@
       sessionNet={game.sessionNet}
       history={game.history}
     >
+      {#snippet automation()}
+        <section class="panel">
+          <label class="switch">
+            <input type="checkbox" checked={game.bonusFull} onchange={(e) => game.setBonusFull(e.currentTarget.checked)} />
+            Bonus at normal speed
+          </label>
+          <p class="note">Hold & spin plays out in full even when the deal speed is faster. Off, it follows the deal speed.</p>
+        </section>
+      {/snippet}
       <section class="panel">
         <h2>Pays <span>per way, at a {formatMoney(game.bet)} bet</span></h2>
         <table class="pays">
@@ -651,6 +663,42 @@
     to {
       transform: scaleX(0);
     }
+  }
+  /* A full screen in reach: these cells glow and turn slowly. */
+  .cell.tense {
+    border-radius: 10px;
+    box-shadow:
+      inset 0 0 0 2px #ffd75e,
+      0 0 18px rgb(255 215 94 / 0.7);
+    animation: glow 0.45s ease-in-out infinite alternate;
+  }
+  .cell.tense .minireel {
+    animation-duration: 900ms;
+  }
+  .respins.flash {
+    animation: flash 600ms ease;
+  }
+  @keyframes flash {
+    30% {
+      color: #fff;
+      text-shadow: 0 0 10px #ffd75e;
+      scale: 1.15;
+    }
+  }
+  .last-spin {
+    padding: 3px 8px;
+    border-radius: 6px;
+    background: #ff6b8b;
+    color: #1a0b12;
+    font: 700 11px/1 var(--font-ui);
+    letter-spacing: 0.14em;
+    animation: glow 0.5s ease-in-out infinite alternate;
+  }
+  .switch {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font: 14px/1.3 var(--font-ui);
   }
   .drop {
     width: 100%;

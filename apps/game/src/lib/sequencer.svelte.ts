@@ -48,6 +48,11 @@ export class Sequencer<Answer> {
     return this.clock.wait(ms / FACTOR[this.speed]);
   }
 
+  /** Waits `ms` whatever the speed, for a moment meant to play out in full (a slot bonus). Pausable like any wait. */
+  waitFull(ms: number): Promise<boolean> {
+    return this.clock.wait(ms);
+  }
+
   /** Waits for the player; null means the game was reset or closed. */
   ask(kind: string): Promise<Answer | null> {
     this.awaiting = kind;

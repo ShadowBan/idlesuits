@@ -119,6 +119,7 @@
     <ul>
       <li>Space or Enter spins, or tap the reels. The arrow keys raise and lower the bet.</li>
       <li>Auto play spins on its own and stops if you bust. Deal speed sets how fast the reels turn.</li>
+      <li>Hold & Spin plays at normal speed even at 2× or 5×, so it gets its full drama. Turn off "Bonus at normal speed" under Automation to have it follow the deal speed.</li>
     </ul>
   </details>
 </RulesFrame>
