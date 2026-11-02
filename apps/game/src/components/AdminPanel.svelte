@@ -154,6 +154,7 @@
         <div class="row">
           <button type="button" onclick={() => jackpots.set('grand', jackpots.grand * 2)}>Grand ×2</button>
           <button type="button" onclick={() => jackpots.set('major', jackpots.major * 2)}>Major ×2</button>
+          <button type="button" onclick={() => jackpots.makeMajorDue()}>Major hits next spin</button>
           <button type="button" onclick={() => (jackpots.set('grand', JACKPOT_SEEDS.grand), jackpots.set('major', JACKPOT_SEEDS.major))}>Reset meters</button>
         </div>
       </section>

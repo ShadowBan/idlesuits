@@ -1,13 +1,14 @@
 <script lang="ts">
   import { onDestroy } from 'svelte';
+  import { Tween } from 'svelte/motion';
   import { MACHINES, MIDNIGHT_VAULT, slotPayback, type CoinValue } from '@idlesuits/sim';
   import SeatOverlay from '../../components/SeatOverlay.svelte';
   import TablePanels from '../../components/TablePanels.svelte';
   import TableShell from '../../components/TableShell.svelte';
   import type { GameProps } from '../../lib/games';
   import { floor } from '../../lib/floor.svelte';
-  import { jackpots } from '../../lib/jackpot.svelte';
-  import { formatMoney, type Decimal } from '../../lib/money';
+  import { JACKPOT_SEEDS, jackpots, MAJOR_CAP } from '../../lib/jackpot.svelte';
+  import { Decimal, formatMoney } from '../../lib/money';
   import { formatLimit } from '../../lib/rooms';
   import { route } from '../../lib/route.svelte';
   import { unlockAudio } from '../../lib/sound';
@@ -40,15 +41,65 @@
     return [...run, ...run];
   });
 
+  // The progressive meters roll up smoothly as the link feeds them, to the cent.
+  const grand = Tween.of(() => jackpots.grand, { duration: 900 });
+  const major = Tween.of(() => jackpots.major, { duration: 900 });
+
   const JACKPOT_ROWS = $derived([
-    { tier: 'grand', name: 'Grand', amount: game.bet.mul(jackpots.grand) },
-    { tier: 'major', name: 'Major', amount: game.bet.mul(jackpots.major) },
+    { tier: 'grand', name: 'Grand', amount: game.bet.mul(grand.current) },
+    { tier: 'major', name: 'Major', amount: game.bet.mul(major.current) },
     { tier: 'minor', name: 'Minor', amount: game.bet.mul(machine.jackpots.minor) },
     { tier: 'mini', name: 'Mini', amount: game.bet.mul(machine.jackpots.mini) },
   ] as const);
+  /** How far the Major has climbed toward the amount it must hit by. */
+  const majorClimb = $derived((major.current - JACKPOT_SEEDS.major) / (MAJOR_CAP - JACKPOT_SEEDS.major));
+
+  /** A meter's amount, with cents while they're worth showing, so it visibly ticks. */
+  function meterMoney(amount: Decimal): string {
+    if (amount.gte(1e7)) return formatMoney(amount);
+    return `$${amount.toNumber().toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  }
 
   const shownBet = $derived(seq.awaiting === 'spin' || !game.roundBet.gt(0) ? game.bet : game.roundBet);
-  const lit = $derived(new Set(game.lit));
+
+  /**
+   * After a spin, its wins take turns: all of them together, then each one
+   * framed on its own with what it paid, so it's clear which ways paid.
+   */
+  let focus = $state(-1);
+  $effect(() => {
+    const wins = game.wins;
+    focus = wins.length === 1 ? 0 : -1;
+    if (wins.length < 2) return;
+    let i = -1;
+    const timer = setInterval(() => {
+      i = i + 1 >= wins.length ? -1 : i + 1;
+      focus = i;
+    }, 1200);
+    return () => clearInterval(timer);
+  });
+  const shown = $derived(focus >= 0 && game.wins[focus] ? [game.wins[focus]!] : game.wins);
+  const lit = $derived(new Set(shown.flatMap((w) => w.cells.map(([r, row]) => `${r}:${row}`))));
+  const focused = $derived(focus >= 0 ? game.wins[focus] : undefined);
+  const symbolName = (id: string) => machine.symbols.find((s) => s.id === id)?.name ?? id;
+
+  /** The bet picker: every level the room offers, open from the bet in the cabinet. */
+  let picking = $state(false);
+  function pick(step: number) {
+    game.setStep(step);
+    picking = false;
+  }
+
+  /** In hold & spin, an empty cell's own little reel: coins and blanks going by. */
+  const MINI = ['coin', '', '', 'coin', '', '', 'coin', '', '', 'coin', '', ''];
+
+  function ago(at: number): string {
+    const m = Math.round((Date.now() - at) / 60000);
+    if (m < 1) return 'just now';
+    if (m < 60) return `${m}m ago`;
+    const h = Math.round(m / 60);
+    return h < 48 ? `${h}h ago` : `${Math.round(h / 24)}d ago`;
+  }
 
   function begin() {
     unlockAudio();
@@ -78,7 +129,7 @@
   onAuto={(on) => game.setAutoPlay(on)}
   onRules={() => rules?.open()}
   {onExit}
-  onTapFelt={() => game.spin()}
+  onTapFelt={() => (picking ? (picking = false) : game.spin())}
 >
   {#snippet felt()}
     <div class="cabinet" class:in-feature={game.feature !== null}>
@@ -87,7 +138,14 @@
         {#each JACKPOT_ROWS as j (j.tier)}
           <div class="plaque {j.tier}" class:progressive={j.tier === 'grand' || j.tier === 'major'}>
             <span>{j.name}</span>
-            <b>{formatMoney(j.amount)}</b>
+            <b>{j.tier === 'grand' || j.tier === 'major' ? meterMoney(j.amount) : formatMoney(j.amount)}</b>
+            {#if j.tier === 'major'}
+              <!-- Must hit by: it pays before the meter reaches the cap. -->
+              <small title="The Major pays before it reaches {formatMoney(game.bet.mul(MAJOR_CAP))}">
+                <span class="wide">must hit</span> by {formatLimit(game.bet.mul(MAJOR_CAP))}
+              </small>
+              <i class="climb" style:--climb="{Math.min(1, Math.max(0, majorClimb)) * 100}%"></i>
+            {/if}
           </div>
         {/each}
       </div>
@@ -100,9 +158,18 @@
               {#each Array.from({ length: machine.rows }, (_, row) => row) as row (row)}
                 {@const cell = r * machine.rows + row}
                 {@const coin = game.feature.held[cell]}
-                <div class="cell hs" class:counting={game.feature.counting === cell} class:empty={!coin} class:whirl={!coin && game.feature.spinning}>
+                {@const whirling = !coin && game.feature.spinning.includes(cell)}
+                <div class="cell hs" class:counting={game.feature.counting === cell} class:empty={!coin}>
                   {#if coin}
                     {#key coin}<div class="drop"><SlotSymbol id="coin" coin={coin} label={coinLabel(coin, shownBet)} /></div>{/key}
+                  {:else if whirling}
+                    <div class="minireel" style:--delay="{-(cell * 37) % 200}ms">
+                      {#each MINI as id, i (i)}
+                        <div class="mini-cell">{#if id}<SlotSymbol {id} />{/if}</div>
+                      {/each}
+                    </div>
+                  {:else}
+                    <span class="hole" aria-hidden="true"></span>
                   {/if}
                 </div>
               {/each}
@@ -134,23 +201,50 @@
         {/if}
       </div>
 
-      <!-- The meter under the reels: the win, or how the feature is going. -->
-      <div class="meter" aria-live="polite">
-        {#if game.feature && !game.feature.done}
-          <span class="respins" aria-label="{game.feature.left} respins left">
-            Respins
-            {#each Array.from({ length: machine.holdSpin.respins }, (_, i) => i) as i (i)}
-              <i class:on={i < game.feature.left}></i>
-            {/each}
-          </span>
-          <span>{Object.keys(game.feature.held).length} / {cells} coins</span>
-          <b>{formatMoney(game.feature.collected)}</b>
-        {:else if game.win}
-          <span>Win</span>
-          <b class="won">{formatMoney(game.win)}</b>
-        {:else}
-          <span class="quiet">{seq.awaiting === 'spin' ? 'Six coins start hold & spin' : 'Good luck'}</span>
-        {/if}
+      <!-- Under the reels: the bet, and the win or how the feature is going. -->
+      <div class="deck">
+        <div class="bet" role="group" aria-label="Bet">
+          <span class="k">Bet</span>
+          <button type="button" class="step" aria-label="Lower bet" onclick={() => game.setStep(game.step - 1)} disabled={game.step === 0}>−</button>
+          <button type="button" class="amount" aria-haspopup="listbox" aria-expanded={picking} onclick={() => (picking = !picking)}>
+            {formatMoney(game.bet)}
+          </button>
+          <button type="button" class="step" aria-label="Raise bet" onclick={() => game.setStep(game.step + 1)} disabled={!nextBet || game.bank.lt(nextBet)}>+</button>
+          {#if picking}
+            <div class="levels" role="listbox" aria-label="Bet levels">
+              {#each BET_STEPS as mult, i (mult)}
+                {@const amount = floor.room.min.mul(mult)}
+                <button type="button" role="option" aria-selected={i === game.step} disabled={game.bank.lt(amount)} onclick={() => pick(i)}>
+                  {formatMoney(amount)}
+                </button>
+              {/each}
+            </div>
+          {/if}
+        </div>
+
+        <div class="meter" aria-live="polite">
+          {#if game.feature && !game.feature.done}
+            <span class="respins" aria-label="{game.feature.left} respins left">
+              Respins
+              {#each Array.from({ length: machine.holdSpin.respins }, (_, i) => i) as i (i)}
+                <i class:on={i < game.feature.left}></i>
+              {/each}
+            </span>
+            <span>{Object.keys(game.feature.held).length} / {cells}</span>
+            <b>{formatMoney(game.feature.collected)}</b>
+          {:else if game.win}
+            {#if focused}
+              <span class="way">
+                {symbolName(focused.symbol)} × {focused.reels} · {focused.ways} {focused.ways === 1 ? 'way' : 'ways'} ·
+                {formatMoney(shownBet.mul(focused.pay))}
+              </span>
+            {/if}
+            <span>Win</span>
+            <b class="won">{formatMoney(game.win)}</b>
+          {:else}
+            <span class="quiet">{seq.awaiting === 'spin' ? 'Six coins start hold & spin' : 'Good luck'}</span>
+          {/if}
+        </div>
       </div>
     </div>
 
@@ -168,16 +262,9 @@
 
   {#snippet action()}
     <div class="spinbar">
-      <div class="bet" role="group" aria-label="Bet">
+      <div class="total">
         <span class="k">Bet</span>
-        <button type="button" aria-label="Lower bet" onclick={() => game.setStep(game.step - 1)} disabled={game.step === 0}>−</button>
         <b>{formatMoney(game.bet)}</b>
-        <button
-          type="button"
-          aria-label="Raise bet"
-          onclick={() => game.setStep(game.step + 1)}
-          disabled={!nextBet || game.bank.lt(nextBet)}
-        >+</button>
       </div>
       {#if game.autoPlay && game.started}
         <button type="button" class="spin" onclick={() => seq.togglePause()}>{seq.paused ? 'Resume' : 'Pause'}</button>
@@ -236,6 +323,22 @@
             <dd>{formatMoney(j.amount)}</dd>
           {/each}
         </dl>
+      </section>
+      <section class="panel">
+        <h2>Recent jackpots <span>across the floor</span></h2>
+        {#if jackpots.history.length}
+          <ul class="hits">
+            {#each jackpots.history as h (h.at)}
+              <li>
+                <b class={h.tier}>{h.mystery ? 'Must-hit Major' : h.tier === 'grand' ? 'Grand' : 'Major'}</b>
+                <span>{formatMoney(new Decimal(h.paid))}</span>
+                <span class="muted">{ago(h.at)}</span>
+              </li>
+            {/each}
+          </ul>
+        {:else}
+          <p class="note">None yet. The Major must hit before {formatLimit(game.bet.mul(MAJOR_CAP))} at this bet.</p>
+        {/if}
       </section>
       <section class="panel">
         <h2>Payback</h2>
@@ -299,6 +402,28 @@
     font: 700 clamp(12px, 2.6cqw, 20px) / 1 var(--font-display);
     font-variant-numeric: tabular-nums;
     color: #fff;
+  }
+  @media (max-width: 520px) {
+    .plaque small .wide {
+      display: none;
+    }
+  }
+  .plaque small {
+    font: 600 9px/1 var(--font-ui);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: rgb(255 255 255 / 0.6);
+    white-space: nowrap;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  /* How far the Major has climbed toward its must-hit-by amount. */
+  .climb {
+    width: 80%;
+    height: 3px;
+    border-radius: 2px;
+    background: linear-gradient(90deg, var(--tint) var(--climb), rgb(255 255 255 / 0.12) var(--climb));
   }
   .plaque.progressive {
     box-shadow:
@@ -374,7 +499,11 @@
       transform: translateY(-18%);
     }
   }
+  /* The cells of the way being shown: framed in gold. */
   .cell.lit {
+    border-radius: 8px;
+    background: rgb(255 215 94 / 0.12);
+    box-shadow: inset 0 0 0 2px #ffd75e;
     animation: pulse 0.7s ease-in-out infinite alternate;
   }
   @keyframes pulse {
@@ -390,15 +519,26 @@
     border-radius: 8px;
     background: radial-gradient(circle, rgb(255 255 255 / 0.05), transparent 70%);
   }
-  .cell.whirl {
-    background: repeating-linear-gradient(180deg, rgb(255 215 94 / 0.18) 0 8%, transparent 8% 22%);
-    background-size: 100% 200%;
-    animation: flicker 160ms linear infinite;
+  /* An empty cell's own reel during a respin: coins and blanks blurring by. */
+  .cell.hs {
+    overflow: hidden;
   }
-  @keyframes flicker {
-    to {
-      background-position: 0 100%;
-    }
+  .minireel {
+    animation: whirl 360ms linear infinite;
+    animation-delay: var(--delay);
+    filter: blur(1.5px);
+  }
+  .mini-cell {
+    height: calc(var(--cell) * 0.8);
+    padding: 4%;
+  }
+  /* Where a coin could land. */
+  .hole {
+    display: block;
+    width: 100%;
+    height: 100%;
+    border-radius: 50%;
+    border: 2px dashed rgb(255 215 94 / 0.18);
   }
   .drop {
     width: 100%;
@@ -458,9 +598,10 @@
   }
   .meter {
     display: flex;
+    flex-wrap: wrap;
     align-items: baseline;
     justify-content: center;
-    gap: 14px;
+    gap: 6px 14px;
     min-height: 30px;
     font: 600 12px/1 var(--font-ui);
     letter-spacing: 0.14em;
@@ -498,7 +639,7 @@
     .strip,
     .cell.lit,
     .reel.slow,
-    .cell.whirl {
+    .minireel {
       animation: none;
     }
   }
@@ -510,22 +651,80 @@
     gap: 12px;
     padding: 8px 12px calc(8px + env(safe-area-inset-bottom));
   }
-  .bet {
-    display: flex;
-    align-items: center;
-    gap: 8px;
+  .total {
+    display: grid;
+    gap: 4px;
   }
-  .bet b {
-    min-width: 64px;
-    text-align: center;
-    font: 700 20px/1 var(--font-display);
+  .total b {
+    font: 700 18px/1 var(--font-display);
     font-variant-numeric: tabular-nums;
   }
-  .bet button {
-    width: 40px;
-    height: 40px;
+  /* The deck under the reels: the bet on the left, the meter beside it. */
+  .deck {
+    position: relative;
+    display: grid;
+    grid-template-columns: auto 1fr;
+    align-items: center;
+    gap: 14px;
+    width: min(100%, max(calc(var(--cell) * 5.4), 380px));
+  }
+  .bet {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 6px 4px 10px;
+    border-radius: 12px;
+    background: rgb(0 0 0 / 0.4);
+    box-shadow: inset 0 0 0 1px rgb(242 198 78 / 0.45);
+  }
+  .bet .k {
+    color: #c9b7e8;
+  }
+  .bet .step {
+    width: 36px;
+    height: 36px;
     padding: 0;
     font-size: 20px;
+  }
+  .bet .amount {
+    min-width: 70px;
+    height: 36px;
+    padding: 0 8px;
+    font: 700 19px/1 var(--font-display);
+    font-variant-numeric: tabular-nums;
+    color: #ffd75e;
+    background: none;
+    border-color: transparent;
+  }
+  .levels {
+    position: absolute;
+    bottom: calc(100% + 6px);
+    left: 0;
+    z-index: 3;
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 4px;
+    padding: 6px;
+    border-radius: 12px;
+    background: #160d26;
+    box-shadow:
+      0 0 0 1px #b8913a,
+      0 10px 30px rgb(0 0 0 / 0.6);
+  }
+  .levels button {
+    min-width: 64px;
+    padding: 8px 6px;
+    font: 700 14px/1 var(--font-display);
+    font-variant-numeric: tabular-nums;
+  }
+  .levels button[aria-selected='true'] {
+    background: var(--gold);
+    color: var(--felt-deep);
+  }
+  .meter .way {
+    letter-spacing: 0.06em;
+    color: #fff1c4;
   }
   .k {
     font: 600 10px/1 var(--font-ui);
@@ -567,6 +766,11 @@
     }
   }
   @media (max-width: 520px) {
+    .deck {
+      grid-template-columns: minmax(0, 1fr);
+      justify-items: center;
+      gap: 6px;
+    }
     .spinbar {
       grid-template-columns: 1fr auto;
     }
@@ -622,6 +826,29 @@
     width: 30px;
     height: 30px;
     padding: 1px 0;
+  }
+  .hits {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: 4px;
+    font: 12px/1.4 var(--font-ui);
+  }
+  .hits li {
+    display: grid;
+    grid-template-columns: 1fr auto auto;
+    gap: 10px;
+    font-variant-numeric: tabular-nums;
+  }
+  .hits .grand {
+    color: #ffd75e;
+  }
+  .hits .major {
+    color: #ff6b8b;
+  }
+  .muted {
+    color: var(--muted);
   }
   dl {
     display: grid;

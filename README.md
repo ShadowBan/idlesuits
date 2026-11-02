@@ -159,9 +159,12 @@ start) and the way-pays scale to hit it, leaving the feature as designed. `packa
 holds simulated spins to the exact figures.
 
 The Major and Grand are linked progressives across every machine (`lib/jackpot.svelte.ts`). They're
-counted in bets, so they pay the same share in every room, and every hand anywhere in the casino,
-table or machine, adds to them; whoever hits one starts it over. As they grow, the machines pay back
-more than their designed figure.
+counted in bets, so they pay the same share in every room. Every hand anywhere in the casino, table
+or machine, adds to them, and so does the rest of the link, a little every second the casino is open;
+whoever hits one starts it over. The Major is also a must-hit-by jackpot: it pays on the first spin
+after it passes a hidden point between its seed (250×) and its cap (375×), so it always pays before
+the cap, and coins can still hit it sooner. As the meters grow, the machines pay back more than their
+designed figure.
 
 ## Rooms and table limits
 

@@ -4,7 +4,7 @@
   import { formatLimit, room } from '../lib/rooms';
   import { ui } from '../lib/ui.svelte';
   import { deckLabel, GAMES, SLOTS } from '../lib/games';
-  import { jackpots } from '../lib/jackpot.svelte';
+  import { jackpots, MAJOR_CAP } from '../lib/jackpot.svelte';
   import { formatMoney } from '../lib/money';
   import { CHARMS } from '@idlesuits/sim';
   import { tuning } from '../lib/tuning.svelte';
@@ -125,9 +125,10 @@
           <span class="meter-box {name.toLowerCase()}">
             <span class="k">{name}</span>
             <b>{formatMoney(floor.room.min.mul(x))}</b>
+            {#if name === 'Major'}<small>must hit by {formatLimit(floor.room.min.mul(MAJOR_CAP))}</small>{/if}
           </span>
         {/each}
-        <span class="at">at a {formatLimit(floor.room.min)} spin · grows with every hand</span>
+        <span class="at">at a {formatLimit(floor.room.min)} spin · grows with every hand, and every second</span>
       </div>
     </div>
     <ul class="games">
@@ -439,6 +440,10 @@
     font: 700 20px/1 var(--font-display);
     font-variant-numeric: tabular-nums;
     color: #ffd75e;
+  }
+  .meter-box small {
+    font: 10px/1 var(--font-ui);
+    color: var(--muted);
   }
   .meter-box.major b {
     color: #ff6b8b;

@@ -7,10 +7,12 @@ import {
   windowAt,
   type CoinValue,
   type HoldSpinResult,
+  type JackpotMeters,
   type JackpotTier,
   type MachineDef,
   type RoundReport,
   type SlotSpinResult,
+  type WayWin,
 } from '@idlesuits/sim';
 import type { BreakdownLine } from '../../lib/breakdown';
 import { bankroll } from '../../lib/casino.svelte';
@@ -34,7 +36,9 @@ const REEL_MS = 170;
 const ANTICIPATE_MS = 900;
 const WIN_MS = 900;
 const BANNER_MS = 1300;
-const RESPIN_MS = 650;
+const RESPIN_MS = 450;
+/** Between each empty cell stopping in a respin. */
+const CELL_STOP_MS = 70;
 const LAND_MS = 450;
 const COUNT_MS = 200;
 const RESULT_HOLD_MS = 700;
@@ -50,8 +54,8 @@ export interface HistoryEntry {
 export interface FeatureView {
   /** Coins on the screen, by cell. */
   held: Record<number, CoinValue>;
-  /** The empty cells are spinning. */
-  spinning: boolean;
+  /** Empty cells still spinning, each a reel of its own. */
+  spinning: number[];
   left: number;
   /** Paid so far as the coins are counted, in dollars. */
   collected: Decimal;
@@ -68,6 +72,15 @@ export interface SlotBanner {
   title: string;
   amount: Decimal | null;
   tier?: JackpotTier;
+}
+
+/** A spin as played: the result, the meters it paid from, and any must-hit Major. */
+interface Spin {
+  result: SlotSpinResult;
+  meters: JackpotMeters;
+  mystery: boolean;
+  /** Everything paid, the must-hit Major included, in bets. */
+  pay: number;
 }
 
 function newSeed(): string {
@@ -90,8 +103,8 @@ export class SlotGame {
   anticipating = $state(-1);
   /** Coins on the screen after a spin, by cell. */
   coins = $state<Record<number, CoinValue>>({});
-  /** Cells in a paying way, as "reel:row". */
-  lit = $state<string[]>([]);
+  /** The spin's way-pays, for the screen to show one by one. */
+  wins = $state<WayWin[]>([]);
   /** The win meter, in dollars. */
   win = $state<Decimal | null>(null);
   feature = $state<FeatureView | null>(null);
@@ -223,25 +236,31 @@ export class SlotGame {
 
   private async playRound(): Promise<boolean> {
     const bet = this.bet;
+    // The meters as the reels start: they keep ticking, but this spin pays what they showed.
+    const meters = jackpots.meters;
     const result = spinSlot({
       machine: this.machine,
       seed: { run: this.runSeed, round: this.round },
       waysScale: this.waysScale,
-      meters: jackpots.meters,
+      meters,
       forceFeature: slotTest.forceFeature,
     });
     slotTest.forceFeature = false;
+    // The Major past its hidden point goes to this spin, unless coins win it first.
+    const mystery = jackpots.majorDue && !result.feature?.jackpots.includes('major');
+    const spin: Spin = { result, meters, mystery, pay: result.pay + (mystery ? meters.major : 0) };
     this.roundBet = bet;
-    if (!(await this.show(result, bet))) return false;
-    this.settle(result, bet);
+    if (!(await this.show(spin, bet))) return false;
+    this.settle(spin, bet);
     return true;
   }
 
   /** The reels spin and stop left to right; the ways light up; then any feature plays out. */
-  private async show(result: SlotSpinResult, bet: Decimal): Promise<boolean> {
+  private async show(spin: Spin, bet: Decimal): Promise<boolean> {
     const { machine } = this;
+    const { result } = spin;
     this.win = null;
-    this.lit = [];
+    this.wins = [];
     this.coins = {};
     this.feature = null;
     this.banner = null;
@@ -269,7 +288,7 @@ export class SlotGame {
     this.anticipating = -1;
 
     if (result.wins.length) {
-      this.lit = [...new Set(result.wins.flatMap((w) => w.cells.map(([r, row]) => `${r}:${row}`)))];
+      this.wins = result.wins;
       this.win = bet.mul(result.waysPay);
       if (result.waysPay >= 5) sfx.bigWin();
       else sfx.win();
@@ -277,20 +296,28 @@ export class SlotGame {
     }
 
     if (result.feature) {
-      this.lit = [];
-      if (!(await this.playFeature(result.feature, bet))) return false;
+      this.wins = [];
+      if (!(await this.playFeature(result.feature, bet, spin.meters))) return false;
       this.win = bet.mul(result.pay);
       this.feature!.done = true;
+    }
+
+    if (spin.mystery) {
+      this.showBanner('Must-hit Major', bet.mul(spin.meters.major), 'major');
+      sfx.bigWin();
+      if (!(await this.wait(BANNER_MS * 1.5))) return false;
+      this.banner = null;
+      this.win = bet.mul(spin.pay);
     }
     return true;
   }
 
-  private async playFeature(f: HoldSpinResult, bet: Decimal): Promise<boolean> {
+  private async playFeature(f: HoldSpinResult, bet: Decimal, meters: JackpotMeters): Promise<boolean> {
     const { machine } = this;
-    const meters = { major: jackpots.major, grand: jackpots.grand };
+    const cells = machine.reels.length * machine.rows;
     this.feature = {
       held: Object.fromEntries(f.start.map((c) => [c.cell, c.value])),
-      spinning: false,
+      spinning: [],
       left: machine.holdSpin.respins,
       collected: new Decimal(0),
       counting: -1,
@@ -303,13 +330,26 @@ export class SlotGame {
     this.banner = null;
 
     for (const respin of f.respins) {
-      this.feature.spinning = true;
+      // Every empty cell is a reel of its own: they all spin, then stop one by one, left to right.
+      const empty = Array.from({ length: cells }, (_, c) => c).filter((c) => !(c in this.feature!.held));
+      const landed = new Map(respin.landed.map((c) => [c.cell, c.value]));
+      // The last respin is the last chance: its cells stop slowly.
+      const last = this.feature.left === 1;
+      this.feature.spinning = empty;
+      if (last && this.seq.speed === 'smart') sfx.tension();
       if (!(await this.wait(RESPIN_MS))) return false;
-      this.feature.spinning = false;
-      for (const c of respin.landed) this.feature.held[c.cell] = c.value;
+      for (const cell of empty) {
+        if (!(await this.wait(last ? CELL_STOP_MS * 2 : CELL_STOP_MS))) return false;
+        this.feature.spinning = this.feature.spinning.filter((c) => c !== cell);
+        const value = landed.get(cell);
+        if (value) {
+          this.feature.held[cell] = value;
+          this.feature.left = machine.holdSpin.respins;
+          sfx.coin();
+        }
+      }
       this.feature.left = respin.left;
-      if (respin.landed.length) sfx.coin();
-      else sfx.reel();
+      if (!respin.landed.length) sfx.reel();
       if (!(await this.wait(respin.landed.length ? LAND_MS : LAND_MS * 0.6))) return false;
     }
 
@@ -337,8 +377,8 @@ export class SlotGame {
     return true;
   }
 
-  private reportFor(result: SlotSpinResult): RoundReport {
-    const net = result.pay - 1;
+  private reportFor(spin: Spin): RoundReport {
+    const net = spin.pay - 1;
     return {
       game: this.machine.id,
       seed: { run: this.runSeed, round: this.round },
@@ -348,7 +388,7 @@ export class SlotGame {
   }
 
   /** The spin's lines for the breakdown, in bets. */
-  private linesFor(result: SlotSpinResult): BreakdownLine[] {
+  private linesFor({ result, meters, mystery }: Spin): BreakdownLine[] {
     const lines: BreakdownLine[] = [{ label: 'Spin', amount: -1 }];
     if (result.wins.length) {
       const n = result.wins.reduce((sum, w) => sum + w.ways, 0);
@@ -359,37 +399,44 @@ export class SlotGame {
       const cash = f.coins.reduce((sum, c) => sum + (c.value.kind === 'cash' ? c.value.x : 0), 0);
       lines.push({ label: `Hold & spin · ${f.coins.length} coins`, amount: cash });
       for (const tier of f.jackpots) {
-        lines.push({ label: `${tier[0]!.toUpperCase()}${tier.slice(1)} jackpot`, amount: jackpotPay(this.machine, tier, jackpots.meters) });
+        lines.push({ label: `${tier[0]!.toUpperCase()}${tier.slice(1)} jackpot`, amount: jackpotPay(this.machine, tier, meters) });
       }
     }
+    if (mystery) lines.push({ label: 'Must-hit Major', amount: meters.major });
     return lines;
   }
 
-  private settle(result: SlotSpinResult, bet: Decimal) {
-    const net = result.pay - 1;
-    const lines = this.linesFor(result);
+  private settle(spin: Spin, bet: Decimal) {
+    const { result } = spin;
+    const net = spin.pay - 1;
+    const lines = this.linesFor(spin);
     // Charms act on the settled spin; the bankroll is paid the spin and whatever they add.
-    const charms = meta.settleRound(this.reportFor(result), bet, net);
+    const charms = meta.settleRound(this.reportFor(spin), bet, net);
     const units = net + charms.extra;
     this.last = { lines: [...lines, ...charms.lines], net: units };
     // Whoever hits a progressive starts it over, for every machine on the floor.
-    for (const tier of result.feature?.jackpots ?? []) if (tier === 'major' || tier === 'grand') jackpots.hit(tier);
+    const hits = [...(result.feature?.jackpots ?? []), ...(spin.mystery ? ['major' as const] : [])];
+    for (const tier of hits) {
+      if (tier !== 'major' && tier !== 'grand') continue;
+      const x = spin.meters[tier];
+      jackpots.hit({ tier, x, paid: bet.mul(x).toString(), machine: this.machine.name, mystery: spin.mystery && tier === 'major' });
+    }
     const money = bet.mul(units);
     this.lastBet = bet;
     this.spins++;
     if (result.feature) this.features++;
     this.wagered = this.wagered.add(bet);
-    this.returned = this.returned.add(bet.mul(result.pay));
+    this.returned = this.returned.add(bet.mul(spin.pay));
     this.sessionNet = this.sessionNet.add(money);
-    if (bet.mul(result.pay).gt(this.biggestWin)) this.biggestWin = bet.mul(result.pay);
+    if (bet.mul(spin.pay).gt(this.biggestWin)) this.biggestWin = bet.mul(spin.pay);
     this.round++;
-    if (result.pay > 0) {
+    if (spin.pay > 0) {
       const top = [...result.wins].sort((a, b) => b.pay - a.pay)[0];
       const name = top ? this.machine.symbols.find((s) => s.id === top.symbol)!.name : '';
       const entry: HistoryEntry = {
         round: this.round,
-        text: result.feature ? 'Hold & spin' : `${top!.reels} ${name}`,
-        sub: result.feature ? `${result.feature.coins.length} coins` : `${result.wins.length} win${result.wins.length > 1 ? 's' : ''}`,
+        text: spin.mystery ? 'Must-hit Major' : result.feature ? 'Hold & spin' : `${top!.reels} ${name}`,
+        sub: result.feature ? `${result.feature.coins.length} coins` : `${result.wins.length} win${result.wins.length === 1 ? '' : 's'}`,
         net: money,
       };
       this.history = [entry, ...this.history].slice(0, 12);
