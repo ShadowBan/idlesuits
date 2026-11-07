@@ -17,7 +17,7 @@ export type LinePhase = 'idle' | 'sinking' | 'landed' | 'snapped';
  * Deep Drop: Crash on a fishing line. The bet is staked as the line drops;
  * the multiplier climbs as the hook sinks, and the line snaps at the round's
  * point (drawn when it drops, from its seed). Reel in before then, by hand or
- * at the marker, and the bet pays the multiplier reached.
+ * at auto play's marker, and the bet pays the multiplier reached.
  *
  * The line only snaps once the multiplier goes past its point, so a reel-in
  * at m is paid whenever the point is at least m: the chance is the line's
@@ -27,6 +27,7 @@ export type LinePhase = 'idle' | 'sinking' | 'landed' | 'snapped';
  */
 export class CrashGame extends InstantGame {
   /** Reel in by itself at this multiplier, or never (0). Saved. */
+  /** Where auto play reels in. Lines played by hand are reeled in by hand. Saved. */
   marker = $state(2);
   phase = $state<LinePhase>('idle');
   /** The multiplier now, as the hook sinks. */
@@ -43,7 +44,7 @@ export class CrashGame extends InstantGame {
   constructor() {
     super('deepdrop');
     const marker = load<number>('deepdrop.marker', 2);
-    this.marker = typeof marker === 'number' && (marker === 0 || (marker >= MIN_REEL && marker <= CRASH_CAP)) ? marker : 2;
+    this.marker = typeof marker === 'number' && marker >= MIN_REEL && marker <= CRASH_CAP ? marker : 2;
   }
 
   get sinking(): boolean {
@@ -61,7 +62,8 @@ export class CrashGame extends InstantGame {
   }
 
   setMarker(x: number) {
-    this.marker = x <= 1 ? 0 : Math.min(CRASH_CAP, Math.max(MIN_REEL, Math.round(x * 100) / 100));
+    if (!Number.isFinite(x)) return;
+    this.marker = Math.min(CRASH_CAP, Math.max(MIN_REEL, Math.round(x * 100) / 100));
     save('deepdrop.marker', this.marker);
   }
 
@@ -96,7 +98,8 @@ export class CrashGame extends InstantGame {
         return this.end(false);
       }
       this.m = m;
-      if (this.marker && m >= this.marker) {
+      // Auto play reels in at its marker; a line played by hand waits for the player.
+      if (this.autoPlay && m >= this.marker) {
         this.m = this.marker;
         return this.end(true);
       }
@@ -130,14 +133,13 @@ export class CrashGame extends InstantGame {
     else sfx.lose();
     const gold = this.golden ? 'Golden line · ' : '';
     const text = landed ? `${gold}Reeled in ${this.m.toFixed(2)}×` : live.snap <= 1 ? `${gold}Snapped at once` : `${gold}Snapped at ${live.snap.toFixed(2)}×`;
-    const sub = landed ? `line held to ${live.snap.toFixed(2)}×` : this.marker ? `marker ${this.marker.toFixed(2)}×` : 'no marker';
+    const sub = landed ? `line held to ${live.snap.toFixed(2)}×` : this.autoPlay ? `auto play at ${this.marker.toFixed(2)}×` : 'reeled by hand';
     const lines = landed ? [{ label: `Reeled in at ${this.m.toFixed(2)}×${this.golden ? `, golden ×${GOLD_X}` : ''}`, amount: pay }] : [];
     this.settle(live.round, live.bet, pay, text, sub, lines);
   }
 
-  /** Auto play: line after line, reeling in at the marker (2× if none is set). */
+  /** Auto play: line after line, reeling in at the marker. */
   private async runAuto() {
-    if (!this.marker) this.setMarker(2);
     while (this.autoPlay && !this.seq.disposed) {
       if (!this.live && !this.drop()) {
         this.autoPlay = false;

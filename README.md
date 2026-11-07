@@ -70,7 +70,7 @@ And the **instant games**, the quick press-your-luck games online casinos run be
   is the same however the player digs. With no stars, cart or vault it's the real game's rtp ÷ the
   chance of surviving.
 - **Deep Drop** — Crash, on a fishing line. The multiplier climbs as the hook sinks until the line
-  snaps; reel in first, by hand or at a marker you can type. One line in 30 drops golden and pays
+  snaps; reel in first (auto play reels in at a marker you set). One line in 30 drops golden and pays
   double. The snap point is drawn so the line lasts to x with chance r ÷ x, with r the payback less
   the golden lines' share, so every reel-in pays back the same.
 - **Lucky Drop** — Plinko. Balls fall through 8, 12 or 16 rows of pegs, left or right as likely as not,

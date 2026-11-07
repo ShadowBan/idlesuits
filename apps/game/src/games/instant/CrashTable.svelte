@@ -26,8 +26,8 @@
   const WORLD = depthOf(CRASH_CAP) + 220;
   /** Marks on the depth gauge. */
   const MARKS = [1.5, 2, 3, 5, 10, 20, 50, 100, 250, 500, 1000, 2500, 5000, 10000];
-  /** The marker's steps: off, then the usual targets. */
-  const MARKER_STEPS = [0, 1.2, 1.5, 2, 3, 5, 10, 20, 50, 100, 250, 1000];
+  /** Auto play's marker, stepped through the usual targets. */
+  const MARKER_STEPS = [1.2, 1.5, 2, 3, 5, 10, 20, 50, 100, 250, 1000];
 
   /** The viewport's height, to keep the hook in view as it sinks. */
   let viewH = $state(500);
@@ -50,10 +50,12 @@
   /** What bit through the line: something bigger the deeper it went. */
   const beast = $derived((game.result?.at ?? 1) >= 100 ? 'kraken' : (game.result?.at ?? 1) >= 10 ? 'eel' : 'shark');
 
-  /** A marker typed in: anything from 1.01× up, or blank for none. */
+  /** A marker typed in: anything from 1.01× up; anything else leaves it as it was. */
   function typeMarker(e: Event) {
-    const v = parseFloat((e.currentTarget as HTMLInputElement).value);
-    game.setMarker(Number.isFinite(v) ? v : 0);
+    const input = e.currentTarget as HTMLInputElement;
+    const v = parseFloat(input.value);
+    if (Number.isFinite(v)) game.setMarker(v);
+    input.value = String(game.marker);
   }
 
   /**
@@ -79,10 +81,10 @@
   /** The fish on the hook when a line is landed: the kind that swims at that depth. */
   const caught = $derived(game.phase === 'landed' && game.result ? ([...KINDS].reverse().find((k) => game.result!.at >= k.at) ?? KINDS[0]!) : null);
 
-  const markerIndex = $derived(Math.max(0, MARKER_STEPS.findIndex((x) => x >= game.marker)));
+  /** The next step up or down from wherever the marker is, typed or stepped. */
   function stepMarker(d: number) {
-    const i = game.marker && !MARKER_STEPS.includes(game.marker) ? markerIndex - (d < 0 ? 0 : 1) : markerIndex;
-    game.setMarker(MARKER_STEPS[Math.min(MARKER_STEPS.length - 1, Math.max(0, i + d))]!);
+    const next = d > 0 ? MARKER_STEPS.find((x) => x > game.marker) : [...MARKER_STEPS].reverse().find((x) => x < game.marker);
+    if (next) game.setMarker(next);
   }
 
   function onTap() {
@@ -116,7 +118,7 @@
   bind:this={rules}
   steps={[
     { title: 'Drop the line', demo: '⚓', text: 'Stake your bet and the hook sinks. The deeper it goes, the higher the multiplier climbs.' },
-    { title: 'Reel in', demo: '2.40×', text: 'Reel in any time to win your bet times the multiplier, or set a marker and the reel does it there.' },
+    { title: 'Reel in', demo: '2.40×', text: 'Reel in any time to win your bet times the multiplier. In auto play, the reel does it at the depth you mark.' },
     { title: 'Don’t wait too long', demo: '✂', text: 'Somewhere down there something bites through the line. Snap, and the bet is lost.' },
   ]}
 >
@@ -182,12 +184,12 @@
         <!-- Sunlight in shafts down through the shallows. -->
         <div class="rays" style:top="{SURFACE}px" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
 
-        <!-- The depth gauge, and the marker where the reel takes over. -->
+        <!-- The depth gauge, and, in auto play, the marker where the reel takes over. -->
         {#each MARKS as x (x)}
           <div class="mark" class:passed={game.m >= x} style:top="{depthOf(x)}px"><span>{fmtX(x)}×</span></div>
         {/each}
-        {#if game.marker}
-          <div class="marker" style:top="{depthOf(game.marker)}px"><span>Reel in {fmtX(game.marker)}×</span></div>
+        {#if game.autoPlay}
+          <div class="marker" style:top="{depthOf(game.marker)}px"><span>Auto play reels in {fmtX(game.marker)}×</span></div>
         {/if}
 
         <!-- The school: every depth has its fish, stranger the deeper. -->
@@ -290,35 +292,15 @@
   {#snippet action()}
     <div class="bar">
       {#if game.sinking}
-        <button type="button" class="go primary reel" disabled={!game.reelPay} onclick={() => game.reelIn()}>
+        <button type="button" class="go primary reel" disabled={!game.reelPay || game.autoPlay} onclick={() => game.reelIn()}>
           {game.reelPay ? `Reel in ${formatMoney(game.reelPay)}` : 'Reel in'}
         </button>
-        <span class="note">{game.marker ? `The reel takes over at ${fmtX(game.marker)}×` : 'No marker: reel in by hand'}</span>
+        <span class="note">{game.autoPlay ? `Auto play reels in at ${fmtX(game.marker)}×` : 'Reel in before something bites through the line'}</span>
       {:else}
         <BetPicker {game} />
-        <div class="stepper" role="group" aria-label="Reel-in marker">
-          <span class="k keep">Marker</span>
-          <button type="button" aria-label="Lower marker" onclick={() => stepMarker(-1)} disabled={!game.marker}>−</button>
-          <label class="typed">
-            <input
-              type="number"
-              inputmode="decimal"
-              min="1.01"
-              max={CRASH_CAP}
-              step="0.01"
-              placeholder="Off"
-              value={game.marker ? game.marker : ''}
-              onchange={typeMarker}
-              aria-label="Reel in at"
-            /><span>×</span>
-          </label>
-          <button type="button" aria-label="Raise marker" onclick={() => stepMarker(1)} disabled={markerIndex >= MARKER_STEPS.length - 1}>+</button>
-        </div>
         <button type="button" class="go primary" disabled={!game.canBet || game.autoPlay} onclick={() => game.drop()}>Drop line</button>
         <span class="note">
-          {game.marker
-            ? `Lands at ${fmtX(game.marker)}× ${(crashChance(lineRtp, game.marker) * 100).toFixed(game.marker >= 100 ? 2 : 1)}% of the time, for ${formatMoney(game.bet.mul(game.marker))} (×${GOLD_X} on a golden line)`
-            : 'No marker: you reel in by hand'}
+          {game.autoPlay ? `Auto play reels in at ${fmtX(game.marker)}×` : `Drop, then reel in when you like · 1 line in ${Math.round(1 / GOLD_CHANCE)} drops golden and pays ×${GOLD_X}`}
         </span>
       {/if}
     </div>
@@ -339,7 +321,21 @@
     >
       {#snippet automation()}
         <section class="panel ipanel">
-          <p class="note">Auto play drops line after line and reels in at the marker ({game.marker ? `${fmtX(game.marker)}×` : 'set to 2× if off'}).</p>
+          <div class="row">
+            <span class="muted">Auto play reels in at</span>
+            <div class="stepper small" role="group" aria-label="Auto play reels in at">
+              <button type="button" aria-label="Lower" onclick={() => stepMarker(-1)} disabled={game.marker <= MARKER_STEPS[0]!}>−</button>
+              <label class="typed">
+                <input type="number" inputmode="decimal" min="1.01" max={CRASH_CAP} step="0.01" value={game.marker} onchange={typeMarker} aria-label="Reel in at" /><span>×</span>
+              </label>
+              <button type="button" aria-label="Higher" onclick={() => stepMarker(1)} disabled={game.marker >= MARKER_STEPS.at(-1)!}>+</button>
+            </div>
+          </div>
+          <p class="note">
+            Auto play drops line after line and reels each in at {fmtX(game.marker)}×: it lands
+            {(crashChance(lineRtp, game.marker) * 100).toFixed(game.marker >= 100 ? 2 : 1)}% of the time, for
+            {formatMoney(game.bet.mul(game.marker))} (×{GOLD_X} on a golden line). Lines you drop yourself, you reel in yourself.
+          </p>
         </section>
       {/snippet}
       <section class="panel ipanel">

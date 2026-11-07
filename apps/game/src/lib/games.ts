@@ -308,10 +308,10 @@ export const INSTANT: InstantEntry[] = [
     name: 'Deep Drop',
     tagline: 'The deeper the hook, the bigger the catch.',
     blurb:
-      'Drop a line into the deep. The multiplier climbs as the hook sinks, until something down there bites through the line. Reel in before it does, or set a marker and let the reel do it for you.',
+      'Drop a line into the deep. The multiplier climbs as the hook sinks, until something down there bites through the line. Reel in before it does. One line in 30 drops golden and pays double.',
     kind: 'Crash',
     motif: ['⚓', '≈', '⤓'],
-    facts: ['Up to 10,000×', 'Auto reel-in'],
+    facts: ['Up to 10,000×', 'Golden lines'],
     accent: '#2fc4b2',
     load: () => import('../games/instant/CrashTable.svelte'),
   },
