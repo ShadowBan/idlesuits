@@ -148,7 +148,10 @@
         <h3>Slots <span>Grand {jackpots.grand.toFixed(1)}× · Major {jackpots.major.toFixed(1)}×</span></h3>
         <div class="row">
           <button type="button" aria-pressed={slotTest.forceFeature} onclick={() => (slotTest.forceFeature = !slotTest.forceFeature)}>
-            {slotTest.forceFeature ? 'Next spin: hold & spin ✓' : 'Next spin lands hold & spin'}
+            {slotTest.forceFeature ? 'Next spin: bonus ✓' : 'Next spin lands the bonus'}
+          </button>
+          <button type="button" aria-pressed={slotTest.fillPots} onclick={() => (slotTest.fillPots = !slotTest.fillPots)}>
+            {slotTest.fillPots ? 'Next spin: pots full ✓' : 'Fill every pot'}
           </button>
         </div>
         <div class="row">

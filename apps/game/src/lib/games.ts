@@ -206,7 +206,7 @@ export const SLOTS: SlotEntry[] = [
     name: 'Midnight Vault',
     tagline: 'Six coins crack the vault.',
     blurb:
-      'Five reels, 243 ways. Land six gold coins for hold & spin: coins stick, every new one resets the respins, and a full screen wins the Grand.',
+      'Five reels, 243 ways. Land six gold coins for hold & spin: coins stick, every new one resets the respins, and a full screen wins the Grand. Three pots of gems boost it: all three is the Super.',
     feature: 'Hold & spin',
     motif: ['$', '●', '$'],
     facts: ['243 ways', '4 jackpots', 'Linked progressive'],
@@ -216,22 +216,50 @@ export const SLOTS: SlotEntry[] = [
   {
     id: 'forge',
     name: 'Lucky Forge',
-    tagline: 'Bronze to silver to gold.',
-    blurb: 'Every hammer strike in the bonus upgrades the symbols a tier, and the bigger tiers pay the bigger wins.',
+    tagline: 'Bronze to silver to gold to crown.',
+    blurb:
+      'Three anvils start free spins. Every three hammers strike the forge and every horseshoe moves up a tier, with extra spins. A screen of crowns wins the Grand. Embers fill three pots: 2× wilds, more spins, a head start.',
     feature: 'Upgrading symbols',
-    motif: ['▲', '7', '▲'],
-    facts: ['Symbol tiers', 'Free spins'],
+    motif: ['⚒', '♛', '⚒'],
+    facts: ['243 ways', 'Free spins', 'Up to 4 tiers'],
     accent: '#ff8a4c',
+    load: () => import('../games/slots/SlotTable.svelte'),
   },
   {
     id: 'haul',
     name: "Pirate's Haul",
     tagline: 'The captain takes every coin.',
-    blurb: 'Coins land with cash on them, and the captain collects them all. In free spins, every captain collects again.',
+    blurb:
+      'Doubloons land with cash or a jackpot on them, and a captain on reel 5 takes them all. In free spins every fifth captain adds spins and raises the multiplier to 10×. Three pots add a head start, more spins and double doubloons.',
     feature: 'Collector',
-    motif: ['●', '✕', '●'],
-    facts: ['Cash on reels', 'Collect feature'],
+    motif: ['●', '☠', '●'],
+    facts: ['243 ways', 'Cash on reels', 'Up to 10×'],
     accent: '#4cc9b0',
+    load: () => import('../games/slots/SlotTable.svelte'),
+  },
+  {
+    id: 'carnival',
+    name: 'Carnival Crown',
+    tagline: 'Step right up. Climb the wheel.',
+    blurb:
+      'Three wheel tickets spin the carnival wheel for cash and jackpots. Land Up and climb to the next wheel in, all the way to the crown wheel and its Grand. Three pots add Up wedges, a multiplier ring and a second spin.',
+    feature: 'Wheel bonus',
+    motif: ['◎', '▲', '◎'],
+    facts: ['243 ways', '3 wheels', '4 jackpots'],
+    accent: '#e8344f',
+    load: () => import('../games/slots/SlotTable.svelte'),
+  },
+  {
+    id: 'lanterns',
+    name: 'Paper Lanterns',
+    tagline: 'Match three, win the jackpot.',
+    blurb:
+      'Three lanterns start the jackpot pick: twelve lanterns hide three of each jackpot. Open them one by one until a jackpot shows three times. Three pots add a second board, clear the Mini and raise the jackpot.',
+    feature: 'Jackpot pick',
+    motif: ['◉', '◉', '◉'],
+    facts: ['243 ways', 'Pick to match', '4 jackpots'],
+    accent: '#ff7a3a',
+    load: () => import('../games/slots/SlotTable.svelte'),
   },
 ];
 

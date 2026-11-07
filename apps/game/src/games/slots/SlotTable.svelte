@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onDestroy } from 'svelte';
   import { Tween } from 'svelte/motion';
-  import { MACHINES, MIDNIGHT_VAULT, slotPayback, type CoinValue } from '@idlesuits/sim';
+  import { MACHINES, MIDNIGHT_VAULT, slotPayback, type CoinValue, type JackpotTier, type WheelWedge } from '@idlesuits/sim';
   import SeatOverlay from '../../components/SeatOverlay.svelte';
   import TablePanels from '../../components/TablePanels.svelte';
   import TableShell from '../../components/TableShell.svelte';
@@ -12,7 +12,7 @@
   import { formatLimit } from '../../lib/rooms';
   import { route } from '../../lib/route.svelte';
   import { unlockAudio } from '../../lib/sound';
-  import { BET_STEPS, SlotGame, SUMMARY_MS } from './game.svelte';
+  import { BET_STEPS, bonusName, carrierName, isSuper, powerText, SlotGame, SUMMARY_MS, TIER_LABEL, TIER_NAME, WHEEL_NAMES } from './game.svelte';
   import SlotRules from './SlotRules.svelte';
   import SlotSymbol from './SlotSymbol.svelte';
 
@@ -30,27 +30,114 @@
   const nextBet = $derived(BET_STEPS[game.step + 1] ? floor.room.min.mul(BET_STEPS[game.step + 1]!) : null);
   const cells = machine.reels.length * machine.rows;
 
-  /** What a coin shows: its cash at this bet, or its jackpot. */
-  function coinLabel(value: CoinValue, bet: Decimal): string {
-    return value.kind === 'cash' ? formatLimit(bet.mul(value.x)) : value.tier.toUpperCase();
+  /** Cash on a coin: short, but with the cents a boost can add while they matter. */
+  function coinMoney(amount: Decimal): string {
+    const n = amount.toNumber();
+    return n < 100 && Math.abs(n - Math.round(n)) > 1e-9 ? formatMoney(amount) : formatLimit(amount);
   }
 
-  /** A run of each reel's own strip, twice over, for the blur while it spins. */
-  const blur = machine.reels.map((strip, r) => {
-    const run = Array.from({ length: 8 }, (_, i) => strip[(r * 11 + i * 3) % strip.length]!);
-    return [...run, ...run];
+  /** What a coin shows: its cash at this bet, boost included, or its jackpot. */
+  function coinLabel(value: CoinValue, bet: Decimal, boost = 0): string {
+    return value.kind === 'cash' ? coinMoney(bet.mul(value.x + boost)) : value.tier.toUpperCase();
+  }
+
+  /** The pots over the reels, if the machine has them. Each is tinted by how rare it is: green, blue, then purple. */
+  const pots = machine.pots ?? [];
+  const carriers = carrierName(machine);
+  const allFull = $derived(pots.length > 1 && pots.every((p, i) => (game.pots[i] ?? 0) >= p.size));
+  const superInPlay = $derived(isSuper(machine, game.potsInPlay));
+
+  /** A run of each reel's own strip, twice over, for the blur while it spins: the base reels, or the free-spin reels. */
+  const blurOf = (reels: readonly (readonly string[])[]) =>
+    reels.map((strip, r) => {
+      const run = Array.from({ length: 8 }, (_, i) => strip[(r * 11 + i * 3) % strip.length]!);
+      return [...run, ...run];
+    });
+  const baseBlur = blurOf(machine.reels);
+  const bonus = machine.bonus;
+  const freeBlur = bonus.kind === 'upgrade' || bonus.kind === 'collect' ? blurOf(bonus.reels) : baseBlur;
+  const blur = $derived(game.free ? freeBlur : baseBlur);
+
+  /** What the bonus needs, in a few words, for the meter and the seat. */
+  const trigger = $derived.by(() => {
+    switch (bonus.kind) {
+      case 'holdSpin':
+        return 'Six coins start hold & spin';
+      case 'upgrade':
+        return 'Three anvils start free spins';
+      case 'collect':
+        return 'Three maps start free spins';
+      case 'wheel':
+        return 'Three tickets spin the wheel';
+      case 'pick':
+        return 'Three lanterns start the jackpot pick';
+    }
   });
+  const INTRO: Record<string, string> = {
+    holdSpin: 'Line symbols up from the left reel, 243 ways. Six gold coins start hold & spin, and a full screen cracks the Grand.',
+    upgrade:
+      'Line symbols up from the left reel, 243 ways. Three anvils start free spins, where every three hammers forge the horseshoes up a tier, bronze to silver to gold to crown. A screen of crowns wins the Grand.',
+    collect:
+      'Line symbols up from the left reel, 243 ways. Doubloons carry cash and jackpots, and a captain on reel 5 takes them all. Three maps start free spins, where every fifth captain raises the multiplier.',
+    wheel: 'Line symbols up from the left reel, 243 ways. Three wheel tickets on reels 2, 3 and 4 spin the carnival wheel. Land Up to climb to the crown wheel and its Grand.',
+    pick: 'Line symbols up from the left reel, 243 ways. Three lanterns start the jackpot pick: pick lanterns until one jackpot shows three times.',
+  };
+
+  /** The wheel: each wedge's path and label, ring by ring, outermost first. */
+  const RINGS = [
+    { outer: 97, inner: 69 },
+    { outer: 67, inner: 43 },
+    { outer: 41, inner: 17 },
+  ];
+  function wedgePath(i: number, n: number, outer: number, inner: number): string {
+    const a0 = ((i / n) * 360 - 90) * (Math.PI / 180);
+    const a1 = (((i + 1) / n) * 360 - 90) * (Math.PI / 180);
+    const p = (r: number, a: number) => `${(r * Math.cos(a)).toFixed(2)} ${(r * Math.sin(a)).toFixed(2)}`;
+    return `M${p(outer, a0)} A${outer} ${outer} 0 0 1 ${p(outer, a1)} L${p(inner, a1)} A${inner} ${inner} 0 0 0 ${p(inner, a0)} Z`;
+  }
+  function wedgeLabel(w: WheelWedge): string {
+    if (w.kind === 'up') return 'UP';
+    if (w.kind === 'jackpot') return w.tier.toUpperCase();
+    return formatLimit(shownBet.mul(w.x));
+  }
+  function wedgeFill(w: WheelWedge, i: number, ring: number): string {
+    if (w.kind === 'up') return '#ffd75e';
+    if (w.kind === 'jackpot') return TIER_COLORS[w.tier];
+    const shades = [
+      ['#6c3fd1', '#4a2a9a'],
+      ['#c0306a', '#8a1f4c'],
+      ['#1f8a8a', '#146464'],
+    ][ring]!;
+    return shades[i % 2]!;
+  }
+  const TIER_COLORS: Record<JackpotTier, string> = { mini: '#7ad8ff', minor: '#8cf08a', major: '#ff6b8b', grand: '#ffd75e' };
+
+  /** The pick's board, in rows of four. */
+  const PICK_COLS = 4;
+
+  const CONTROL_NOTE: Record<string, string> = {
+    holdSpin: 'Hold & spin stops and waits for you to start each respin.',
+    upgrade: 'Free spins wait for you to press Start.',
+    collect: 'Free spins wait for you to press Start.',
+    wheel: 'The wheel waits for you to spin it.',
+    pick: 'The pick waits for you to choose each lantern.',
+  };
 
   // The progressive meters roll up smoothly as the link feeds them, to the cent.
   const grand = Tween.of(() => jackpots.grand, { duration: 900 });
   const major = Tween.of(() => jackpots.major, { duration: 900 });
 
-  const JACKPOT_ROWS = $derived([
-    { tier: 'grand', name: 'Grand', amount: game.bet.mul(grand.current) },
-    { tier: 'major', name: 'Major', amount: game.bet.mul(major.current) },
-    { tier: 'minor', name: 'Minor', amount: game.bet.mul(machine.jackpots.minor) },
-    { tier: 'mini', name: 'Mini', amount: game.bet.mul(machine.jackpots.mini) },
-  ] as const);
+  /** The jackpots this machine pays; the must-hit Major pays on every machine. */
+  const JACKPOT_ROWS = $derived(
+    (
+      [
+        { tier: 'grand', name: 'Grand', amount: game.bet.mul(grand.current) },
+        { tier: 'major', name: 'Major', amount: game.bet.mul(major.current) },
+        { tier: 'minor', name: 'Minor', amount: game.bet.mul(machine.jackpots.minor) },
+        { tier: 'mini', name: 'Mini', amount: game.bet.mul(machine.jackpots.mini) },
+      ] as const
+    ).filter((j) => j.tier === 'major' || machine.awards.includes(j.tier)),
+  );
   /** How far the Major has climbed toward the amount it must hit by. */
   const majorClimb = $derived((major.current - JACKPOT_SEEDS.major) / (MAJOR_CAP - JACKPOT_SEEDS.major));
 
@@ -94,6 +181,7 @@
   const MINI = ['coin', 'tile', 'tile', 'coin', 'tile', 'tile', 'coin', 'tile', 'tile', 'coin', 'tile', 'tile'];
 
   function onTap() {
+    if (seq.awaiting === 'pick') return;
     if (picking) picking = false;
     else if (game.summary) game.dismiss();
     else game.spin();
@@ -139,9 +227,9 @@
   onTapFelt={onTap}
 >
   {#snippet felt()}
-    <div class="cabinet" class:in-feature={game.feature !== null}>
+    <div class="cabinet {machine.id}" class:in-feature={game.inBonus} class:has-pots={pots.length > 0}>
       <!-- The jackpot marquee: the Major and Grand are the casino's linked progressives. -->
-      <div class="marquee" aria-label="Jackpots">
+      <div class="marquee" aria-label="Jackpots" style:--plaques={JACKPOT_ROWS.length}>
         {#each JACKPOT_ROWS as j (j.tier)}
           <div class="plaque {j.tier}" class:progressive={j.tier === 'grand' || j.tier === 'major'}>
             <span>{j.name}</span>
@@ -156,6 +244,32 @@
           </div>
         {/each}
       </div>
+
+      {#if pots.length}
+        <!-- The pots: gems on whatever starts the bonus fill them, and they keep what they hold from spin to spin. A full one joins the next bonus. -->
+        <div class="pots" class:ready={allFull} class:super={superInPlay} aria-label="Pots">
+          {#each pots as pot, i (pot.id)}
+            {@const n = game.pots[i] ?? 0}
+            {@const inPlay = game.potsInPlay.includes(i)}
+            <div
+              class="pot r{i}"
+              class:full={n >= pot.size}
+              class:in-play={inPlay}
+              title="{pot.name}: {powerText(pot.power, machine)}. {pot.name} gems on the {carriers} fill it; full, it joins the next {bonusName(machine).toLowerCase()}."
+            >
+              <span class="jar" style:--fill="{(inPlay ? 1 : n / pot.size) * 100}%" aria-hidden="true">
+                <i></i>
+                {#key game.potHits[i]}{#if game.potHits[i]}<em class="plink"></em>{/if}{/key}
+              </span>
+              <span class="pot-text">
+                <b>{pot.name}</b>
+                <small>{inPlay ? 'In play' : n >= pot.size ? 'Ready' : `${n} / ${pot.size}`}</small>
+              </span>
+              <span class="power">{powerText(pot.power, machine)}</span>
+            </div>
+          {/each}
+        </div>
+      {/if}
 
       <div class="glass" role="img" aria-label="Reels">
         {#each machine.reels as _, r (r)}
@@ -172,10 +286,14 @@
                   class:empty={!coin}
                   class:fresh={game.feature.fresh.includes(cell)}
                   class:tense={whirling && game.feature.tense.includes(cell)}
+                  class:collected={coin && game.feature.collecting}
                 >
                   {#if coin}
-                    {#key coin}<div class="drop"><SlotSymbol id="coin" coin={coin} label={coinLabel(coin, shownBet)} /></div>{/key}
+                    {@const boost = game.feature.boosted[cell] ?? 0}
+                    {#key coin}<div class="drop"><SlotSymbol id="coin" coin={coin} label={coinLabel(coin, shownBet, boost)} /></div>{/key}
+                    {#if coin.kind === 'jackpot' && boost}<span class="boosted">+{coinMoney(shownBet.mul(boost))}</span>{/if}
                     {#if game.feature.fresh.includes(cell)}<span class="gain">{coinLabel(coin, shownBet)}</span>{/if}
+                    {#key game.feature.boosts}{#if game.feature.boosts && boost}<span class="gain boost">+{coinMoney(shownBet.mul(game.feature.boost))}</span>{/if}{/key}
                   {:else if whirling}
                     <div class="minireel" style:--delay="{-(cell * 37) % 200}ms">
                       {#each MINI as id, i (i)}
@@ -197,13 +315,109 @@
               {#each game.grid[r] ?? [] as id, row (row)}
                 {@const cell = r * machine.rows + row}
                 {@const coin = game.coins[cell]}
-                <div class="cell land" class:lit={lit.has(`${r}:${row}`)} class:dim={lit.size > 0 && !lit.has(`${r}:${row}`)}>
+                {@const taking = game.collecting !== null}
+                <div
+                  class="cell land"
+                  class:lit={lit.has(`${r}:${row}`)}
+                  class:dim={(lit.size > 0 && !lit.has(`${r}:${row}`)) || (taking && !coin && game.collecting?.cell !== cell)}
+                  class:mark={game.free?.marks.includes(cell)}
+                  class:forged={game.free?.forged.includes(cell)}
+                  class:taking={game.collecting?.cell === cell}
+                  class:taken={taking && coin !== undefined}
+                >
                   <SlotSymbol {id} {coin} label={coin ? coinLabel(coin, shownBet) : undefined} />
+                  {#if game.gems[cell] !== undefined}<i class="gem r{game.gems[cell]}" title="{pots[game.gems[cell]]?.name} gem"></i>{/if}
+                  {#if id === 'wild' && game.free && game.free.wildX > 1}<span class="wild-x">×{game.free.wildX}</span>{/if}
+                  {#if game.collecting?.cell === cell}<span class="gain">+{formatMoney(game.collecting.pay)}</span>{/if}
                 </div>
               {/each}
             {/if}
           </div>
         {/each}
+
+        {#if game.wheel}
+          {@const w = game.wheel}
+          <!-- The wheel bonus: three wheels, one inside the other; only the one in play turns. -->
+          <div class="wheel-stage">
+            <svg class="wheel" viewBox="-100 -100 200 200" role="img" aria-label="Bonus wheel, {WHEEL_NAMES[w.at]}">
+              {#if bonus.kind === 'wheel'}
+                {#each w.wheels as wedges, ring (ring)}
+                  {@const { outer, inner } = RINGS[ring]!}
+                  <g
+                    class="ring"
+                    class:active={ring === w.at}
+                    class:ahead={ring > w.at}
+                    style:transform="rotate({w.angles[ring]}deg)"
+                    style:transition-duration="{ring === w.at && w.spinning ? w.ms : 0}ms"
+                  >
+                    {#each wedges as wedge, i (i)}
+                      {@const mid = ((i + 0.5) / wedges.length) * 360}
+                      <path
+                        d={wedgePath(i, wedges.length, outer, inner)}
+                        fill={wedgeFill(wedge, i, ring)}
+                        class="wedge"
+                        class:hit={ring === w.at && w.landed === i}
+                      />
+                      <text
+                        class="wl"
+                        class:dark={wedge.kind !== 'cash'}
+                        transform="rotate({mid}) translate(0 {-(outer + inner) / 2}) rotate({mid > 180 ? 90 : -90})"
+                        text-anchor="middle"
+                        dominant-baseline="central"
+                        font-size={ring === 0 ? 8.5 : ring === 1 ? 8 : 6.6}
+                      >
+                        {wedgeLabel(wedge)}
+                      </text>
+                    {/each}
+                  </g>
+                {/each}
+              {/if}
+              <circle r="15" class="hub" />
+              <path d="M-9 4 L-11 -7 L-5 -2 L0 -10 L5 -2 L11 -7 L9 4 Z" fill="#ffd75e" stroke="#7a4f0c" stroke-width="1" />
+              <!-- The pointer at the top, over the wheel in play. -->
+              {#if RINGS[w.at]}
+                <path class="pointer" d="M-7 {-RINGS[w.at]!.outer - 4} L7 {-RINGS[w.at]!.outer - 4} L0 {-RINGS[w.at]!.outer + 9} Z" />
+              {/if}
+            </svg>
+          </div>
+        {/if}
+
+        {#if game.pick}
+          {@const p = game.pick}
+          <!-- The jackpot pick: three lanterns for each jackpot on the board, twelve unless a pot cleared one away. -->
+          <div class="pick-stage" class:waiting={seq.awaiting === 'pick'}>
+            <div class="tally" style:--tiers={p.tiers.length}>
+              {#each [...p.tiers].reverse() as tier (tier)}
+                <div class="tal {tier}" class:won={p.won === tier} class:close={p.counts[tier] === 2 && !p.won}>
+                  <span>{TIER_NAME[tier]}</span>
+                  <span class="pips">{#each [0, 1, 2] as i (i)}<i class:on={i < p.counts[tier]}></i>{/each}</span>
+                </div>
+              {/each}
+            </div>
+            <div class="board" style:--cols={p.tiles.length % PICK_COLS ? 3 : PICK_COLS}>
+              {#each p.tiles as tile, i (i)}
+                {@const picked = p.picked.includes(i)}
+                <button
+                  type="button"
+                  class="lantern {tile ?? ''}"
+                  class:open={tile !== null}
+                  class:rest={tile !== null && !picked}
+                  class:just={p.last === i}
+                  class:winner={p.won !== null && tile === p.won && picked}
+                  disabled={tile !== null || seq.awaiting !== 'pick'}
+                  aria-label={tile ? `${TIER_NAME[tile]}` : `Lantern ${i + 1}`}
+                  onclick={() => game.choose(i)}
+                >
+                  {#if tile}
+                    <b>{TIER_NAME[tile]}</b>
+                  {:else}
+                    <SlotSymbol id="lantern" />
+                  {/if}
+                </button>
+              {/each}
+            </div>
+          </div>
+        {/if}
 
         {#if game.feature?.note}
           {#key game.feature.note + game.feature.left}
@@ -215,11 +429,11 @@
           {@const sum = game.summary}
           {#key sum.key}
             <!-- The bonus win: up for a few seconds, or until a tap closes it. -->
-            <div class="summary" class:grand={sum.full} role="status" style:--ms="{SUMMARY_MS}ms">
-              <span class="eyebrow">Hold & spin</span>
+            <div class="summary" class:grand={sum.grand} role="status" style:--ms="{SUMMARY_MS}ms">
+              <span class="eyebrow">{sum.title}</span>
               <b>{formatMoney(sum.bonus)}</b>
               <span class="detail">
-                {sum.coins} coins{#each sum.jackpots as tier, i (i)} · {tier[0]!.toUpperCase() + tier.slice(1)} jackpot{/each}
+                {[...sum.details, ...sum.jackpots.map((t) => `${TIER_NAME[t]} jackpot`)].join(' · ')}
               </span>
               {#if !sum.total.eq(sum.bonus)}
                 <span class="detail">Total this spin {formatMoney(sum.total)}</span>
@@ -235,6 +449,7 @@
             <div class="banner {game.banner.tier ?? 'feature'}" aria-live="assertive">
               <b>{game.banner.title}</b>
               {#if game.banner.amount}<span>{formatMoney(game.banner.amount)}</span>{/if}
+              {#if game.banner.sub}<small>{game.banner.sub}</small>{/if}
             </div>
           {/key}
         {/if}
@@ -266,7 +481,7 @@
             {#key game.feature.resets}
               <span class="respins" class:flash={game.feature.resets > 0} aria-label="{game.feature.left} respins left">
                 Respins
-                {#each Array.from({ length: machine.holdSpin.respins }, (_, i) => i) as i (i)}
+                {#each Array.from({ length: game.feature.respins }, (_, i) => i) as i (i)}
                   <i class:on={i < game.feature.left}></i>
                 {/each}
               </span>
@@ -275,6 +490,41 @@
             {#if seq.awaiting === 'respin'}<span class="prompt">Press Respin</span>{/if}
             <span>{Object.keys(game.feature.held).length} / {cells}</span>
             <b>{formatMoney(game.feature.collected)}</b>
+          {:else if game.free && !game.free.done && (bonus.kind === 'upgrade' || bonus.kind === 'collect')}
+            {@const fv = game.free}
+            {@const cap = bonus.perLevel * bonus.maxLevel}
+            {@const into = fv.level >= bonus.maxLevel ? bonus.perLevel : fv.meter - fv.level * bonus.perLevel}
+            <span>{fv.played ? `Spin ${fv.played} / ${fv.total}` : `${fv.total} spins`}</span>
+            {#key fv.levelUps}
+              <span class="respins" class:flash={fv.levelUps > 0} aria-label="{fv.meter} of {cap} {bonus.kind === 'upgrade' ? 'hammers' : 'captains'}">
+                {bonus.kind === 'upgrade' ? 'Hammers' : 'Captains'}
+                {#each Array.from({ length: bonus.perLevel }, (_, i) => i) as i (i)}
+                  <i class:on={i < into}></i>
+                {/each}
+              </span>
+            {/key}
+            {#if bonus.kind === 'upgrade'}
+              <!-- The forge's ladder: the tiers struck away so far are crossed out. -->
+              <span class="ladder" aria-label="Lowest metal: {TIER_LABEL[bonus.tiers[Math.min(fv.level, bonus.tiers.length - 1)]!]}">
+                {#each bonus.tiers as tier, i (tier)}
+                  <i class:gone={i < fv.level} class:now={i === Math.min(fv.level, bonus.tiers.length - 1)}><SlotSymbol id={tier} /></i>
+                {/each}
+              </span>
+            {:else}
+              <span class="level">{bonus.multipliers[fv.level]}× cash</span>
+            {/if}
+            {#if seq.awaiting === 'free'}<span class="prompt">Press Start</span>{/if}
+            <b>{formatMoney(fv.collected)}</b>
+          {:else if game.wheel && !game.wheel.done}
+            <span>{WHEEL_NAMES[game.wheel.at]}</span>
+            {#if game.wheel.rounds > 1}<span>Spin {game.wheel.round} of {game.wheel.rounds}</span>{/if}
+            {#if game.wheel.ring}<span class="level">Ring ×{game.wheel.ring}</span>{/if}
+            {#if seq.awaiting === 'wheel'}<span class="prompt">Press Spin wheel</span>{/if}
+            {#if game.wheel.collected.gt(0)}<b>{formatMoney(game.wheel.collected)}</b>{/if}
+          {:else if game.pick && !game.pick.done}
+            <span>{seq.awaiting === 'pick' ? 'Pick a lantern' : 'Picking'}</span>
+            {#if game.pick.boards > 1}<span>Board {game.pick.board} of {game.pick.boards}</span>{/if}
+            <span>{game.pick.picked.length} picked</span>
           {:else if game.win}
             {#if focused}
               <span class="way">
@@ -285,7 +535,7 @@
             <span>Win</span>
             <b class="won">{formatMoney(game.win)}</b>
           {:else}
-            <span class="quiet">{seq.awaiting === 'spin' ? 'Six coins start hold & spin' : 'Good luck'}</span>
+            <span class="quiet">{seq.awaiting === 'spin' ? trigger : 'Good luck'}</span>
           {/if}
         </div>
       </div>
@@ -294,7 +544,7 @@
     <SeatOverlay
       started={game.started}
       gameOver={game.gameOver}
-      intro="Line symbols up from the left reel, 243 ways. Six gold coins start hold & spin, and a full screen cracks the Grand."
+      intro={INTRO[bonus.kind]!}
       hands={game.spins}
       biggestWin={game.biggestWin}
       onSeat={begin}
@@ -311,6 +561,12 @@
       </div>
       {#if seq.awaiting === 'respin'}
         <button type="button" class="spin primary respin-go" onclick={() => game.spin()}>Respin</button>
+      {:else if seq.awaiting === 'free'}
+        <button type="button" class="spin primary respin-go" onclick={() => game.spin()}>Start</button>
+      {:else if seq.awaiting === 'wheel'}
+        <button type="button" class="spin primary respin-go" onclick={() => game.spin()}>Spin wheel</button>
+      {:else if seq.awaiting === 'pick'}
+        <button type="button" class="spin" onclick={() => game.spin()}>Pick for me</button>
       {:else if game.autoPlay && game.started}
         <button type="button" class="spin" onclick={() => seq.togglePause()}>{seq.paused ? 'Resume' : 'Pause'}</button>
       {:else if game.summary}
@@ -336,7 +592,7 @@
       lastUnit={game.lastBet}
       stats={[
         ['Spins', String(game.spins)],
-        ['Hold & spins', String(game.features)],
+        ['Bonuses', String(game.features)],
         ['Paid back', game.wagered.gt(0) ? `${game.returned.div(game.wagered).mul(100).toNumber().toFixed(1)}%` : '—'],
         ['Biggest win', formatMoney(game.biggestWin)],
       ]}
@@ -349,14 +605,14 @@
             <input type="checkbox" checked={game.bonusFull} onchange={(e) => game.setBonusFull(e.currentTarget.checked)} />
             Bonus at normal speed
           </label>
-          <p class="note">Hold & spin plays out in full even when the deal speed is faster. Off, it follows the deal speed.</p>
+          <p class="note">The bonus plays out in full even when the deal speed is faster. Off, it follows the deal speed.</p>
           <label class="switch">
             <input type="checkbox" checked={game.bonusControl} onchange={(e) => game.setBonusControl(e.currentTarget.checked)} />
             Play the bonus yourself
           </label>
           <p class="note">
-            Hold & spin stops and waits for you to start each respin, even in auto play, which carries on once you collect. Off,
-            it plays itself, for running unattended.
+            {CONTROL_NOTE[bonus.kind]} It waits even in auto play, which carries on once you collect. Off, it plays itself, for
+            running unattended.
           </p>
         </section>
       {/snippet}
@@ -373,14 +629,38 @@
             {/each}
           </tbody>
         </table>
-        <p class="note">Wilds on reels 2–4 stand in for every symbol but the coin.</p>
+        <p class="note">Wilds on reels 2–4 stand in for every pay symbol.</p>
       </section>
       <section class="panel">
-        <h2>Hold & spin</h2>
+        <h2>{bonusName(machine)}</h2>
         <p class="note">
-          {machine.holdSpin.trigger}+ coins start it, about once in {Math.round(1 / payback.triggerRate)} spins. Coins stick, each new one resets
-          the {machine.holdSpin.respins} respins, and a full screen pays the Grand on top.
+          {#if bonus.kind === 'holdSpin'}
+            {bonus.trigger}+ coins start it, about once in {Math.round(1 / payback.triggerRate)} spins. Coins stick, each new one resets the
+            {bonus.respins} respins, and a full screen pays the Grand on top.
+          {:else if bonus.kind === 'upgrade'}
+            {bonus.trigger} anvils start {bonus.spins} free spins, about once in {Math.round(1 / payback.triggerRate)} spins. Every
+            {bonus.perLevel} hammers forge every horseshoe up a tier and add {bonus.extraSpins} spins. A screen of crowns and wilds pays the
+            Grand.
+          {:else if bonus.kind === 'collect'}
+            {bonus.trigger} maps start {bonus.spins} free spins, about once in {Math.round(1 / payback.triggerRate)} spins. Every captain takes
+            every doubloon. Every {bonus.perLevel} captains add {bonus.extraSpins} spins and raise the cash to
+            {bonus.multipliers.slice(1).join('×, ')}×.
+          {:else if bonus.kind === 'wheel'}
+            {bonus.trigger} tickets spin the wheel, about once in {Math.round(1 / payback.triggerRate)} spins. Up climbs to the next wheel in:
+            1 in {Math.round(1 / payback.levelRates[1]!)} reach the middle wheel, 1 in {Math.round(1 / payback.levelRates[2]!)} the crown wheel.
+          {:else}
+            {bonus.trigger} lanterns start the pick, about once in {Math.round(1 / payback.triggerRate)} spins. Pick until three of one jackpot
+            show.
+          {/if}
         </p>
+        {#if pots.length}
+          <p class="note">
+            Gems on the {carriers} fill the pots, which keep what they hold from spin to spin at any bet. Every full pot joins the next
+            {bonusName(machine).toLowerCase()}:
+            {pots.map((p, i) => `${p.name} (${powerText(p.power, machine).toLowerCase()}) ${Math.round(payback.potRates[i]! * 100)}% of the time`).join(', ')}.
+            All three, the Super, comes about once in {Math.round(1 / payback.superRate)} bonuses.
+          </p>
+        {/if}
         <dl>
           {#each JACKPOT_ROWS as j (j.tier)}
             <dt>{j.name}{j.tier === 'grand' || j.tier === 'major' ? ' · linked' : ''}</dt>
@@ -407,8 +687,9 @@
       <section class="panel">
         <h2>Payback</h2>
         <p class="note">
-          {(live.total * 100).toFixed(1)}% with the progressives as they stand: ways {(live.ways * 100).toFixed(1)}%, hold & spin
-          {((live.total - live.ways) * 100).toFixed(1)}%. Exact, from the reel strips.
+          {(live.total * 100).toFixed(1)}% with the progressives as they stand: ways {(live.ways * 100).toFixed(1)}%{#if live.collect}, captain
+            {(live.collect * 100).toFixed(1)}%{/if}, {bonusName(machine).toLowerCase()}
+          {(live.feature * 100).toFixed(1)}%. Exact, from the reel strips.
         </p>
       </section>
     </TablePanels>
@@ -439,9 +720,205 @@
     gap: 10px;
     height: 100%;
   }
+  /* A row of pots under the marquee takes some of the height from the reels. */
+  .cabinet.has-pots {
+    --cell: clamp(40px, min(calc((100cqw - 34px) / 5.1), calc((100cqh - 178px) / 3.2)), 150px);
+    grid-template-rows: auto auto 1fr auto;
+    gap: 8px;
+  }
+  .pots {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 6px;
+    width: min(100%, max(calc(var(--cell) * 5.4), 380px));
+  }
+  .pot {
+    --tint: #5fe08a;
+    position: relative;
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: center;
+    column-gap: 7px;
+    padding: 5px 8px 5px 6px;
+    border-radius: 8px;
+    background: rgb(0 0 0 / 0.45);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--tint) 40%, transparent);
+    min-width: 0;
+    transition: box-shadow 0.3s;
+  }
+  .pot.r1 {
+    --tint: #5cc8ff;
+  }
+  .pot.r2 {
+    --tint: #d08cff;
+  }
+  .pot.full {
+    box-shadow:
+      inset 0 0 0 1px var(--tint),
+      0 0 14px color-mix(in srgb, var(--tint) 45%, transparent);
+    animation: pot-ready 1.1s ease-in-out infinite alternate;
+  }
+  .pot.in-play {
+    animation: none;
+    background: color-mix(in srgb, var(--tint) 22%, rgb(0 0 0 / 0.5));
+    box-shadow:
+      inset 0 0 0 2px var(--tint),
+      0 0 20px color-mix(in srgb, var(--tint) 60%, transparent);
+  }
+  .pots.super .pot.in-play {
+    box-shadow:
+      inset 0 0 0 2px #ffd75e,
+      0 0 22px rgb(255 215 94 / 0.7);
+  }
+  @keyframes pot-ready {
+    to {
+      box-shadow:
+        inset 0 0 0 1px var(--tint),
+        0 0 22px color-mix(in srgb, var(--tint) 70%, transparent);
+    }
+  }
+  /* The jar: it fills from the bottom, gem by gem. */
+  .jar {
+    position: relative;
+    grid-row: span 2;
+    width: 20px;
+    height: 28px;
+    border-radius: 5px 5px 9px 9px;
+    background: rgb(255 255 255 / 0.08);
+    box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--tint) 70%, transparent);
+    overflow: hidden;
+  }
+  .jar i {
+    position: absolute;
+    inset: auto 0 0;
+    height: var(--fill);
+    background: linear-gradient(color-mix(in srgb, var(--tint) 100%, #fff 25%), var(--tint));
+    transition: height 0.45s cubic-bezier(0.3, 1.4, 0.5, 1);
+  }
+  .plink {
+    position: absolute;
+    inset: 0;
+    background: #fff;
+    animation: plink 0.5s ease-out forwards;
+  }
+  @keyframes plink {
+    from {
+      opacity: 0.7;
+    }
+    to {
+      opacity: 0;
+    }
+  }
+  .pot-text {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 6px;
+    min-width: 0;
+  }
+  .pot-text b {
+    font: 700 10px/1 var(--font-ui);
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--tint);
+  }
+  .pot-text small {
+    font: 700 11px/1 var(--font-display);
+    font-variant-numeric: tabular-nums;
+    color: #fff;
+    white-space: nowrap;
+  }
+  .power {
+    font: 500 10px/1.15 var(--font-ui);
+    color: rgb(255 255 255 / 0.62);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  @media (max-width: 520px) {
+    .pot {
+      padding: 4px 6px 4px 5px;
+      column-gap: 5px;
+    }
+    .jar {
+      grid-row: auto;
+      width: 14px;
+      height: 22px;
+    }
+    .pot-text {
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 3px;
+    }
+    .pot-text b {
+      font-size: 9px;
+      letter-spacing: 0.08em;
+    }
+    .power {
+      display: none;
+    }
+  }
+  /* A pot's gem on a coin in the base game. */
+  .gem {
+    --tint: #5fe08a;
+    position: absolute;
+    top: 6%;
+    right: 8%;
+    width: 22%;
+    aspect-ratio: 1;
+    rotate: 45deg;
+    border-radius: 3px;
+    background: linear-gradient(135deg, #fff, var(--tint) 45%, color-mix(in srgb, var(--tint) 60%, #000));
+    box-shadow:
+      0 0 0 1.5px rgb(0 0 0 / 0.55),
+      0 0 10px var(--tint);
+    animation: pop 0.35s cubic-bezier(0.3, 1.6, 0.5, 1);
+    pointer-events: none;
+  }
+  .gem.r1 {
+    --tint: #5cc8ff;
+  }
+  .gem.r2 {
+    --tint: #d08cff;
+  }
+  /* A multiplied wild in free spins: its multiplier in the corner. */
+  .wild-x {
+    position: absolute;
+    top: 5%;
+    left: 6%;
+    padding: 1px 5px;
+    border-radius: 999px;
+    background: #ffd75e;
+    color: #3a2600;
+    font: 800 12px/1.2 var(--font-display);
+    box-shadow: 0 0 10px rgb(255 215 94 / 0.7);
+    pointer-events: none;
+  }
+  /* Boost cash on a jackpot coin, under its name. */
+  .boosted {
+    position: absolute;
+    left: 50%;
+    bottom: 6%;
+    translate: -50% 0;
+    padding: 1px 6px;
+    border-radius: 999px;
+    background: #5fe08a;
+    color: #0f2a18;
+    font: 700 11px/1.2 var(--font-display);
+    white-space: nowrap;
+    pointer-events: none;
+  }
+  .gain.boost {
+    background: #5fe08a;
+    color: #0f2a18;
+  }
+  .cell.collected {
+    filter: drop-shadow(0 0 14px #d08cff) brightness(1.2);
+    animation: glow 0.4s ease-in-out infinite alternate;
+  }
   .marquee {
     display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: repeat(var(--plaques, 4), minmax(0, 1fr));
     gap: 6px;
     width: min(100%, max(calc(var(--cell) * 5.4), 380px));
   }
@@ -528,6 +1005,330 @@
       0 0 30px rgb(255 215 94 / 0.35),
       inset 0 0 22px rgb(0 0 0 / 0.8);
   }
+  /* Each machine's glass: the forge glows like coals, the sea is deep teal, the big top red, the festival night indigo. */
+  .forge .glass {
+    background: linear-gradient(#170905, #2e130a 50%, #170905);
+    box-shadow:
+      0 0 0 3px #c2703a,
+      0 0 0 5px #2a160c,
+      inset 0 0 22px rgb(0 0 0 / 0.8);
+  }
+  .haul .glass {
+    background: linear-gradient(#04141a, #0a2a33 50%, #04141a);
+    box-shadow:
+      0 0 0 3px #4cc9b0,
+      0 0 0 5px #0c2228,
+      inset 0 0 22px rgb(0 0 0 / 0.8);
+  }
+  .carnival .glass {
+    background: linear-gradient(#1a0510, #331022 50%, #1a0510);
+    box-shadow:
+      0 0 0 3px #e8344f,
+      0 0 0 5px #2a0c18,
+      inset 0 0 22px rgb(0 0 0 / 0.8);
+  }
+  .lanterns .glass {
+    background: linear-gradient(#070a1e, #141a3a 50%, #070a1e);
+    box-shadow:
+      0 0 0 3px #ff7a3a,
+      0 0 0 5px #1a1230,
+      inset 0 0 22px rgb(0 0 0 / 0.8);
+  }
+  .in-feature.cabinet .glass {
+    box-shadow:
+      0 0 0 3px #ffd75e,
+      0 0 0 5px #2c2238,
+      0 0 30px rgb(255 215 94 / 0.35),
+      inset 0 0 22px rgb(0 0 0 / 0.8);
+  }
+  /* Free spins: a hammer or captain filling the meter. */
+  .cell.mark {
+    border-radius: 10px;
+    background: rgb(255 176 76 / 0.16);
+    box-shadow: inset 0 0 0 2px #ffb04c;
+    animation: strike 420ms cubic-bezier(0.3, 1.6, 0.5, 1);
+  }
+  @keyframes strike {
+    30% {
+      scale: 1.18;
+      filter: brightness(1.5) drop-shadow(0 0 12px #ffb04c);
+    }
+  }
+  /* A horseshoe the forge just struck up a tier. */
+  .cell.forged {
+    border-radius: 10px;
+    animation: forge 900ms ease-out;
+    box-shadow: inset 0 0 0 2px #ffd75e;
+  }
+  @keyframes forge {
+    from {
+      filter: brightness(3) drop-shadow(0 0 18px #ff8a4c);
+      scale: 1.2;
+    }
+  }
+  /* A captain collecting: he glows, the doubloons he takes pulse toward him, everything else steps back. */
+  .cell.taking {
+    position: relative;
+    border-radius: 10px;
+    box-shadow:
+      inset 0 0 0 2px #4cc9b0,
+      0 0 18px rgb(76 201 176 / 0.7);
+    filter: brightness(1.2);
+  }
+  .cell.taken {
+    animation: pulse 0.45s ease-in-out infinite alternate;
+  }
+  .banner small {
+    font: 600 13px/1.3 var(--font-ui);
+    color: #d8c9f2;
+    white-space: normal;
+    max-width: 280px;
+    text-align: center;
+  }
+  .ladder {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+  }
+  .ladder i {
+    position: relative;
+    width: 22px;
+    height: 22px;
+    opacity: 0.55;
+  }
+  .ladder i.now {
+    opacity: 1;
+    filter: drop-shadow(0 0 6px #ffb04c);
+  }
+  .ladder i.gone {
+    opacity: 0.25;
+  }
+  .ladder i.gone::after {
+    content: '';
+    position: absolute;
+    inset: 45% -2px auto;
+    height: 2px;
+    background: #ff6b8b;
+    rotate: -30deg;
+  }
+  .meter .level {
+    padding: 3px 8px;
+    border-radius: 6px;
+    background: rgb(255 215 94 / 0.15);
+    color: #ffd75e;
+    letter-spacing: 0.08em;
+  }
+  /* The wheel bonus: the wheel stands over the reels. */
+  .wheel-stage {
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    display: grid;
+    place-items: center;
+    border-radius: 14px;
+    background: radial-gradient(circle, rgb(40 10 25 / 0.85), rgb(10 3 8 / 0.95));
+    animation: pop 400ms ease-out;
+  }
+  .wheel {
+    /* As tall as the reels, so it sits inside the glass. */
+    width: calc(var(--cell) * 3 + 10px);
+    height: calc(var(--cell) * 3 + 10px);
+    overflow: visible;
+    filter: drop-shadow(0 6px 18px rgb(0 0 0 / 0.6));
+  }
+  .ring {
+    transition-property: transform;
+    transition-timing-function: cubic-bezier(0.12, 0.62, 0.1, 1);
+  }
+  .ring.ahead {
+    opacity: 0.45;
+  }
+  .ring:not(.active):not(.ahead) {
+    opacity: 0.6;
+  }
+  .wedge {
+    stroke: rgb(0 0 0 / 0.5);
+    stroke-width: 0.6;
+  }
+  .wedge.hit {
+    stroke: #fff;
+    stroke-width: 2;
+    filter: brightness(1.35);
+    animation: glow-wedge 0.5s ease-in-out infinite alternate;
+  }
+  @keyframes glow-wedge {
+    to {
+      filter: brightness(1.7);
+    }
+  }
+  .wl {
+    font-family: var(--font-display);
+    font-weight: 700;
+    fill: #fff;
+    pointer-events: none;
+  }
+  .wl.dark {
+    fill: #2a1745;
+  }
+  .hub {
+    fill: #2a1745;
+    stroke: #ffd75e;
+    stroke-width: 2;
+  }
+  .pointer {
+    fill: #fff;
+    stroke: #2a1745;
+    stroke-width: 1.5;
+    filter: drop-shadow(0 0 4px #ffd75e);
+  }
+  /* The jackpot pick: the tally above, the lanterns below. */
+  .pick-stage {
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    display: grid;
+    grid-template-rows: auto 1fr;
+    gap: 6px;
+    padding: 6px;
+    border-radius: 14px;
+    background: radial-gradient(circle at 50% 30%, rgb(60 30 70 / 0.92), rgb(7 10 30 / 0.97));
+    animation: pop 400ms ease-out;
+  }
+  .tally {
+    display: grid;
+    grid-template-columns: repeat(var(--tiers, 4), minmax(0, 1fr));
+    gap: 4px;
+  }
+  .tal {
+    --tint: #7ad8ff;
+    display: grid;
+    justify-items: center;
+    gap: 3px;
+    padding: 4px 2px;
+    border-radius: 8px;
+    background: rgb(0 0 0 / 0.4);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--tint) 45%, transparent);
+    font: 700 10px/1 var(--font-ui);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--tint);
+  }
+  .tal.minor,
+  .lantern.minor {
+    --tint: #8cf08a;
+  }
+  .tal.major,
+  .lantern.major {
+    --tint: #ff6b8b;
+  }
+  .tal.grand,
+  .lantern.grand {
+    --tint: #ffd75e;
+  }
+  .tal.close {
+    animation: glow 0.5s ease-in-out infinite alternate;
+  }
+  .tal.won {
+    background: var(--tint);
+    color: #2a1745;
+  }
+  .pips {
+    display: inline-flex;
+    gap: 3px;
+  }
+  .pips i {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: rgb(255 255 255 / 0.15);
+  }
+  .pips i.on {
+    background: var(--tint);
+    box-shadow: 0 0 6px var(--tint);
+  }
+  .tal.won .pips i.on {
+    background: #2a1745;
+    box-shadow: none;
+  }
+  .board {
+    display: grid;
+    grid-template-columns: repeat(var(--cols), minmax(0, 1fr));
+    grid-template-rows: repeat(3, minmax(0, 1fr));
+    gap: 5px;
+    min-height: 0;
+  }
+  .lantern {
+    --tint: #7ad8ff;
+    display: grid;
+    place-items: center;
+    min-height: 0;
+    padding: 3px;
+    border: 0;
+    border-radius: 10px;
+    background: rgb(255 255 255 / 0.05);
+    box-shadow: none;
+    cursor: default;
+  }
+  .lantern {
+    position: relative;
+    height: 100%;
+    overflow: hidden;
+  }
+  .lantern :global(svg) {
+    position: absolute;
+    inset: 6%;
+    width: 88%;
+    height: 88%;
+  }
+  .waiting .lantern:not(.open) {
+    cursor: pointer;
+    animation: sway 1.6s ease-in-out infinite alternate;
+  }
+  .waiting .lantern:not(.open):hover {
+    background: rgb(255 215 94 / 0.14);
+    filter: brightness(1.25) drop-shadow(0 0 10px #ff7a3a);
+  }
+  @keyframes sway {
+    from {
+      rotate: -3deg;
+    }
+    to {
+      rotate: 3deg;
+    }
+  }
+  .lantern.open {
+    background: rgb(0 0 0 / 0.5);
+    box-shadow: inset 0 0 0 2px var(--tint);
+    animation: drop 320ms cubic-bezier(0.3, 1.5, 0.5, 1);
+  }
+  .lantern.open b {
+    font: 700 clamp(11px, 2.6cqw, 18px) / 1 var(--font-display);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--tint);
+  }
+  .lantern.rest {
+    opacity: 0.38;
+    animation: none;
+  }
+  .lantern.just {
+    box-shadow:
+      inset 0 0 0 2px var(--tint),
+      0 0 16px var(--tint);
+  }
+  .lantern.winner {
+    background: var(--tint);
+    animation: pulse 0.6s ease-in-out infinite alternate;
+  }
+  .lantern.winner b {
+    color: #2a1745;
+  }
+  .lantern:disabled {
+    opacity: 1;
+  }
+  .lantern.rest:disabled {
+    opacity: 0.38;
+  }
   .reel {
     height: calc(var(--cell) * 3);
     overflow: hidden;
@@ -548,6 +1349,7 @@
     }
   }
   .cell {
+    position: relative;
     width: var(--cell);
     height: var(--cell);
     padding: 10%;
@@ -909,7 +1711,8 @@
     .strip,
     .cell.lit,
     .reel.slow,
-    .minireel {
+    .minireel,
+    .waiting .lantern:not(.open) {
       animation: none;
     }
   }

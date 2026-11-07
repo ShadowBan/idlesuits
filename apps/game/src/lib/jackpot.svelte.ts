@@ -116,4 +116,8 @@ class Jackpots {
 export const jackpots = new Jackpots();
 
 /** The pit boss's slot switches, for testing: never saved. */
-export const slotTest = $state({ forceFeature: false });
+export const slotTest = $state({
+  forceFeature: false,
+  /** Fills every pot on the machine of the next spin. */
+  fillPots: false,
+});

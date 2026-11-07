@@ -32,8 +32,31 @@ And on the **slot floor**, original machines on one shared slot engine:
 
 - **Midnight Vault** — five reels of three rows, 243 ways, wilds on reels 2–4. Six gold coins start
   hold & spin: the coins stick, each new one resets three respins, and every coin pays its cash or a
-  Mini, Minor or Major jackpot. A full screen pays the Grand on top.
-- **Lucky Forge** (upgrading symbols) and **Pirate's Haul** (a collector) are next, in development.
+  Mini, Minor or Major jackpot. A full screen pays the Grand on top. Three pots over the reels fill
+  from gems on the coins and keep their progress from spin to spin: every full pot joins the next
+  hold & spin (Boost grows every coin each respin, Extra gives four respins, the Collector pays the
+  cash twice), and all three at once is the Super hold & spin.
+- **Lucky Forge** — upgrading symbols. Three anvils start 10 free spins on reels heavy with
+  horseshoes. Every three hammers strike the forge: every horseshoe moves up a tier (bronze, silver,
+  gold, crown) and two spins are added. A screen of nothing but crowns and wilds pays the Grand.
+  Embers on the anvils fill three pots: the Golden Anvil makes wilds 2×, the Coal Cart adds three
+  spins, the Bellows starts the forge a tier up.
+- **Pirate's Haul** — a collector. Doubloons carry cash or a jackpot, and a captain on reel 5 takes
+  every one on the screen. Three maps start 10 free spins with captains on reels 2–5; every fifth
+  captain adds 10 spins and raises the cash multiplier to 2×, 3× and then 10×. Gems on the maps fill
+  three pots: the Jolly Roger starts the captains at 2×, the Powder Keg adds three spins, Loaded
+  Cannons double every doubloon's cash.
+- **Carnival Crown** — a wheel of wheels. A ticket on reels 2, 3 and 4 spins the outer wheel for cash
+  or the Mini; Up climbs to the middle wheel (bigger cash, the Minor) and then the crown wheel (the
+  Major, the Grand, up to 500×). Gems on the tickets fill three pots: Lucky Ups turns two outer
+  wedges to Up, the Ringmaster spins a ×1–×5 ring on the cash, the Encore plays the wheel twice.
+- **Paper Lanterns** — pick to match. Three lanterns open a board of twelve, three of each jackpot;
+  pick until one shows three times. The jackpot is drawn by weight first and the picks laid out to
+  match, as a real machine does it. Gems on the lanterns fill three pots: the Dragon plays a second
+  board, the Moon clears the Mini off the board, the Phoenix raises the jackpot a tier.
+
+Every machine's pots are a ladder: the first fills about every other bonus, the second about one in
+five, the third one in fifteen or so, and all three together, the Super, a few times in a hundred.
 
 See
 [docs/idle_suits_game_concept_v0_2.md](docs/idle_suits_game_concept_v0_2.md) for the design concept and
@@ -147,16 +170,39 @@ assume.
 ## The slot floor
 
 A machine is data (`MachineDef` in `packages/sim/src/slots/types.ts`): reel strips, symbols and
-their pays, the hold & spin rules and the jackpots. `spinSlot` plays one seeded spin, feature and
-all, so any spin replays exactly. Coin stacks are laid into the strips by design (`buildStrip`), so
-how often the feature lands is a dial rather than an accident of the shuffle.
+their pays, its bonus (`bonus.kind`: `holdSpin`, `upgrade`, `collect`, `wheel` or `pick`) and the
+jackpots it awards. `spinSlot` plays one seeded spin, bonus and all, so any spin replays exactly.
+Coin stacks, scatters and runs of metal are laid into the strips by design (`buildStripBlocks`), so
+how often a bonus lands is a dial rather than an accident of the shuffle.
 
 The payback is exact, not simulated (`slotPayback` in `rtp.ts`). The reels stop independently, so
-the expected way-pays factor reel by reel; the coin count is a convolution of each reel's own
-counts; and hold & spin is a small Markov chain on coins held and respins left. Midnight Vault is
-designed at 91.8%, with hold & spin about once in 108 spins. The pit boss sets the payback (94% to
-start) and the way-pays scale to hit it, leaving the feature as designed. `packages/sim/test/slots.test.ts`
-holds simulated spins to the exact figures.
+the expected way-pays factor reel by reel, and a scatter or coin count is a convolution of each
+reel's own counts. Hold & spin is a small Markov chain on coins held and respins left. Free spins
+are a chain on spins left and the meter: it gives the expected spins played at each level, and each
+spin's pay is linear, so the forge's upgraded ways and the captains' multiplied collects follow from
+that (a collect pays every collector times every coin, so it needs only E[collectors × coins]). The
+forge's Grand pays once a bonus, so it's the chain's chance of at least one full screen. The wheel
+and the pick are plain sums. The pots really carry from spin to spin, so their worth is a chain on
+the pots' fill (`potChain` in `pots.ts`): between bonuses the pots only fill, so one pass in order of
+fill gives the spins spent at each, and the bonus spin empties the full ones; repeating that bonus
+to bonus settles on how often each mix of pots (and, for hold & spin, each count of coins) starts
+it. Gems ride on whatever starts the bonus: coins on the vault, the scatter elsewhere. Each mix's
+powers then feed the bonus's own sums: a start further along the free-spin chain, a stretched meter
+step, wilds weighted in the ways (still independent reel by reel), a ring's mean on the wheel's
+cash, a jackpot's weight moved up a tier.
+
+| Machine | Designed | Bonus |
+| --- | --- | --- |
+| Midnight Vault | 93.1% | 1 in 144 spins (a Super in 1 in 10 bonuses) |
+| Lucky Forge | 94.2% | 1 in 146 (a Super in 1 in 41) |
+| Pirate's Haul | 93.7% | 1 in 148 (a Super in 1 in 32) |
+| Carnival Crown | 93.5% | 1 in 139 (a Super in 1 in 35) |
+| Paper Lanterns | 94.1% | 1 in 130 (a Super in 1 in 77) |
+
+The pit boss sets the payback (94% to start) and the way-pays, base game and free spins alike, scale
+to hit it; everything else stays as designed. The payback is linear in that scale, so it's solved
+exactly. `packages/sim/test/slots.test.ts` holds simulated spins, features, levels and picks to the
+exact figures.
 
 The Major and Grand are linked progressives across every machine (`lib/jackpot.svelte.ts`). They're
 counted in bets, so they pay the same share in every room. Every hand anywhere in the casino, table
