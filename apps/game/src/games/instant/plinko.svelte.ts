@@ -1,7 +1,7 @@
 import {
   dropBall,
   FEVER_BALLS,
-  FEVER_X,
+  FEVER_LADDER,
   isGolden,
   plinkoPayback,
   plinkoPays,
@@ -19,8 +19,10 @@ import { InstantGame } from './instant.svelte';
 const MAX_BALLS = 24;
 /** Auto play's pace between balls, at 1×. */
 const AUTO_MS = 650;
-/** Fever's free balls follow each other this far apart. */
-const FEVER_GAP_MS = 380;
+/** Fever: a breath after the golden ball lands, a beat between free balls, and the total held up at the end. */
+const FEVER_START_MS = 1400;
+const FEVER_GAP_MS = 700;
+const FEVER_END_MS = 3200;
 
 export interface Ball {
   id: number;
@@ -33,17 +35,22 @@ export interface Ball {
   rows: PlinkoRows;
   /** It drops golden: it sets off Fever when it lands. */
   golden: boolean;
-  /** One of Fever's free balls, paying FEVER_X times. */
+  /** One of Fever's free balls. */
   fever: boolean;
+  /** What a free ball multiplies its slot by: its step on Fever's ladder. 1 for any other ball. */
+  boost: number;
 }
 
-/** Fever under way: the golden ball's round, what it has paid, and the free balls still to land. */
-interface Fever {
+/** Fever under way: the golden ball's round, what it has paid so far, and where it is on the ladder. */
+export interface Fever {
   round: number;
   bet: Decimal;
-  /** In bets: the golden ball's own slot, then each free ball's. */
+  /** In bets: the golden ball's own slot, then each free ball's, ladder and all. */
   pays: number[];
-  left: number;
+  /** The free ball falling now (or next), as its step on the ladder. */
+  step: number;
+  /** Every free ball is in: the total is up. */
+  done: boolean;
 }
 
 /**
@@ -107,7 +114,7 @@ export class PlinkoGame extends InstantGame {
     const seed = { run: this.runSeed, round: s.round };
     const { path, slot } = dropBall(this.rows, seed);
     const golden = isGolden(seed);
-    this.balls = [...this.balls, { id: ++this.ids, round: s.round, bet: s.bet, path, slot, rows: this.rows, golden, fever: false }];
+    this.balls = [...this.balls, { id: ++this.ids, round: s.round, bet: s.bet, path, slot, rows: this.rows, golden, fever: false, boost: 1 }];
     if (golden) sfx.bigWin();
     else sfx.chip();
     return true;
@@ -117,48 +124,61 @@ export class PlinkoGame extends InstantGame {
   land(ball: Ball) {
     if (!this.balls.some((b) => b.id === ball.id)) return;
     this.balls = this.balls.filter((b) => b.id !== ball.id);
-    const x = this.pays[ball.slot]! * (ball.fever ? FEVER_X : 1);
+    const x = this.pays[ball.slot]! * ball.boost;
     const pay = ball.bet.mul(x);
     this.hits = { ...this.hits, [ball.slot]: { key: ball.id, pay, x, fever: ball.fever } };
-    if (x >= 10) sfx.bigWin();
+    if (x >= 10 || ball.fever) sfx.bigWin();
     else if (x >= 1) sfx.win();
     else sfx.tick();
     if (ball.golden) return this.startFever(ball, x);
     if (ball.fever && this.fever) {
       this.fever.pays = [...this.fever.pays, x];
-      this.fever.left--;
-      if (this.fever.left === 0) this.endFever();
+      const next = this.fever.step + 1;
+      if (next < FEVER_BALLS) {
+        this.fever.step = next;
+        this.later(() => this.dropFever(ball.rows), FEVER_GAP_MS);
+      } else this.endFever();
       return;
     }
     const text = `${x >= 10 ? x.toFixed(0) : x.toFixed(2)}× slot`;
     this.settle(ball.round, ball.bet, x, text, `${ball.rows} rows · ${this.risk} risk`, [{ label: `Slot ${ball.slot + 1} · ${x.toFixed(2)}×`, amount: x }]);
   }
 
-  /** The golden ball has landed: Fever's free balls follow it down, one after another. */
+  /** The golden ball has landed: Fever starts, and its first free ball follows it down. */
   private startFever(golden: Ball, x: number) {
-    this.fever = { round: golden.round, bet: golden.bet, pays: [x], left: FEVER_BALLS };
-    for (let i = 1; i <= FEVER_BALLS; i++) {
-      this.timers.push(
-        setTimeout(() => {
-          const { path, slot } = dropBall(golden.rows, { run: this.runSeed, round: golden.round }, i);
-          this.balls = [...this.balls, { id: ++this.ids, round: golden.round, bet: golden.bet, path, slot, rows: golden.rows, golden: false, fever: true }];
-          sfx.chip();
-        }, 900 + i * FEVER_GAP_MS),
-      );
-    }
+    this.fever = { round: golden.round, bet: golden.bet, pays: [x], step: 0, done: false };
+    this.later(() => this.dropFever(golden.rows), FEVER_START_MS);
   }
 
-  /** Fever's last ball is in: the golden ball's round settles with everything it set off. */
+  /** Fever's next free ball: its own path from the golden ball's seed, and its step on the ladder. */
+  private dropFever(rows: PlinkoRows) {
+    const f = this.fever;
+    if (!f) return;
+    const { path, slot } = dropBall(rows, { run: this.runSeed, round: f.round }, f.step + 1);
+    this.balls = [...this.balls, { id: ++this.ids, round: f.round, bet: f.bet, path, slot, rows, golden: false, fever: true, boost: FEVER_LADDER[f.step]! }];
+    sfx.chip();
+  }
+
+  /** What Fever has paid so far, in bets: the golden ball and every free ball in. */
+  get feverTotal(): number {
+    return this.fever ? this.fever.pays.reduce((a, b) => a + b, 0) : 0;
+  }
+
+  /** Fever's last ball is in: the total holds up a moment, and the golden ball's round settles with everything it set off. */
   private endFever() {
     const f = this.fever!;
-    this.fever = null;
-    const total = f.pays.reduce((a, b) => a + b, 0);
+    f.done = true;
+    const total = this.feverTotal;
     const lines = [
       { label: `Golden ball · ${f.pays[0]!.toFixed(2)}×`, amount: f.pays[0]! },
-      { label: `Fever · ${FEVER_BALLS} free balls at ×${FEVER_X}`, amount: total - f.pays[0]! },
+      ...f.pays.slice(1).map((x, i) => ({ label: `Fever ball ${i + 1} · ×${FEVER_LADDER[i]}`, amount: x })),
     ];
-    sfx.bigWin();
     this.settle(f.round, f.bet, total, `Fever · ${total.toFixed(2)}×`, `golden ball + ${FEVER_BALLS} free · ${this.rows} rows`, lines);
+    this.later(() => (this.fever = null), FEVER_END_MS);
+  }
+
+  private later(fn: () => void, ms: number) {
+    this.timers.push(setTimeout(fn, ms));
   }
 
   /** A ball's bounce as it passes a row, sparing the speakers when many fall at once. */

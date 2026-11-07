@@ -8,20 +8,22 @@ import { Rng, type Seed } from '../rng';
  * slot k (counting rights) has the binomial chance C(rows, k) ÷ 2^rows.
  *
  * Fever: now and then a ball drops golden (`FEVER_CHANCE`). It lands and pays
- * like any other, then sets off Fever: `FEVER_BALLS` free balls on the same
- * board, every slot paying `FEVER_X` times as much. A board's payback is its
- * own slots plus its share of Fever, an exact sum.
+ * like any other, then sets off Fever: free balls on the same board, one at a
+ * time, each paying its slot times the next step of a climbing ladder
+ * (`FEVER_LADDER`), up to ×14 on the last. A board's payback is its own slots
+ * plus its share of Fever, an exact sum.
  */
 export type PlinkoRisk = 'low' | 'medium' | 'high';
 export const PLINKO_RISKS: readonly PlinkoRisk[] = ['low', 'medium', 'high'];
 export const PLINKO_ROWS = [8, 12, 16] as const;
 export type PlinkoRows = (typeof PLINKO_ROWS)[number];
 
-export const FEVER_CHANCE = 1 / 150;
-export const FEVER_BALLS = 6;
-export const FEVER_X = 2;
+export const FEVER_CHANCE = 1 / 400;
+/** What each of Fever's free balls multiplies its slot by, in order. */
+export const FEVER_LADDER = [2, 3, 5, 8, 14] as const;
+export const FEVER_BALLS = FEVER_LADDER.length;
 /** Fever's share, over and above a board's own payback: the board's payback is this times its slots'. */
-export const FEVER_LIFT = 1 + FEVER_CHANCE * FEVER_BALLS * FEVER_X;
+export const FEVER_LIFT = 1 + FEVER_CHANCE * FEVER_LADDER.reduce<number>((a, b) => a + b, 0);
 
 /** The payback the boards are drawn to, with Fever: the floor's starting payback. */
 export const PLINKO_DESIGN = 0.97;

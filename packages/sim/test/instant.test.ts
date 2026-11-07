@@ -27,6 +27,7 @@ import {
   GOLD_X,
   isGolden,
   FEVER_CHANCE,
+  FEVER_LADDER,
   FEVER_LIFT,
   plinkoPayback,
   MINES_TILES,
@@ -206,8 +207,11 @@ describe('plinko', () => {
     }
     // Higher risk, bigger edges.
     expect(plinkoSlots(16, 'high')[0]).toBe(1000);
+    // Fever's ladder climbs, and its share of the payback is what the boards were drawn around.
+    expect([...FEVER_LADDER]).toEqual([...FEVER_LADDER].sort((a, b) => a - b));
+    expect(FEVER_LIFT).toBeCloseTo(1.08, 12);
     // Golden balls, for Fever, at their chance.
-    const n = 150_000;
+    const n = 400_000;
     let gold = 0;
     for (let round = 0; round < n; round++) if (isGolden({ run: 'f', round })) gold++;
     expect(Math.abs(gold / n - FEVER_CHANCE)).toBeLessThan(4.5 * Math.sqrt((FEVER_CHANCE * (1 - FEVER_CHANCE)) / n));

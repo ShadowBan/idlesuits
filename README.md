@@ -75,8 +75,9 @@ And the **instant games**, the quick press-your-luck games online casinos run be
   the golden lines' share, so every reel-in pays back the same.
 - **Lucky Drop** — Plinko. Balls fall through 8, 12 or 16 rows of pegs, left or right as likely as not,
   into slots paying most at the edges and less than the ball in the middle. Each slot's chance is
-  binomial, so a board's payback is an exact sum. One ball in 150 drops golden and sets off Fever:
-  six free balls, every slot paying double. Nine boards of our own, drawn so each pays within a sixth
+  binomial, so a board's payback is an exact sum. One ball in 400 drops golden and sets off Fever:
+  five free balls, one at a time, each paying its slot times a climbing ladder (×2, ×3, ×5, ×8, ×14),
+  about 29 bets on average. Nine boards of our own, drawn so each pays within a sixth
   of a percent of 97% with Fever, and scaled alike by the pit boss.
 
 See

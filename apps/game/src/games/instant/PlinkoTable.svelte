@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onDestroy } from 'svelte';
-  import { FEVER_BALLS, FEVER_CHANCE, FEVER_X, plinkoOdds, PLINKO_RISKS, PLINKO_ROWS } from '@idlesuits/sim';
+  import { FEVER_BALLS, FEVER_CHANCE, FEVER_LADDER, FEVER_LIFT, plinkoOdds, PLINKO_RISKS, PLINKO_ROWS } from '@idlesuits/sim';
   import RulesFrame from '../../components/RulesFrame.svelte';
   import SeatOverlay from '../../components/SeatOverlay.svelte';
   import TablePanels from '../../components/TablePanels.svelte';
@@ -89,6 +89,10 @@
   }
 
   const odds = $derived(plinkoOdds(game.rows));
+  /** What a Fever pays on this board, on average, in bets: its free balls' ladder times the board's own slots. */
+  const feverAvg = $derived(((game.payback / FEVER_LIFT) * FEVER_LADDER.reduce<number>((a, b) => a + b, 0)));
+  /** The ladder step falling now, while Fever runs. */
+  const boost = $derived(game.fever && !game.fever.done ? FEVER_LADDER[game.fever.step]! : 1);
 </script>
 
 <svelte:window onkeydown={onKey} />
@@ -114,7 +118,9 @@
       </li>
       <li>
         <b>Fever.</b> About one ball in {Math.round(1 / FEVER_CHANCE)} drops golden. It lands and pays like any ball, then sets off
-        Fever: {FEVER_BALLS} free balls on the same board, every slot paying ×{FEVER_X}.
+        Fever: {FEVER_BALLS} free balls on the same board, one at a time, each paying its slot times the next step of the ladder:
+        {FEVER_LADDER.map((x) => `×${x}`).join(', ')}. A Fever pays about {feverAvg.toFixed(0)} bets on average, and the last ball
+        on a big edge can pay thousands.
       </li>
       <li>
         This board pays back {(game.payback * 100).toFixed(2)}%, Fever included, exactly: each slot's multiplier times its chance, added
@@ -164,6 +170,11 @@
             <stop offset="0.5" stop-color="#ffd75e" />
             <stop offset="1" stop-color="#b8861e" />
           </radialGradient>
+          <radialGradient id="feverg" cx="35%" cy="30%">
+            <stop offset="0" stop-color="#ffffff" />
+            <stop offset="0.45" stop-color="#7ad8ff" />
+            <stop offset="1" stop-color="#7a3ad0" />
+          </radialGradient>
           <radialGradient id="ballg" cx="35%" cy="30%">
             <stop offset="0" stop-color="#fff6c8" />
             <stop offset="0.6" stop-color="#ff9ad9" />
@@ -179,7 +190,7 @@
             {#key hit?.key}
               <g class:bump={!!hit}>
                 <rect x={-s * 0.46} y="0" width={s * 0.92} height={s * 0.62} rx={s * 0.12} fill={heat(k)} />
-                <text y={s * 0.42} text-anchor="middle" font-size={Math.min(s * 0.36, 34)}>{label(game.fever ? x * FEVER_X : x)}{game.rows < 16 ? '×' : ''}</text>
+                <text y={s * 0.42} text-anchor="middle" font-size={Math.min(s * 0.36, 34)}>{label(x * boost)}{game.rows < 16 ? '×' : ''}</text>
               </g>
               {#if hit}
                 <text class="gain" class:big={hit.x >= 1} y={-s * 0.2} text-anchor="middle" font-size={Math.min(s * 0.32, 30)}>
@@ -190,17 +201,35 @@
           </g>
         {/each}
         {#each game.balls as ball (ball.id)}
+          {@const r = (W / (ball.rows + 2)) * (ball.fever ? 0.36 : ball.golden ? 0.27 : 0.22)}
           <g use:fall={ball}>
-            <circle r={(W / (ball.rows + 2)) * (ball.golden ? 0.27 : 0.22)} fill={ball.golden ? 'url(#goldg)' : 'url(#ballg)'} class="ball" class:golden={ball.golden} class:feverball={ball.fever} />
+            <circle {r} fill={ball.fever ? 'url(#feverg)' : ball.golden ? 'url(#goldg)' : 'url(#ballg)'} class="ball" class:golden={ball.golden} class:feverball={ball.fever} />
+            {#if ball.fever}
+              <text class="ballx" text-anchor="middle" dominant-baseline="central" font-size={r * 0.9}>×{ball.boost}</text>
+            {/if}
           </g>
         {/each}
       </svg>
 
       {#if game.fever}
-        <!-- Fever: the board lit up, and the free balls counting down. -->
-        <div class="fever-banner" aria-live="polite">
-          <b>Fever!</b>
-          <span>{FEVER_BALLS - game.fever.left} / {FEVER_BALLS} free balls · every slot ×{FEVER_X}</span>
+        {@const f = game.fever}
+        <!-- Fever: the ladder climbing ball by ball, and what it has paid so far. -->
+        <div class="fever-banner" class:done={f.done} aria-live="polite">
+          {#if f.done}
+            {#key f.done}
+              <span class="k">Fever paid</span>
+              <b class="total">{formatMoney(f.bet.mul(game.feverTotal))}</b>
+              <span>{game.feverTotal.toFixed(1)}× your bet</span>
+            {/key}
+          {:else}
+            <b>Fever!</b>
+            <ol class="ladder-steps">
+              {#each FEVER_LADDER as x, i (i)}
+                <li class:now={i === f.step} class:past={i < f.pays.length - 1}>×{x}</li>
+              {/each}
+            </ol>
+            <span>{formatMoney(f.bet.mul(game.feverTotal))} so far</span>
+          {/if}
         </div>
       {/if}
 
@@ -224,7 +253,7 @@
         {game.fever ? 'Fever!' : 'Drop ball'}
       </button>
       <span class="note">
-        {game.fever ? 'The free balls are falling' : game.balls.length ? `${game.balls.length} in play · the board can change once they land` : 'Space drops a ball · 1 in ' + Math.round(1 / FEVER_CHANCE) + ' drops golden'}
+        {game.fever ? (game.fever.done ? 'Fever is over: the board opens again in a moment' : 'Fever: the free balls are falling') : game.balls.length ? `${game.balls.length} in play · the board can change once they land` : 'Space drops a ball · 1 in ' + Math.round(1 / FEVER_CHANCE) + ' drops golden'}
       </span>
     </div>
   {/snippet}
@@ -256,7 +285,10 @@
             {/each}
           </tbody>
         </table>
-        <p class="note">Pays back {(game.payback * 100).toFixed(2)}%, Fever included, exactly. A golden ball's Fever pays ×{FEVER_X} on {FEVER_BALLS} free balls.</p>
+        <p class="note">
+          Pays back {(game.payback * 100).toFixed(2)}%, Fever included, exactly. A golden ball's Fever drops {FEVER_BALLS} free balls at
+          {FEVER_LADDER.map((x) => `×${x}`).join(', ')}: about {formatMoney(game.bet.mul(feverAvg))} on average.
+        </p>
       </section>
     </TablePanels>
   {/snippet}
@@ -293,7 +325,19 @@
     animation: gleam 0.5s ease-in-out infinite alternate;
   }
   .ball.feverball {
-    filter: drop-shadow(0 0 10px #7ad8ff) drop-shadow(0 0 4px #fff);
+    filter: drop-shadow(0 0 12px #7ad8ff) drop-shadow(0 0 24px rgb(194 123 255 / 0.9));
+    animation: throb 0.35s ease-in-out infinite alternate;
+  }
+  @keyframes throb {
+    to {
+      filter: drop-shadow(0 0 18px #fff) drop-shadow(0 0 30px rgb(122 216 255 / 0.9));
+    }
+  }
+  .ballx {
+    font-family: var(--font-display);
+    font-weight: 700;
+    fill: #1a0a2e;
+    pointer-events: none;
   }
   @keyframes gleam {
     to {
@@ -344,6 +388,53 @@
   .fever-banner span {
     font: 600 12px/1 var(--font-ui);
     color: #f6e3ff;
+  }
+  .ladder-steps {
+    display: flex;
+    gap: 5px;
+    margin: 2px 0;
+    padding: 0;
+    list-style: none;
+  }
+  .ladder-steps li {
+    padding: 4px 9px;
+    border-radius: 999px;
+    background: rgb(255 255 255 / 0.08);
+    font: 700 14px/1 var(--font-display);
+    color: rgb(246 227 255 / 0.5);
+  }
+  .ladder-steps li.past {
+    background: rgb(122 216 255 / 0.25);
+    color: #bfe9ff;
+  }
+  .ladder-steps li.now {
+    background: linear-gradient(135deg, #7ad8ff, #c27bff);
+    color: #1a0a2e;
+    box-shadow: 0 0 14px rgb(122 216 255 / 0.8);
+    animation: throb-chip 0.5s ease-in-out infinite alternate;
+  }
+  @keyframes throb-chip {
+    to {
+      scale: 1.12;
+    }
+  }
+  /* Fever's total: a big win, held up before the board opens again. */
+  .fever-banner.done {
+    top: 30%;
+    padding: 18px 34px;
+    box-shadow:
+      inset 0 0 0 2px #ffd75e,
+      0 0 60px rgb(255 215 94 / 0.6);
+  }
+  .fever-banner .k {
+    font: 700 12px/1 var(--font-ui);
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: #ffd75e;
+  }
+  .fever-banner .total {
+    font-size: 52px;
+    animation: slam 0.5s cubic-bezier(0.2, 1.8, 0.4, 1);
   }
   @keyframes slam {
     from {
