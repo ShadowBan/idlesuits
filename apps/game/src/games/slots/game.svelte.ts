@@ -1,4 +1,5 @@
 import {
+  cellsOf,
   coinPay,
   jackpotPay,
   Rng,
@@ -81,6 +82,25 @@ const AUTO_PICK_MS = 650;
 const PICK_MS = 550;
 /** How long the bonus win stays up, in real seconds whatever the speed, unless dismissed sooner. */
 export const SUMMARY_MS = 7000;
+/** The bonus symbols light up and the cabinet goes wild this long before the bonus starts. */
+const TRIGGER_MS = 1700;
+
+/** Wins big enough to stop the machine and celebrate, by how many bets they pay: a real machine's big-win ladder. */
+export const WIN_LEVELS = [
+  { at: 10, title: 'Big win', ms: 2600 },
+  { at: 25, title: 'Huge win', ms: 3400 },
+  { at: 50, title: 'Mega win', ms: 4200 },
+  { at: 100, title: 'Epic win', ms: 5200 },
+] as const;
+
+/** Where a win of `x` bets sits on the big-win ladder: 0 below it, then 1 to 4. */
+export function winLevel(x: number): number {
+  let level = 0;
+  WIN_LEVELS.forEach((l, i) => {
+    if (x >= l.at) level = i + 1;
+  });
+  return level;
+}
 
 /** What the bonus is called on this machine, for banners, history and the rules. */
 export function bonusName(machine: MachineDef): string {
@@ -280,6 +300,19 @@ export interface BonusSummary {
   jackpots: JackpotTier[];
   /** Gold trim: the Grand was won. */
   grand: boolean;
+  /** Where the bonus's pay sits on the big-win ladder, for the celebration around it. */
+  level: number;
+}
+
+/** A base-game win big enough to celebrate: it counts up over the reels. */
+export interface BigWin {
+  key: number;
+  /** 1 to 4: big, huge, mega, epic. */
+  level: number;
+  title: string;
+  amount: Decimal;
+  /** How long it counts up, in real milliseconds. */
+  ms: number;
 }
 
 /** A big moment across the reels: the feature starting, a jackpot, a big win. */
@@ -336,6 +369,9 @@ export class SlotGame {
   pick = $state<PickView | null>(null);
   banner = $state<SlotBanner | null>(null);
   summary = $state<BonusSummary | null>(null);
+  bigWin = $state<BigWin | null>(null);
+  /** The cells that started the bonus, lit up while the cabinet celebrates. */
+  triggered = $state<number[]>([]);
   roundBet = $state(new Decimal(0));
   last = $state<{ lines: BreakdownLine[]; net: number } | null>(null);
   lastBet = $state(new Decimal(0));
@@ -473,9 +509,9 @@ export class SlotGame {
     else if (!on && ['respin', 'free', 'wheel'].includes(this.seq.awaiting ?? '')) this.seq.answer(true);
   }
 
-  /** Closes the bonus win early. */
+  /** Closes the bonus win or the big win early. */
   dismiss() {
-    if (this.seq.awaiting === 'summary') this.seq.answer(true);
+    if (this.seq.awaiting === 'summary' || this.seq.awaiting === 'bigwin') this.seq.answer(true);
   }
 
   dispose() {
@@ -560,6 +596,8 @@ export class SlotGame {
     this.pick = null;
     this.banner = null;
     this.summary = null;
+    this.bigWin = null;
+    this.triggered = [];
     this.gems = {};
     this.potsInPlay = [];
   }
@@ -643,9 +681,19 @@ export class SlotGame {
     }
 
     const f = result.feature;
+    // A big base-game win stops the machine to celebrate; with a bonus to come, the bonus's own win does instead.
+    const base = result.waysPay + result.collectPay;
+    if (!f && winLevel(base) > 0) {
+      if (!(await this.celebrate(bet, base))) return false;
+    }
     if (f) {
       this.wins = [];
       this.collecting = null;
+      // The symbols that started it light up, and the whole cabinet with them.
+      this.triggered = cellsOf(this.machine, result.grid, triggerSymbol(this.machine));
+      sfx.bigWin();
+      if (!(await this.bonusWait(TRIGGER_MS))) return false;
+      this.triggered = [];
       // Full pots empty into the bonus, their powers with them.
       this.potsInPlay = result.lit;
       const played =
@@ -675,6 +723,24 @@ export class SlotGame {
       this.win = bet.mul(spin.pay);
     }
     return true;
+  }
+
+  /**
+   * The big-win ladder: the win counts up over the reels, longer the bigger it
+   * is, until it's done or the player taps to collect.
+   */
+  private async celebrate(bet: Decimal, x: number): Promise<boolean> {
+    const level = winLevel(x);
+    const step = WIN_LEVELS[level - 1]!;
+    const fast = this.seq.speed === '5x' ? 3 : this.seq.speed === '2x' ? 1.6 : 1;
+    const ms = step.ms / fast;
+    this.bigWin = { key: ++this.banners, level, title: step.title, amount: bet.mul(x), ms };
+    sfx.bigWin();
+    const timer = setTimeout(() => this.dismiss(), ms + 900);
+    const closed = await this.seq.ask('bigwin');
+    clearTimeout(timer);
+    this.bigWin = null;
+    return closed !== null;
   }
 
   private summaryOf(f: SlotSpinResult['feature'] & {}, bet: Decimal, result: SlotSpinResult): BonusSummary {
@@ -711,7 +777,7 @@ export class SlotGame {
           const what = wedge.kind === 'jackpot' ? TIER_NAME[wedge.tier] : wedge.kind === 'cash' ? formatMoney(bet.mul(wedge.x)) : '';
           details.push(`${where}: ${what}${r.ring > 1 ? ` ×${r.ring}` : ''}`);
         }
-        return { key: ++this.banners, title, bonus: bet.mul(f.pay), total: bet.mul(result.pay), details, jackpots: [], grand: f.jackpots.includes('grand') };
+        return { key: ++this.banners, title, bonus: bet.mul(f.pay), total: bet.mul(result.pay), details, jackpots: [], grand: f.jackpots.includes('grand'), level: winLevel(f.pay) };
       }
       case 'pick': {
         const won = f.boards.map((b) => TIER_NAME[b.won]);
@@ -720,7 +786,7 @@ export class SlotGame {
         details.push(plural(f.boards.reduce((n, b) => n + b.picks.length, 0), 'pick'));
         for (const b of f.boards) if (b.won !== b.tier) details.push(`${TIER_NAME[b.tier]} rose to ${TIER_NAME[b.won]}`);
         // The jackpots are the title: no need to list them again.
-        return { key: ++this.banners, title, bonus: bet.mul(f.pay), total: bet.mul(result.pay), details, jackpots: [], grand: f.jackpots.includes('grand') };
+        return { key: ++this.banners, title, bonus: bet.mul(f.pay), total: bet.mul(result.pay), details, jackpots: [], grand: f.jackpots.includes('grand'), level: winLevel(f.pay) };
       }
     }
     return {
@@ -731,6 +797,7 @@ export class SlotGame {
       details,
       jackpots: f.jackpots,
       grand: f.jackpots.includes('grand'),
+      level: winLevel(f.pay),
     };
   }
 

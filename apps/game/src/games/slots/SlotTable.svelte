@@ -13,8 +13,14 @@
   import { route } from '../../lib/route.svelte';
   import { unlockAudio } from '../../lib/sound';
   import { BET_STEPS, bonusName, carrierName, isSuper, powerText, SlotGame, SUMMARY_MS, TIER_LABEL, TIER_NAME, WHEEL_NAMES } from './game.svelte';
+  import Celebration from './Celebration.svelte';
+  import CountUp from './CountUp.svelte';
+  import SlotAmbience from './SlotAmbience.svelte';
+  import SlotLights, { type LightMode } from './SlotLights.svelte';
+  import SlotLogo from './SlotLogo.svelte';
   import SlotRules from './SlotRules.svelte';
   import SlotSymbol from './SlotSymbol.svelte';
+  import './cabinets.css';
 
   let { onExit }: GameProps = $props();
 
@@ -46,6 +52,20 @@
   const carriers = carrierName(machine);
   const allFull = $derived(pots.length > 1 && pots.every((p, i) => (game.pots[i] ?? 0) >= p.size));
   const superInPlay = $derived(isSuper(machine, game.potsInPlay));
+
+  /** The bulbs: racing while the reels spin, flashing on a win, wild through a bonus and a big win. */
+  const lightMode = $derived<LightMode>(
+    game.bigWin || (game.summary && game.summary.level > 0)
+      ? 'party'
+      : game.triggered.length || game.inBonus || game.summary
+        ? 'bonus'
+        : game.spinning.some(Boolean)
+          ? 'spin'
+          : game.wins.length || game.collecting
+            ? 'win'
+            : 'idle',
+  );
+  const hot = $derived(game.inBonus || game.triggered.length > 0 || game.bigWin !== null);
 
   /** A run of each reel's own strip, twice over, for the blur while it spins: the base reels, or the free-spin reels. */
   const blurOf = (reels: readonly (readonly string[])[]) =>
@@ -183,7 +203,7 @@
   function onTap() {
     if (seq.awaiting === 'pick') return;
     if (picking) picking = false;
-    else if (game.summary) game.dismiss();
+    else if (game.summary || game.bigWin) game.dismiss();
     else game.spin();
   }
 
@@ -208,16 +228,21 @@
     if (e.key !== ' ' && e.key !== 'Enter') return;
     if (target.closest('button, a')) return;
     e.preventDefault();
-    if (game.summary) game.dismiss();
+    if (game.summary || game.bigWin) game.dismiss();
     else game.spin();
   }
 </script>
 
 <svelte:window onkeydown={onKey} />
+<svelte:head>
+  <!-- Each machine's lettering: deco, molten metal, pirate, circus and brush. -->
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Kaushan+Script&family=Limelight&family=Metal+Mania&family=Pirata+One&family=Rye&display=swap" />
+</svelte:head>
 <SlotRules bind:this={rules} {machine} {payback} bet={game.bet} waysScale={game.waysScale} />
 
 <TableShell
   machine
+  cabinet={machine.id}
   title={[machine.name.split(' ')[0]!, machine.name.split(' ').slice(1).join(' ')]}
   bank={game.bank}
   autoPlay={game.autoPlay}
@@ -227,7 +252,15 @@
   onTapFelt={onTap}
 >
   {#snippet felt()}
-    <div class="cabinet {machine.id}" class:in-feature={game.inBonus} class:has-pots={pots.length > 0}>
+    <div
+      class="cabinet {machine.id}"
+      class:in-feature={game.inBonus}
+      class:has-pots={pots.length > 0}
+      class:shake={(game.bigWin?.level ?? 0) >= 2 || (game.summary?.level ?? 0) >= 3}
+      class:triggering={game.triggered.length > 0}
+    >
+      <SlotAmbience id={machine.id} {hot} />
+      <SlotLogo id={machine.id} name={machine.name} {hot} />
       <!-- The jackpot marquee: the Major and Grand are the casino's linked progressives. -->
       <div class="marquee" aria-label="Jackpots" style:--plaques={JACKPOT_ROWS.length}>
         {#each JACKPOT_ROWS as j (j.tier)}
@@ -271,188 +304,206 @@
         </div>
       {/if}
 
-      <div class="glass" role="img" aria-label="Reels">
-        {#each machine.reels as _, r (r)}
-          <div class="reel" class:slow={game.anticipating === r}>
-            {#if game.feature}
-              <!-- Hold & spin: coins stay; empty cells spin on their own. -->
-              {#each Array.from({ length: machine.rows }, (_, row) => row) as row (row)}
-                {@const cell = r * machine.rows + row}
-                {@const coin = game.feature.held[cell]}
-                {@const whirling = !coin && game.feature.spinning.includes(cell)}
-                <div
-                  class="cell hs"
-                  class:counting={game.feature.counting === cell}
-                  class:empty={!coin}
-                  class:fresh={game.feature.fresh.includes(cell)}
-                  class:tense={whirling && game.feature.tense.includes(cell)}
-                  class:collected={coin && game.feature.collecting}
-                >
-                  {#if coin}
-                    {@const boost = game.feature.boosted[cell] ?? 0}
-                    {#key coin}<div class="drop"><SlotSymbol id="coin" coin={coin} label={coinLabel(coin, shownBet, boost)} /></div>{/key}
-                    {#if coin.kind === 'jackpot' && boost}<span class="boosted">+{coinMoney(shownBet.mul(boost))}</span>{/if}
-                    {#if game.feature.fresh.includes(cell)}<span class="gain">{coinLabel(coin, shownBet)}</span>{/if}
-                    {#key game.feature.boosts}{#if game.feature.boosts && boost}<span class="gain boost">+{coinMoney(shownBet.mul(game.feature.boost))}</span>{/if}{/key}
-                  {:else if whirling}
-                    <div class="minireel" style:--delay="{-(cell * 37) % 200}ms">
-                      {#each MINI as id, i (i)}
-                        <div class="mini-cell">{#if id === 'coin'}<SlotSymbol {id} />{:else}{@render tile()}{/if}</div>
-                      {/each}
-                    </div>
-                  {:else}
-                    {@render tile()}
-                  {/if}
+      <!-- The bezel round the screen, with its bulbs. -->
+      <div class="bezel">
+        <SlotLights mode={lightMode} />
+        <div class="glass" role="img" aria-label="Reels">
+          {#each machine.reels as _, r (r)}
+            <div class="reel" class:slow={game.anticipating === r}>
+              {#if game.feature}
+                <!-- Hold & spin: coins stay; empty cells spin on their own. -->
+                {#each Array.from({ length: machine.rows }, (_, row) => row) as row (row)}
+                  {@const cell = r * machine.rows + row}
+                  {@const coin = game.feature.held[cell]}
+                  {@const whirling = !coin && game.feature.spinning.includes(cell)}
+                  <div
+                    class="cell hs"
+                    class:counting={game.feature.counting === cell}
+                    class:empty={!coin}
+                    class:fresh={game.feature.fresh.includes(cell)}
+                    class:tense={whirling && game.feature.tense.includes(cell)}
+                    class:collected={coin && game.feature.collecting}
+                  >
+                    {#if coin}
+                      {@const boost = game.feature.boosted[cell] ?? 0}
+                      {#key coin}<div class="drop"><SlotSymbol id="coin" coin={coin} label={coinLabel(coin, shownBet, boost)} /></div>{/key}
+                      {#if coin.kind === 'jackpot' && boost}<span class="boosted">+{coinMoney(shownBet.mul(boost))}</span>{/if}
+                      {#if game.feature.fresh.includes(cell)}<span class="gain">{coinLabel(coin, shownBet)}</span>{/if}
+                      {#key game.feature.boosts}{#if game.feature.boosts && boost}<span class="gain boost">+{coinMoney(shownBet.mul(game.feature.boost))}</span>{/if}{/key}
+                    {:else if whirling}
+                      <div class="minireel" style:--delay="{-(cell * 37) % 200}ms">
+                        {#each MINI as id, i (i)}
+                          <div class="mini-cell">{#if id === 'coin'}<SlotSymbol {id} />{:else}{@render tile()}{/if}</div>
+                        {/each}
+                      </div>
+                    {:else}
+                      {@render tile()}
+                    {/if}
+                  </div>
+                {/each}
+              {:else if game.spinning[r]}
+                <div class="strip" style:--n={blur[r]!.length / 2}>
+                  {#each blur[r]! as id, i (i)}
+                    <div class="cell"><SlotSymbol {id} /></div>
+                  {/each}
                 </div>
-              {/each}
-            {:else if game.spinning[r]}
-              <div class="strip" style:--n={blur[r]!.length / 2}>
-                {#each blur[r]! as id, i (i)}
-                  <div class="cell"><SlotSymbol {id} /></div>
+              {:else}
+                {#each game.grid[r] ?? [] as id, row (row)}
+                  {@const cell = r * machine.rows + row}
+                  {@const coin = game.coins[cell]}
+                  {@const taking = game.collecting !== null}
+                  <div
+                    class="cell land"
+                    class:lit={lit.has(`${r}:${row}`)}
+                    class:dim={(lit.size > 0 && !lit.has(`${r}:${row}`)) || (taking && !coin && game.collecting?.cell !== cell)}
+                    class:mark={game.free?.marks.includes(cell)}
+                    class:forged={game.free?.forged.includes(cell)}
+                    class:taking={game.collecting?.cell === cell}
+                    class:taken={taking && coin !== undefined}
+                    class:trigger={game.triggered.includes(cell)}
+                  >
+                    <SlotSymbol {id} {coin} label={coin ? coinLabel(coin, shownBet) : undefined} />
+                    {#if game.gems[cell] !== undefined}<i class="gem r{game.gems[cell]}" title="{pots[game.gems[cell]]?.name} gem"></i>{/if}
+                    {#if id === 'wild' && game.free && game.free.wildX > 1}<span class="wild-x">×{game.free.wildX}</span>{/if}
+                    {#if game.collecting?.cell === cell}<span class="gain">+{formatMoney(game.collecting.pay)}</span>{/if}
+                  </div>
+                {/each}
+              {/if}
+            </div>
+          {/each}
+
+          {#if game.wheel}
+            {@const w = game.wheel}
+            <!-- The wheel bonus: three wheels, one inside the other; only the one in play turns. -->
+            <div class="wheel-stage">
+              <svg class="wheel" viewBox="-100 -100 200 200" role="img" aria-label="Bonus wheel, {WHEEL_NAMES[w.at]}">
+                {#if bonus.kind === 'wheel'}
+                  {#each w.wheels as wedges, ring (ring)}
+                    {@const { outer, inner } = RINGS[ring]!}
+                    <g
+                      class="ring"
+                      class:active={ring === w.at}
+                      class:ahead={ring > w.at}
+                      style:transform="rotate({w.angles[ring]}deg)"
+                      style:transition-duration="{ring === w.at && w.spinning ? w.ms : 0}ms"
+                    >
+                      {#each wedges as wedge, i (i)}
+                        {@const mid = ((i + 0.5) / wedges.length) * 360}
+                        <path
+                          d={wedgePath(i, wedges.length, outer, inner)}
+                          fill={wedgeFill(wedge, i, ring)}
+                          class="wedge"
+                          class:hit={ring === w.at && w.landed === i}
+                        />
+                        <text
+                          class="wl"
+                          class:dark={wedge.kind !== 'cash'}
+                          transform="rotate({mid}) translate(0 {-(outer + inner) / 2}) rotate({mid > 180 ? 90 : -90})"
+                          text-anchor="middle"
+                          dominant-baseline="central"
+                          font-size={ring === 0 ? 8.5 : ring === 1 ? 8 : 6.6}
+                        >
+                          {wedgeLabel(wedge)}
+                        </text>
+                      {/each}
+                    </g>
+                  {/each}
+                {/if}
+                <circle r="15" class="hub" />
+                <path d="M-9 4 L-11 -7 L-5 -2 L0 -10 L5 -2 L11 -7 L9 4 Z" fill="#ffd75e" stroke="#7a4f0c" stroke-width="1" />
+                <!-- The pointer at the top, over the wheel in play. -->
+                {#if RINGS[w.at]}
+                  <path class="pointer" d="M-7 {-RINGS[w.at]!.outer - 4} L7 {-RINGS[w.at]!.outer - 4} L0 {-RINGS[w.at]!.outer + 9} Z" />
+                {/if}
+              </svg>
+            </div>
+          {/if}
+
+          {#if game.pick}
+            {@const p = game.pick}
+            <!-- The jackpot pick: three lanterns for each jackpot on the board, twelve unless a pot cleared one away. -->
+            <div class="pick-stage" class:waiting={seq.awaiting === 'pick'}>
+              <div class="tally" style:--tiers={p.tiers.length}>
+                {#each [...p.tiers].reverse() as tier (tier)}
+                  <div class="tal {tier}" class:won={p.won === tier} class:close={p.counts[tier] === 2 && !p.won}>
+                    <span>{TIER_NAME[tier]}</span>
+                    <span class="pips">{#each [0, 1, 2] as i (i)}<i class:on={i < p.counts[tier]}></i>{/each}</span>
+                  </div>
                 {/each}
               </div>
-            {:else}
-              {#each game.grid[r] ?? [] as id, row (row)}
-                {@const cell = r * machine.rows + row}
-                {@const coin = game.coins[cell]}
-                {@const taking = game.collecting !== null}
-                <div
-                  class="cell land"
-                  class:lit={lit.has(`${r}:${row}`)}
-                  class:dim={(lit.size > 0 && !lit.has(`${r}:${row}`)) || (taking && !coin && game.collecting?.cell !== cell)}
-                  class:mark={game.free?.marks.includes(cell)}
-                  class:forged={game.free?.forged.includes(cell)}
-                  class:taking={game.collecting?.cell === cell}
-                  class:taken={taking && coin !== undefined}
-                >
-                  <SlotSymbol {id} {coin} label={coin ? coinLabel(coin, shownBet) : undefined} />
-                  {#if game.gems[cell] !== undefined}<i class="gem r{game.gems[cell]}" title="{pots[game.gems[cell]]?.name} gem"></i>{/if}
-                  {#if id === 'wild' && game.free && game.free.wildX > 1}<span class="wild-x">×{game.free.wildX}</span>{/if}
-                  {#if game.collecting?.cell === cell}<span class="gain">+{formatMoney(game.collecting.pay)}</span>{/if}
-                </div>
-              {/each}
-            {/if}
-          </div>
-        {/each}
-
-        {#if game.wheel}
-          {@const w = game.wheel}
-          <!-- The wheel bonus: three wheels, one inside the other; only the one in play turns. -->
-          <div class="wheel-stage">
-            <svg class="wheel" viewBox="-100 -100 200 200" role="img" aria-label="Bonus wheel, {WHEEL_NAMES[w.at]}">
-              {#if bonus.kind === 'wheel'}
-                {#each w.wheels as wedges, ring (ring)}
-                  {@const { outer, inner } = RINGS[ring]!}
-                  <g
-                    class="ring"
-                    class:active={ring === w.at}
-                    class:ahead={ring > w.at}
-                    style:transform="rotate({w.angles[ring]}deg)"
-                    style:transition-duration="{ring === w.at && w.spinning ? w.ms : 0}ms"
+              <div class="board" style:--cols={p.tiles.length % PICK_COLS ? 3 : PICK_COLS}>
+                {#each p.tiles as tile, i (i)}
+                  {@const picked = p.picked.includes(i)}
+                  <button
+                    type="button"
+                    class="lantern {tile ?? ''}"
+                    class:open={tile !== null}
+                    class:rest={tile !== null && !picked}
+                    class:just={p.last === i}
+                    class:winner={p.won !== null && tile === p.won && picked}
+                    disabled={tile !== null || seq.awaiting !== 'pick'}
+                    aria-label={tile ? `${TIER_NAME[tile]}` : `Lantern ${i + 1}`}
+                    onclick={() => game.choose(i)}
                   >
-                    {#each wedges as wedge, i (i)}
-                      {@const mid = ((i + 0.5) / wedges.length) * 360}
-                      <path
-                        d={wedgePath(i, wedges.length, outer, inner)}
-                        fill={wedgeFill(wedge, i, ring)}
-                        class="wedge"
-                        class:hit={ring === w.at && w.landed === i}
-                      />
-                      <text
-                        class="wl"
-                        class:dark={wedge.kind !== 'cash'}
-                        transform="rotate({mid}) translate(0 {-(outer + inner) / 2}) rotate({mid > 180 ? 90 : -90})"
-                        text-anchor="middle"
-                        dominant-baseline="central"
-                        font-size={ring === 0 ? 8.5 : ring === 1 ? 8 : 6.6}
-                      >
-                        {wedgeLabel(wedge)}
-                      </text>
-                    {/each}
-                  </g>
+                    {#if tile}
+                      <b>{TIER_NAME[tile]}</b>
+                    {:else}
+                      <SlotSymbol id="lantern" />
+                    {/if}
+                  </button>
                 {/each}
-              {/if}
-              <circle r="15" class="hub" />
-              <path d="M-9 4 L-11 -7 L-5 -2 L0 -10 L5 -2 L11 -7 L9 4 Z" fill="#ffd75e" stroke="#7a4f0c" stroke-width="1" />
-              <!-- The pointer at the top, over the wheel in play. -->
-              {#if RINGS[w.at]}
-                <path class="pointer" d="M-7 {-RINGS[w.at]!.outer - 4} L7 {-RINGS[w.at]!.outer - 4} L0 {-RINGS[w.at]!.outer + 9} Z" />
-              {/if}
-            </svg>
-          </div>
-        {/if}
-
-        {#if game.pick}
-          {@const p = game.pick}
-          <!-- The jackpot pick: three lanterns for each jackpot on the board, twelve unless a pot cleared one away. -->
-          <div class="pick-stage" class:waiting={seq.awaiting === 'pick'}>
-            <div class="tally" style:--tiers={p.tiers.length}>
-              {#each [...p.tiers].reverse() as tier (tier)}
-                <div class="tal {tier}" class:won={p.won === tier} class:close={p.counts[tier] === 2 && !p.won}>
-                  <span>{TIER_NAME[tier]}</span>
-                  <span class="pips">{#each [0, 1, 2] as i (i)}<i class:on={i < p.counts[tier]}></i>{/each}</span>
-                </div>
-              {/each}
+              </div>
             </div>
-            <div class="board" style:--cols={p.tiles.length % PICK_COLS ? 3 : PICK_COLS}>
-              {#each p.tiles as tile, i (i)}
-                {@const picked = p.picked.includes(i)}
-                <button
-                  type="button"
-                  class="lantern {tile ?? ''}"
-                  class:open={tile !== null}
-                  class:rest={tile !== null && !picked}
-                  class:just={p.last === i}
-                  class:winner={p.won !== null && tile === p.won && picked}
-                  disabled={tile !== null || seq.awaiting !== 'pick'}
-                  aria-label={tile ? `${TIER_NAME[tile]}` : `Lantern ${i + 1}`}
-                  onclick={() => game.choose(i)}
-                >
-                  {#if tile}
-                    <b>{TIER_NAME[tile]}</b>
-                  {:else}
-                    <SlotSymbol id="lantern" />
-                  {/if}
-                </button>
-              {/each}
-            </div>
-          </div>
-        {/if}
+          {/if}
 
-        {#if game.feature?.note}
-          {#key game.feature.note + game.feature.left}
-            <div class="respin-note" class:good={game.feature.fresh.length > 0} aria-live="polite">{game.feature.note}</div>
-          {/key}
-        {/if}
+          {#if game.feature?.note}
+            {#key game.feature.note + game.feature.left}
+              <div class="respin-note" class:good={game.feature.fresh.length > 0} aria-live="polite">{game.feature.note}</div>
+            {/key}
+          {/if}
 
-        {#if game.summary}
-          {@const sum = game.summary}
-          {#key sum.key}
-            <!-- The bonus win: up for a few seconds, or until a tap closes it. -->
-            <div class="summary" class:grand={sum.grand} role="status" style:--ms="{SUMMARY_MS}ms">
-              <span class="eyebrow">{sum.title}</span>
-              <b>{formatMoney(sum.bonus)}</b>
-              <span class="detail">
-                {[...sum.details, ...sum.jackpots.map((t) => `${TIER_NAME[t]} jackpot`)].join(' · ')}
-              </span>
-              {#if !sum.total.eq(sum.bonus)}
-                <span class="detail">Total this spin {formatMoney(sum.total)}</span>
-              {/if}
-              <button type="button" class="primary" onclick={() => game.dismiss()}>Collect</button>
-              <i class="countdown" aria-hidden="true"></i>
-            </div>
-          {/key}
-        {/if}
+          {#if game.summary}
+            {@const sum = game.summary}
+            {#key sum.key}
+              <!-- The bonus win: up for a few seconds, or until a tap closes it. -->
+              {#if sum.level > 0}<div class="party-back"><Celebration id={machine.id} level={sum.level} /></div>{/if}
+              <div class="summary" class:grand={sum.grand} role="status" style:--ms="{SUMMARY_MS}ms">
+                <span class="eyebrow">{sum.title}</span>
+                <b><CountUp amount={sum.bonus} ms={900 + sum.level * 500} /></b>
+                <span class="detail">
+                  {[...sum.details, ...sum.jackpots.map((t) => `${TIER_NAME[t]} jackpot`)].join(' · ')}
+                </span>
+                {#if !sum.total.eq(sum.bonus)}
+                  <span class="detail">Total this spin {formatMoney(sum.total)}</span>
+                {/if}
+                <button type="button" class="primary" onclick={() => game.dismiss()}>Collect</button>
+                <i class="countdown" aria-hidden="true"></i>
+              </div>
+            {/key}
+          {/if}
 
-        {#if game.banner}
-          {#key game.banner.key}
-            <div class="banner {game.banner.tier ?? 'feature'}" aria-live="assertive">
-              <b>{game.banner.title}</b>
-              {#if game.banner.amount}<span>{formatMoney(game.banner.amount)}</span>{/if}
-              {#if game.banner.sub}<small>{game.banner.sub}</small>{/if}
-            </div>
-          {/key}
-        {/if}
+          {#if game.bigWin}
+            {@const bw = game.bigWin}
+            {#key bw.key}
+              <!-- A big win stops the machine: it counts up over the reels with the cabinet going wild. -->
+              <div class="bigwin l{bw.level}" role="status">
+                <Celebration id={machine.id} level={bw.level} />
+                <b class="bw-title">{bw.title}</b>
+                <span class="bw-amount"><CountUp amount={bw.amount} ms={bw.ms} /></span>
+              </div>
+            {/key}
+          {/if}
+
+          {#if game.banner}
+            {#key game.banner.key}
+              <div class="banner {game.banner.tier ?? 'feature'}" aria-live="assertive">
+                <b>{game.banner.title}</b>
+                {#if game.banner.amount}<span>{formatMoney(game.banner.amount)}</span>{/if}
+                {#if game.banner.sub}<small>{game.banner.sub}</small>{/if}
+              </div>
+            {/key}
+          {/if}
+        </div>
       </div>
 
       <!-- Under the reels: the bet, and the win or how the feature is going. -->
@@ -569,7 +620,7 @@
         <button type="button" class="spin" onclick={() => game.spin()}>Pick for me</button>
       {:else if game.autoPlay && game.started}
         <button type="button" class="spin" onclick={() => seq.togglePause()}>{seq.paused ? 'Resume' : 'Pause'}</button>
-      {:else if game.summary}
+      {:else if game.summary || seq.awaiting === 'bigwin'}
         <button type="button" class="spin primary" onclick={() => game.dismiss()}>Collect</button>
       {:else}
         <button type="button" class="spin primary" disabled={!game.canSpin} onclick={() => game.spin()}>Spin</button>
@@ -710,21 +761,109 @@
 {/snippet}
 
 <style>
+  /*
+   * Each machine's look: its bulbs, the colour its wins glow, its bezel and its
+   * lettering. The cabinet body and backdrop are in cabinets.css.
+   */
   .cabinet {
-    --cell: clamp(40px, min(calc((100cqw - 34px) / 5.1), calc((100cqh - 125px) / 3.2)), 150px);
+    --logo-h: clamp(30px, 5.5cqh, 46px);
+    --cell: clamp(40px, min(calc((100cqw - 66px) / 5.1), calc((100cqh - 164px - var(--logo-h)) / 3.2)), 150px);
+    --bulb-a: #ffd75e;
+    --bulb-b: #fff4d6;
+    --win: #ffd75e;
+    --logo-font: var(--font-display);
+    --bezel: linear-gradient(145deg, #fff0b0, #c99a38 30%, #7a5418 55%, #e8c063 80%, #8a6420);
     position: relative;
     display: grid;
-    grid-template-rows: auto 1fr auto;
+    grid-template-rows: auto auto 1fr auto;
     justify-items: center;
     align-items: center;
-    gap: 10px;
+    gap: 8px;
     height: 100%;
   }
   /* A row of pots under the marquee takes some of the height from the reels. */
   .cabinet.has-pots {
-    --cell: clamp(40px, min(calc((100cqw - 34px) / 5.1), calc((100cqh - 178px) / 3.2)), 150px);
-    grid-template-rows: auto auto 1fr auto;
-    gap: 8px;
+    --cell: clamp(40px, min(calc((100cqw - 66px) / 5.1), calc((100cqh - 216px - var(--logo-h)) / 3.2)), 150px);
+    grid-template-rows: auto auto auto 1fr auto;
+    gap: 7px;
+  }
+  .cabinet > :global(*:not(.scene)) {
+    position: relative;
+    z-index: 1;
+  }
+  .cabinet.vault {
+    --logo-font: 'Limelight', var(--font-display);
+  }
+  .cabinet.forge {
+    --bulb-a: #ffb347;
+    --bulb-b: #ff5a1f;
+    --win: #ff9a3c;
+    --logo-font: 'Metal Mania', var(--font-display);
+    --bezel:
+      radial-gradient(circle, #8a7a70 0 2px, transparent 2.5px) 0 0 / 22px 22px,
+      linear-gradient(145deg, #4a3a32, #1e1612 40%, #3a2c25 70%, #120c09);
+  }
+  .cabinet.haul {
+    --bulb-a: #4cc9b0;
+    --bulb-b: #e8b84a;
+    --win: #5fe0c4;
+    --logo-font: 'Pirata One', var(--font-display);
+    --bezel:
+      repeating-linear-gradient(90deg, rgb(0 0 0 / 0.25) 0 2px, transparent 2px 30px),
+      linear-gradient(#7a4d27, #4f2f15 50%, #6b4220);
+  }
+  .cabinet.carnival {
+    --bulb-a: #fff3b0;
+    --bulb-b: #ff4d6a;
+    --win: #ffe066;
+    --logo-font: 'Rye', var(--font-display);
+    --bezel: repeating-linear-gradient(135deg, #e8344f 0 14px, #fff4d6 14px 28px);
+  }
+  .cabinet.lanterns {
+    --bulb-a: #ffc04a;
+    --bulb-b: #ff5a5a;
+    --win: #ffc04a;
+    --logo-font: 'Kaushan Script', var(--font-display);
+    --bezel:
+      repeating-linear-gradient(90deg, transparent 0 10px, rgb(255 192 74 / 0.35) 10px 12px),
+      linear-gradient(#b51d33, #7a0f22 50%, #9c1529);
+  }
+  /* The bezel: a thick frame round the screen, its bulbs set in it. */
+  .bezel {
+    position: relative;
+    padding: 15px;
+    border-radius: 22px;
+    background: var(--bezel);
+    box-shadow:
+      0 8px 24px rgb(0 0 0 / 0.6),
+      inset 0 1px 0 rgb(255 255 255 / 0.35),
+      inset 0 -2px 0 rgb(0 0 0 / 0.35),
+      0 0 0 1px rgb(0 0 0 / 0.6);
+  }
+  .in-feature .bezel,
+  .triggering .bezel {
+    box-shadow:
+      0 8px 24px rgb(0 0 0 / 0.6),
+      0 0 34px color-mix(in srgb, var(--win) 55%, transparent),
+      inset 0 1px 0 rgb(255 255 255 / 0.35),
+      0 0 0 1px rgb(0 0 0 / 0.6);
+  }
+  /* A big win shakes the machine. */
+  .shake .bezel {
+    animation: shake 0.55s cubic-bezier(0.36, 0.07, 0.19, 0.97);
+  }
+  @keyframes shake {
+    15%,
+    55% {
+      translate: -5px 1px;
+    }
+    35%,
+    75% {
+      translate: 5px -1px;
+    }
+    90% {
+      translate: -2px 0;
+    }
   }
   .pots {
     display: grid;
@@ -997,6 +1136,18 @@
       0 0 0 3px #b8913a,
       0 0 0 5px #2c2238,
       inset 0 0 22px rgb(0 0 0 / 0.8);
+  }
+  /* The glass catches the light, as a real screen does. */
+  .glass::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    border-radius: inherit;
+    background:
+      linear-gradient(172deg, rgb(255 255 255 / 0.13), rgb(255 255 255 / 0.03) 22%, transparent 40%),
+      linear-gradient(transparent 85%, rgb(0 0 0 / 0.25));
+    pointer-events: none;
   }
   .in-feature .glass {
     box-shadow:
@@ -1329,11 +1480,18 @@
   .lantern.rest:disabled {
     opacity: 0.38;
   }
+  /* Each reel a drum: lit across its middle, dark toward the top and bottom, with a metal rail either side. */
   .reel {
+    position: relative;
     height: calc(var(--cell) * 3);
     overflow: hidden;
     border-radius: 8px;
-    background: linear-gradient(90deg, rgb(255 255 255 / 0.03), rgb(255 255 255 / 0.08) 50%, rgb(255 255 255 / 0.03));
+    background:
+      linear-gradient(rgb(0 0 0 / 0.45), transparent 22%, transparent 78%, rgb(0 0 0 / 0.45)),
+      linear-gradient(90deg, rgb(255 255 255 / 0.03), rgb(255 255 255 / 0.09) 50%, rgb(255 255 255 / 0.03));
+    box-shadow:
+      -2px 0 0 color-mix(in srgb, var(--bulb-a) 35%, #000),
+      2px 0 0 color-mix(in srgb, var(--bulb-a) 35%, #000);
   }
   .reel.slow {
     box-shadow:
@@ -1358,8 +1516,8 @@
       filter 200ms ease;
   }
   .strip {
-    animation: whirl calc(var(--n) * 45ms) linear infinite;
-    filter: blur(1.5px);
+    animation: whirl calc(var(--n) * 38ms) linear infinite;
+    filter: blur(2.5px) brightness(1.1);
   }
   .reel.slow .strip {
     animation-duration: calc(var(--n) * 110ms);
@@ -1378,17 +1536,145 @@
       transform: translateY(-18%);
     }
   }
-  /* The cells of the way being shown: framed in gold. */
+  /* The cells of the way being shown: framed in the machine's colour, bouncing, with a shine running over them. */
   .cell.lit {
-    border-radius: 8px;
-    background: rgb(255 215 94 / 0.12);
-    box-shadow: inset 0 0 0 2px #ffd75e;
-    animation: pulse 0.7s ease-in-out infinite alternate;
+    z-index: 1;
+    overflow: hidden;
+    border-radius: 10px;
+    background: radial-gradient(circle, color-mix(in srgb, var(--win) 28%, transparent), color-mix(in srgb, var(--win) 8%, transparent) 70%);
+    box-shadow:
+      inset 0 0 0 2px var(--win),
+      0 0 16px color-mix(in srgb, var(--win) 55%, transparent);
+    animation: winbounce 0.7s ease-in-out infinite alternate;
+  }
+  .cell.lit::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(115deg, transparent 35%, rgb(255 255 255 / 0.45) 50%, transparent 65%) -100% 0 / 220% 100% no-repeat;
+    animation: cellshine 1.4s ease-in-out infinite;
+    pointer-events: none;
+  }
+  @keyframes winbounce {
+    from {
+      scale: 1;
+    }
+    to {
+      scale: 1.07;
+      filter: drop-shadow(0 0 10px var(--win)) brightness(1.18);
+    }
+  }
+  @keyframes cellshine {
+    to {
+      background-position: 200% 0;
+    }
   }
   @keyframes pulse {
     to {
       filter: drop-shadow(0 0 10px rgb(255 230 140 / 0.9)) brightness(1.15);
     }
+  }
+  /* The symbols that started the bonus: they swell and blaze, a ring of light turning behind each. */
+  .cell.trigger {
+    z-index: 2;
+    animation: trigger 0.42s ease-in-out infinite alternate;
+  }
+  .cell.trigger::before {
+    content: '';
+    position: absolute;
+    inset: -8%;
+    z-index: -1;
+    border-radius: 50%;
+    background: conic-gradient(from 0deg, transparent, var(--win), transparent 30%, var(--win) 50%, transparent 60%, var(--win) 80%, transparent);
+    mask: radial-gradient(circle, transparent 42%, #000 46%, #000 60%, transparent 66%);
+    animation: turn 1.2s linear infinite;
+  }
+  @keyframes trigger {
+    from {
+      scale: 1.04;
+      filter: brightness(1.2) drop-shadow(0 0 8px var(--win));
+    }
+    to {
+      scale: 1.2;
+      filter: brightness(1.6) drop-shadow(0 0 20px var(--win));
+    }
+  }
+  @keyframes turn {
+    to {
+      rotate: 360deg;
+    }
+  }
+  .triggering .cell:not(.trigger) {
+    opacity: 0.35;
+  }
+
+  /* A big win: the reels darken, the shower falls, and the amount rolls up under a title in the machine's lettering. */
+  .bigwin {
+    position: absolute;
+    inset: 0;
+    z-index: 4;
+    display: grid;
+    place-content: center;
+    justify-items: center;
+    gap: 6px;
+    border-radius: inherit;
+    background: radial-gradient(circle, rgb(0 0 0 / 0.45), rgb(0 0 0 / 0.78));
+    animation: fadein 0.25s ease;
+    pointer-events: none;
+    overflow: hidden;
+  }
+  .party-back {
+    position: absolute;
+    inset: 0;
+    z-index: 2;
+    border-radius: inherit;
+    overflow: hidden;
+    pointer-events: none;
+  }
+  @keyframes fadein {
+    from {
+      opacity: 0;
+    }
+  }
+  .bw-title {
+    position: relative;
+    font: 400 min(clamp(30px, 9cqw, 76px), calc(var(--cell) * 0.6)) / 1 var(--logo-font);
+    white-space: nowrap;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    background: linear-gradient(#fffbe0, var(--win) 45%, color-mix(in srgb, var(--win) 50%, #5a2a00) 60%, #fff3b0);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    filter: drop-shadow(0 3px 0 rgb(0 0 0 / 0.7)) drop-shadow(0 0 18px color-mix(in srgb, var(--win) 70%, transparent));
+    animation:
+      slam 0.5s cubic-bezier(0.2, 1.8, 0.4, 1),
+      throb 0.6s ease-in-out 0.5s infinite alternate;
+  }
+  .l3 .bw-title,
+  .l4 .bw-title {
+    font-size: min(clamp(36px, 11cqw, 92px), calc(var(--cell) * 0.72));
+  }
+  @keyframes slam {
+    from {
+      scale: 3;
+      opacity: 0;
+      rotate: -8deg;
+    }
+  }
+  @keyframes throb {
+    to {
+      scale: 1.06;
+    }
+  }
+  .bw-amount {
+    position: relative;
+    font: 700 clamp(26px, 6cqw, 52px) / 1 var(--font-display);
+    color: #fff;
+    font-variant-numeric: tabular-nums;
+    text-shadow:
+      0 2px 0 rgb(0 0 0 / 0.8),
+      0 0 16px color-mix(in srgb, var(--win) 80%, transparent);
   }
   .cell.dim {
     opacity: 0.35;
@@ -1456,8 +1742,8 @@
     text-align: center;
   }
   .summary .eyebrow {
-    font: 700 13px/1 var(--font-ui);
-    letter-spacing: 0.2em;
+    font: 400 clamp(16px, 3cqw, 22px) / 1 var(--logo-font);
+    letter-spacing: 0.08em;
     text-transform: uppercase;
     color: var(--tint);
   }
@@ -1652,7 +1938,7 @@
     --tint: #8cf08a;
   }
   .banner b {
-    font: 700 clamp(22px, 5cqw, 40px) / 1 var(--font-display);
+    font: 400 clamp(22px, 5cqw, 40px) / 1 var(--logo-font);
     letter-spacing: 0.06em;
     text-transform: uppercase;
     color: var(--tint);

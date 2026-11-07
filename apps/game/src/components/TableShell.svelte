@@ -29,6 +29,8 @@
     panels: Snippet;
     /** A slot machine: a cabinet in place of the felt and rail, and no chip tray. */
     machine?: boolean;
+    /** The slot machine's id, so its cabinet can be dressed in its own style (see `games/slots/cabinets.css`). */
+    cabinet?: string;
   }
 
   let {
@@ -44,6 +46,7 @@
     action,
     panels,
     machine = false,
+    cabinet,
   }: Props = $props();
 
   /**
@@ -80,7 +83,7 @@
   </dialog>
 {/if}
 
-<div class="app" class:compact={compact.current} class:machine>
+<div class="app" class:compact={compact.current} class:machine data-cabinet={cabinet}>
   <header class="bar">
     <h1>{title[0]} <span>{title[1]}</span></h1>
 
