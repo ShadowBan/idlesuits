@@ -194,7 +194,7 @@
             class:open={shown !== undefined}
             class:dug={dug !== undefined}
             class:hit={game.ended?.at === i}
-            disabled={game.busy || dug !== undefined || (!live && !game.canBet) || game.autoPlay}
+            disabled={game.busy || game.autoPlay || (live ? dug !== undefined : !game.canBet)}
             aria-label={shown ? shown : `Square ${i + 1}`}
             onclick={() => game.dig(i)}
           >
@@ -325,8 +325,11 @@
           <b>{game.bombs}</b>
           <button type="button" aria-label="More dynamite" onclick={() => game.setBombs(game.bombs + 1)} disabled={game.bombs >= MINES_MAX_BOMBS || game.busy}>+</button>
         </div>
+        <button type="button" class="go primary" disabled={!game.canBet || game.busy || game.autoPlay} onclick={() => game.begin()}>
+          {game.ended ? 'New round' : 'Dig'}
+        </button>
         <span class="note">
-          {stars} {stars === 1 ? 'star' : 'stars'}{carts ? ' and a mine cart' : ''} on this board · pick any square to start
+          {stars} {stars === 1 ? 'star' : 'stars'}{carts ? ' and a mine cart' : ''} on this board · or pick any square to start
         </span>
       {/if}
     </div>
