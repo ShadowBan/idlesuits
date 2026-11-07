@@ -7,6 +7,7 @@
   import { ui } from './lib/ui.svelte';
   import { findGame, type GameProps } from './lib/games';
   import { route } from './lib/route.svelte';
+  import { recent } from './lib/recent.svelte';
 
   /** The table being played, if the route names one that exists and is built. */
   const openGame = $derived.by(() => {
@@ -25,7 +26,11 @@
     failed = null;
     game
       .load!()
-      .then((module) => current && (loaded = { id: game.id, component: module.default }))
+      .then((module) => {
+        if (!current) return;
+        loaded = { id: game.id, component: module.default };
+        recent.visit(game.id);
+      })
       .catch(() => current && (failed = game.name));
     return () => (current = false);
   });

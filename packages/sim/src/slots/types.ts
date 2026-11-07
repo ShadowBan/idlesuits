@@ -186,6 +186,22 @@ export interface MachineDef {
   pots?: readonly PotDef[];
 }
 
+/**
+ * What the player's charms do to a spin, as chances and multipliers (see
+ * `slotCharms` in charms). Each rolls on a stream of its own, so a spin with
+ * none of them plays out exactly as it would without charms.
+ */
+export interface SlotCharms {
+  /** One short of the bonus, the chance a reel nudges a step to bring it in. */
+  nudge?: number;
+  /** When the bonus starts, the chance each pot that isn't full fills anyway. */
+  fill?: number;
+  /** The chance a spin turns one of reels 2–4 wild: every pay symbol on it. */
+  wild?: number;
+  /** The chance the bonus plays again once it ends. */
+  encore?: number;
+}
+
 /** The progressive jackpots as they stand, in total bets. The fixed ones come from the machine. */
 export interface JackpotMeters {
   major: number;
@@ -355,4 +371,12 @@ export interface SlotSpinResult {
   lit: number[];
   /** Each pot's gems after the spin, to carry to the next. */
   pots: number[];
+  /** A charm nudged a reel a step (`dir` -1 up, +1 down) to bring in the bonus; `before` is its window first. */
+  nudge: { reel: number; dir: -1 | 1; before: string[] } | null;
+  /** A charm turned a reel wild; `before` is its window first. */
+  wildReel: { reel: number; before: string[] } | null;
+  /** Pots a charm filled as the bonus started, by index. */
+  topped: number[];
+  /** A charm played the bonus again: the second play, also counted in `pay`. */
+  encore: SlotBonusResult | null;
 }

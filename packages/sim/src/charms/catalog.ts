@@ -67,6 +67,14 @@ export const CHARMS: readonly CharmDef[] = [
     flavor: 'Kept in a little cage by the door; it sings when luck is near.',
     effects: [{ kind: 'tokenOnLoss', v: s(0.05, 0.25) }],
   },
+  {
+    id: 'magpie-feather',
+    name: 'Magpie Feather',
+    rarity: 'common',
+    flavor: 'A magpie can’t pass anything that shines, and never forgets where it hid it.',
+    effects: [{ kind: 'gemTokens', v: s(0.5, 3) }],
+    where: 'Slot machines',
+  },
 
   // Uncommon
   {
@@ -122,6 +130,17 @@ export const CHARMS: readonly CharmDef[] = [
     flavor: 'Three stalks for happiness, wealth and a long life.',
     effects: [{ kind: 'tokenPerHand', v: s(0.15, 0.8) }],
   },
+  {
+    id: 'lever-knob',
+    name: 'Lever Knob',
+    rarity: 'uncommon',
+    flavor: 'Off an old one-armed bandit, worn smooth by a million pulls. Give it a nudge.',
+    effects: [
+      { kind: 'nearMissTokens', v: s(0.5, 3) },
+      { kind: 'slotNudge', v: s(0.0015, 0.008) },
+    ],
+    where: 'Slot machines',
+  },
 
   // Rare
   {
@@ -168,6 +187,14 @@ export const CHARMS: readonly CharmDef[] = [
     flavor: 'Trunk up, to catch the luck as it falls.',
     effects: [{ kind: 'comeback', v: s(0.03, 0.1) }],
   },
+  {
+    id: 'piggy-bank',
+    name: 'Piggy Bank',
+    rarity: 'rare',
+    flavor: 'Shake it before the bonus. Something always rattles.',
+    effects: [{ kind: 'slotFill', v: s(0.003, 0.015) }],
+    where: 'Slot machines',
+  },
 
   // Epic
   {
@@ -204,6 +231,14 @@ export const CHARMS: readonly CharmDef[] = [
       { kind: 'longshotTokens', minOdds: 25, v: s(0.5, 2) },
     ],
   },
+  {
+    id: 'jokers-cap',
+    name: 'Joker’s Cap',
+    rarity: 'epic',
+    flavor: 'Three bells, three points, and anything can stand in for anything.',
+    effects: [{ kind: 'slotWild', v: s(0.0015, 0.007) }],
+    where: 'Slot machines',
+  },
 
   // Legendary
   {
@@ -229,6 +264,14 @@ export const CHARMS: readonly CharmDef[] = [
       { kind: 'tokenPct', v: s(0.5, 2) },
       { kind: 'tokenPerHand', v: s(0.2, 1) },
     ],
+  },
+  {
+    id: 'boomerang',
+    name: 'Boomerang',
+    rarity: 'legendary',
+    flavor: 'What goes around comes around. Throw it right and the bonus does too.',
+    effects: [{ kind: 'slotEncore', v: s(0.008, 0.035) }],
+    where: 'Slot machines',
   },
   // Secret: they change the game itself. Each is drawn at its own odds (SECRET_ODDS), far rarer than a Legendary.
   {
@@ -272,6 +315,13 @@ export const CHARM_SETS: readonly CharmSet[] = [
     members: ['hamsa', 'evil-eye', 'st-cajetan'],
     bonus: [{ kind: 'lossShield', refund: 1, v: s(0.03, 0.1) }],
     blurb: 'Losses are turned away more often.',
+  },
+  {
+    id: 'bandit',
+    name: 'One-Armed Bandit',
+    members: ['piggy-bank', 'jokers-cap', 'boomerang'],
+    bonus: [{ kind: 'slotNudge', v: s(0.003, 0.012) }],
+    blurb: 'The machine nudges the bonus in for you.',
   },
 ];
 

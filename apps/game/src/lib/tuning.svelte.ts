@@ -33,6 +33,8 @@ export interface TuningValues {
   slotPayback: number;
   /** × what every hand adds to the progressive jackpots. */
   jackpotGrowth: number;
+  /** The instant games' payback, in percent: Mines, the fishing line and Plinko. */
+  instantPayback: number;
 }
 
 export const TUNING_DEFAULTS: Readonly<TuningValues> = {
@@ -48,6 +50,7 @@ export const TUNING_DEFAULTS: Readonly<TuningValues> = {
   blindHands: -1,
   slotPayback: 94,
   jackpotGrowth: 1,
+  instantPayback: 97,
 };
 
 export const KNOBS: readonly Knob[] = [
@@ -63,6 +66,7 @@ export const KNOBS: readonly Knob[] = [
   { key: 'blindHands', label: 'Blind hands', hint: 'at poker tables; −1 = from charms', min: -1, max: 2, step: 1 },
   { key: 'slotPayback', label: 'Slot payback', hint: '% returned, jackpots at their seeds', min: 50, max: 150, step: 0.5 },
   { key: 'jackpotGrowth', label: 'Jackpot growth', hint: '× what each hand adds to the progressives', min: 0, max: 1000, step: 0.5 },
+  { key: 'instantPayback', label: 'Instant payback', hint: '% returned by Mines, the fishing line and Plinko', min: 50, max: 150, step: 0.5 },
 ];
 
 type Overrides = Record<string, number | boolean>;

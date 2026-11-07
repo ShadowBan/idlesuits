@@ -3,16 +3,45 @@
   import { floor } from '../lib/floor.svelte';
   import { formatLimit, room } from '../lib/rooms';
   import { ui } from '../lib/ui.svelte';
-  import { deckLabel, GAMES, SLOTS } from '../lib/games';
+  import { deckLabel, GAMES, INSTANT, SLOTS } from '../lib/games';
   import { jackpots, MAJOR_CAP } from '../lib/jackpot.svelte';
   import { formatMoney } from '../lib/money';
   import { CHARMS } from '@idlesuits/sim';
   import { tuning } from '../lib/tuning.svelte';
   import { meta } from '../lib/meta.svelte';
   import CharmArt from './charms/CharmArt.svelte';
+  import { recent } from '../lib/recent.svelte';
+  import { load, save } from '../lib/save';
   import TokenCounter from './charms/TokenCounter.svelte';
 
   let { onPlay }: { onPlay: (game: { id: string }) => void } = $props();
+
+  type Tab = 'tables' | 'slots' | 'instant';
+  const TABS = $derived<{ id: Tab; label: string; count: number }[]>([
+    { id: 'tables', label: 'Tables', count: GAMES.length },
+    { id: 'slots', label: 'Slot floor', count: SLOTS.length },
+    { id: 'instant', label: 'Instant games', count: INSTANT.length },
+  ]);
+  const saved = load<string>('lobby.tab', 'tables');
+  let tab = $state<Tab>(saved === 'slots' || saved === 'instant' ? saved : 'tables');
+  function setTab(t: Tab) {
+    tab = t;
+    save('lobby.tab', t);
+  }
+  /** The games played last, newest first, with what kind each is. */
+  const lastPlayed = $derived(
+    recent.ids
+      .map((id) => {
+        const t = GAMES.find((g) => g.id === id);
+        if (t) return { ...t, kind: 'Table' };
+        const sl = SLOTS.find((g) => g.id === id);
+        if (sl) return { ...sl, kind: 'Slot' };
+        const ins = INSTANT.find((g) => g.id === id);
+        return ins ? { ...ins, kind: ins.kind } : null;
+      })
+      .filter((g) => g !== null && g.load !== undefined)
+      .slice(0, 4) as { id: string; name: string; motif: string[]; accent: string; kind: string }[],
+  );
 
   /** Every opened room, and the next one as something to aim for. */
   const rooms = $derived(Array.from({ length: floor.best + 2 }, (_, i) => room(i)));
@@ -84,83 +113,87 @@
     <span class="go">Open ›</span>
   </a>
 
-  <h2 class="section">Tables</h2>
-  <ul class="games">
-    {#each GAMES as game (game.id)}
-      {@const open = game.load !== undefined}
-      <li>
-        <article class="card" class:soon={!open} style:--accent={game.accent}>
-          <div class="motif" aria-hidden="true">
-            {#each game.motif as m, i (i)}<span>{m}</span>{/each}
-          </div>
-
-          <div class="text">
-            <h2>{game.name}</h2>
-            <p class="tagline">{game.tagline}</p>
-            <p class="blurb">{game.blurb}</p>
-            <ul class="facts">
-              <li class="deck">{deckLabel(game)}</li>
-              {#each game.facts as fact (fact)}
-                <li>{fact}</li>
-              {/each}
-            </ul>
-          </div>
-
-          {#if open}
-            <button type="button" class="primary" onclick={() => onPlay(game)}>Play {game.name}</button>
-          {:else}
-            <p class="pending">Table closed · in development</p>
-          {/if}
-        </article>
-      </li>
-    {/each}
-  </ul>
-
-  <!-- The slot floor: its machines share the linked progressives, which every hand in the casino feeds. -->
-  <section class="slot-floor" aria-labelledby="slot-floor">
-    <div class="floor-head">
-      <h2 class="section" id="slot-floor">Slot floor</h2>
-      <div class="meters" aria-label="Linked progressive jackpots">
-        {#each [['Grand', jackpots.grand], ['Major', jackpots.major]] as const as [name, x] (name)}
-          <span class="meter-box {name.toLowerCase()}">
-            <span class="k">{name}</span>
-            <b>{formatMoney(floor.room.min.mul(x))}</b>
-            {#if name === 'Major'}<small>must hit by {formatLimit(floor.room.min.mul(MAJOR_CAP))}</small>{/if}
-          </span>
+  <!-- Back to what was played last. -->
+  {#if lastPlayed.length}
+    <section class="recent" aria-labelledby="recent-head">
+      <h2 class="section" id="recent-head">Jump back in</h2>
+      <div class="recent-row">
+        {#each lastPlayed as g (g.id)}
+          <button type="button" class="mini" style:--accent={g.accent} onclick={() => onPlay(g)}>
+            <span class="glyph" aria-hidden="true">{g.motif[0]}</span>
+            <span class="mini-text"><b>{g.name}</b><small>{g.kind}</small></span>
+          </button>
         {/each}
-        <span class="at">at a {formatLimit(floor.room.min)} spin · grows with every hand, and every second</span>
       </div>
-    </div>
-    <ul class="games">
-      {#each SLOTS as slot (slot.id)}
-        {@const open = slot.load !== undefined}
-        <li>
-          <article class="card slot" class:soon={!open} style:--accent={slot.accent}>
-            <div class="motif reels" aria-hidden="true">
-              {#each slot.motif as m, i (i)}<span>{m}</span>{/each}
-            </div>
-            <div class="text">
-              <h2>{slot.name}</h2>
-              <p class="tagline">{slot.tagline}</p>
-              <p class="blurb">{slot.blurb}</p>
-              <ul class="facts">
-                <li class="deck">{slot.feature}</li>
-                {#each slot.facts as fact (fact)}
-                  <li>{fact}</li>
-                {/each}
-              </ul>
-            </div>
-            {#if open}
-              <button type="button" class="primary" onclick={() => onPlay(slot)}>Play {slot.name}</button>
-            {:else}
-              <p class="pending">Machine coming · in development</p>
-            {/if}
-          </article>
-        </li>
+    </section>
+  {/if}
+
+  <!-- The floor in three rooms of its own: tables, slots and instant games, one at a time. -->
+  <div class="tabs" role="tablist" aria-label="The floor">
+    {#each TABS as t (t.id)}
+      <button type="button" role="tab" aria-selected={tab === t.id} onclick={() => setTab(t.id)}>
+        {t.label}<span>{t.count}</span>
+      </button>
+    {/each}
+  </div>
+
+  {#if tab === 'slots'}
+    <!-- The slot floor: its machines share the linked progressives, which every hand in the casino feeds. -->
+    <div class="meters" aria-label="Linked progressive jackpots">
+      {#each [['Grand', jackpots.grand], ['Major', jackpots.major]] as const as [name, x] (name)}
+        <span class="meter-box {name.toLowerCase()}">
+          <span class="k">{name}</span>
+          <b>{formatMoney(floor.room.min.mul(x))}</b>
+          {#if name === 'Major'}<small>must hit by {formatLimit(floor.room.min.mul(MAJOR_CAP))}</small>{/if}
+        </span>
       {/each}
-    </ul>
-  </section>
+      <span class="at">at a {formatLimit(floor.room.min)} spin · grows with every hand, and every second</span>
+    </div>
+  {:else if tab === 'instant'}
+    <p class="at">Quick press-your-luck rounds: you choose the risk, and each pays back exactly what the floor sets.</p>
+  {/if}
+
+  <div role="tabpanel" aria-label={TABS.find((t) => t.id === tab)?.label}>
+  <ul class="games">
+    {#if tab === 'tables'}
+      {#each GAMES as game (game.id)}
+        <li>{@render card(game, deckLabel(game), false)}</li>
+      {/each}
+    {:else if tab === 'slots'}
+      {#each SLOTS as slot (slot.id)}
+        <li>{@render card(slot, slot.feature, true)}</li>
+      {/each}
+    {:else}
+      {#each INSTANT as g (g.id)}
+        <li>{@render card(g, g.kind, true)}</li>
+      {/each}
+    {/if}
+  </ul>
+  </div>
 </div>
+
+{#snippet card(g: { id: string; name: string; tagline: string; blurb: string; facts: string[]; motif: string[]; accent: string; load?: unknown }, label: string, cabinet: boolean)}
+  {@const open = g.load !== undefined}
+  <article class="card" class:soon={!open} style:--accent={g.accent}>
+    <div class="motif" class:reels={cabinet} aria-hidden="true">
+      {#each g.motif as m, i (i)}<span>{m}</span>{/each}
+    </div>
+    <div class="text">
+      <h2>{g.name}</h2>
+      <p class="tagline">{g.tagline}</p>
+      <p class="blurb" title={g.blurb}>{g.blurb}</p>
+      <ul class="facts">
+        <li class="deck">{label}</li>
+        {#each g.facts as fact (fact)}<li>{fact}</li>{/each}
+      </ul>
+    </div>
+    {#if open}
+      <button type="button" class="primary" onclick={() => onPlay(g)}>Play</button>
+    {:else}
+      <p class="pending">In development</p>
+    {/if}
+  </article>
+{/snippet}
 
 <style>
   .rooms {
@@ -322,15 +355,130 @@
     margin: 0;
     padding: 0;
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-    gap: 16px;
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    gap: 14px;
+  }
+  /* The floor's three rooms, as tabs that stay in reach while the cards scroll. */
+  .tabs {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    display: flex;
+    gap: 4px;
+    padding: 5px;
+    border-radius: 14px;
+    background: color-mix(in srgb, var(--rail) 92%, transparent);
+    backdrop-filter: blur(6px);
+    box-shadow:
+      inset 0 0 0 1px var(--line),
+      0 6px 16px rgb(0 0 0 / 0.35);
+  }
+  .tabs button {
+    flex: 1;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    min-height: 44px;
+    padding: 8px 10px;
+    border: 0;
+    border-radius: 10px;
+    background: none;
+    color: var(--muted);
+    font: 700 15px/1 var(--font-display);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+  .tabs button span {
+    padding: 2px 7px;
+    border-radius: 999px;
+    background: rgb(255 255 255 / 0.08);
+    font: 600 11px/1.2 var(--font-ui);
+    letter-spacing: 0;
+  }
+  .tabs button[aria-selected='true'] {
+    background: var(--gold);
+    color: #1a1206;
+  }
+  .tabs button[aria-selected='true'] span {
+    background: rgb(0 0 0 / 0.15);
+  }
+  /* On a phone: tabs on one line each, and cards without the blurb (the tagline and facts say enough). */
+  @media (max-width: 520px) {
+    .tabs button {
+      gap: 5px;
+      padding: 8px 4px;
+      font-size: 12px;
+      letter-spacing: 0.03em;
+    }
+    .tabs button span {
+      padding: 1px 5px;
+    }
+    .card .blurb {
+      display: none;
+    }
+    .games .card {
+      gap: 8px;
+      padding: 12px;
+    }
+  }
+  .recent {
+    display: grid;
+    gap: 10px;
+  }
+  .recent h2.section {
+    margin: 0;
+  }
+  .recent-row {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 10px;
+  }
+  .mini {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 14px;
+    border-radius: 12px;
+    border: 1px solid var(--line);
+    background:
+      radial-gradient(120% 120% at 0% 50%, color-mix(in srgb, var(--accent) 22%, transparent), transparent 60%),
+      var(--rail);
+    color: var(--ink);
+    text-align: left;
+  }
+  .mini:hover {
+    border-color: var(--accent);
+  }
+  .glyph {
+    display: grid;
+    place-items: center;
+    width: 36px;
+    height: 36px;
+    border-radius: 10px;
+    background: rgb(0 0 0 / 0.35);
+    color: var(--accent);
+    font: 700 20px/1 var(--font-display);
+  }
+  .mini-text {
+    display: grid;
+    gap: 3px;
+  }
+  .mini-text b {
+    font: 700 15px/1 var(--font-display);
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+  }
+  .mini-text small {
+    font: 11px/1 var(--font-ui);
+    color: var(--muted);
   }
   .card {
     height: 100%;
     display: grid;
     grid-template-rows: auto 1fr auto;
-    gap: 14px;
-    padding: 18px;
+    gap: 10px;
+    padding: 14px;
     border-radius: 16px;
     border: 1px solid var(--line);
     background:
@@ -344,7 +492,7 @@
     display: flex;
     gap: 8px;
     justify-content: center;
-    padding: 14px 0;
+    padding: 8px 0;
     border-radius: 12px;
     background: radial-gradient(ellipse at center, var(--felt) 0%, var(--felt-deep) 100%);
   }
@@ -368,10 +516,16 @@
     color: var(--accent);
     font: 600 13px/1.3 var(--font-ui);
   }
+  /* Three lines of the blurb at most; the whole of it is in the card's tooltip and the game's rules. */
   .blurb {
-    margin: 8px 0 0;
+    margin: 6px 0 0;
     color: var(--muted);
-    font: 13px/1.5 var(--font-ui);
+    font: 13px/1.45 var(--font-ui);
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
   }
   .facts {
     list-style: none;
@@ -408,20 +562,9 @@
     text-transform: uppercase;
     color: var(--muted);
   }
-  .floor-head h2.section {
-    margin: 0;
-  }
-  .slot-floor {
-    display: grid;
-    gap: 24px;
-  }
-  .floor-head {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: end;
-    justify-content: space-between;
-    gap: 10px 16px;
-  }
+
+
+
   .meters {
     display: flex;
     flex-wrap: wrap;

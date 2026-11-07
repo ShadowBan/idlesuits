@@ -143,7 +143,9 @@
     padding: 0;
     border-radius: 50%;
     border: 2px solid var(--print);
-    background: rgb(0 0 0 / 0.12);
+    /* Printed like a real layout: a second fine line inside, and a faint well for the chips. */
+    background: radial-gradient(circle, rgb(0 0 0 / 0.22), rgb(0 0 0 / 0.08) 70%);
+    box-shadow: inset 0 0 0 4px transparent, inset 0 0 0 5px color-mix(in srgb, var(--print) 45%, transparent);
     display: grid;
     place-items: center;
     cursor: default;

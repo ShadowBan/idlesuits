@@ -47,6 +47,22 @@ export type Effect =
   | { kind: 'bigHit'; minOdds: number; v: Scale }
   /** Chance v that a winning hand's winnings are paid twice. */
   | { kind: 'doubleWin'; v: Scale }
+  /** v Tokens for every gem a slot spin drops into the pots. */
+  | { kind: 'gemTokens'; v: Scale }
+  /** v Tokens for a slot spin one symbol short of the bonus. */
+  | { kind: 'nearMissTokens'; v: Scale }
+  /**
+   * Slot effects, read by the slot machines as each spin plays rather than
+   * when it settles (see `slotCharms`).
+   */
+  /** One short of the bonus, chance v a reel nudges a step to bring it in. */
+  | { kind: 'slotNudge'; v: Scale }
+  /** As the bonus starts, chance v each pot that isn't full fills anyway. */
+  | { kind: 'slotFill'; v: Scale }
+  /** Chance v a spin turns one of reels 2–4 wild. */
+  | { kind: 'slotWild'; v: Scale }
+  /** Chance v the bonus plays again once it ends. */
+  | { kind: 'slotEncore'; v: Scale }
   /**
    * Rule-bending effects, read by the tables rather than when a hand settles.
    * Their values are whole numbers by level, not a scale.
@@ -58,6 +74,9 @@ export type Effect =
 
 /** The effects a table reads for its rules. */
 export type RuleEffect = Extract<Effect, { perLevel: number[] }>;
+
+/** The effects a slot machine reads as it spins. */
+export type SlotEffect = Extract<Effect, { kind: 'slotNudge' | 'slotFill' | 'slotWild' | 'slotEncore' }>;
 
 export interface CharmDef {
   id: string;
@@ -104,6 +123,9 @@ export interface RoundReport {
   /** A big flush at a game whose hands are not poker hands (Idle Suits). */
   flush?: boolean;
   blackjack?: boolean;
+  /** A slot spin: gems it dropped into the pots, and whether it came one symbol short of the bonus. */
+  gems?: number;
+  nearMiss?: boolean;
 }
 
 /** Streaks carried from hand to hand, across every table. */

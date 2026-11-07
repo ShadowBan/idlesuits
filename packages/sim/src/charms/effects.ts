@@ -1,7 +1,8 @@
 import { Rng } from '../rng';
 import { CHARM_SETS, findCharm } from './catalog';
 import { MAX_LEVEL } from './machine';
-import type { CharmOutcome, CharmRunState, CharmTrigger, Effect, Equipped, RoundReport, RuleEffect, Scale } from './types';
+import type { SlotCharms } from '../slots/types';
+import type { CharmOutcome, CharmRunState, CharmTrigger, Effect, Equipped, RoundReport, RuleEffect, Scale, SlotEffect } from './types';
 
 export const FRESH_RUN: CharmRunState = { winStreak: 0, lossStreak: 0, lastOutcome: null };
 
@@ -26,6 +27,50 @@ export function ruleTotal(equipped: readonly Equipped[], kind: RuleEffect['kind'
     }
   }
   return total;
+}
+
+/** Which of a spin's charm hooks each slot effect feeds. */
+const SLOT_KEYS: Record<SlotEffect['kind'], keyof SlotCharms> = {
+  slotNudge: 'nudge',
+  slotFill: 'fill',
+  slotWild: 'wild',
+  slotEncore: 'encore',
+};
+
+/** Every charm and complete set equipped, with its level and effects. */
+function sourcesOf(equipped: readonly Equipped[]): { id: string; name: string; level: number; effects: Effect[] }[] {
+  const sources: { id: string; name: string; level: number; effects: Effect[] }[] = [];
+  for (const e of equipped) {
+    const def = findCharm(e.id);
+    if (def) sources.push({ id: def.id, name: def.name, level: e.level, effects: def.effects });
+  }
+  for (const set of CHARM_SETS) {
+    const levels = set.members.map((m) => equipped.find((e) => e.id === m)?.level ?? 0);
+    if (levels.every((l) => l > 0)) {
+      sources.push({ id: `set:${set.id}`, name: set.name, level: Math.min(...levels), effects: set.bonus });
+    }
+  }
+  return sources;
+}
+
+/**
+ * What a loadout does to a slot spin, and which charm (or set) does each part,
+ * for the machine to name. Chances combine as independent rolls, so two
+ * charms with a 10% chance make 19%.
+ */
+export function slotCharms(equipped: readonly Equipped[]): { charms: SlotCharms; names: Partial<Record<keyof SlotCharms, string>> } {
+  const charms: SlotCharms = {};
+  const names: Partial<Record<keyof SlotCharms, string>> = {};
+  for (const source of sourcesOf(equipped)) {
+    for (const effect of source.effects) {
+      if (!(effect.kind in SLOT_KEYS)) continue;
+      const key = SLOT_KEYS[effect.kind as SlotEffect['kind']];
+      const v = valueAt((effect as SlotEffect).v, source.level);
+      charms[key] = 1 - (1 - (charms[key] ?? 0)) * (1 - v);
+      names[key] = names[key] ? `${names[key]} + ${source.name}` : source.name;
+    }
+  }
+  return { charms, names };
 }
 
 /** Each winning bet earns its pay odds in Tokens, whatever its stake. */
@@ -58,17 +103,7 @@ export function applyCharms(report: RoundReport, equipped: readonly Equipped[], 
   const lost = report.outcome === 'lose' || report.outcome === 'fold';
 
   // Every source of effects: each equipped charm, then each set with all three members on.
-  const sources: { id: string; name: string; level: number; effects: Effect[] }[] = [];
-  for (const e of equipped) {
-    const def = findCharm(e.id);
-    if (def) sources.push({ id: def.id, name: def.name, level: e.level, effects: def.effects });
-  }
-  for (const set of CHARM_SETS) {
-    const levels = set.members.map((m) => equipped.find((e) => e.id === m)?.level ?? 0);
-    if (levels.every((l) => l > 0)) {
-      sources.push({ id: `set:${set.id}`, name: set.name, level: Math.min(...levels), effects: set.bonus });
-    }
-  }
+  const sources = sourcesOf(equipped);
 
   let cash = 0;
   let extraTokens = 0;
@@ -136,6 +171,13 @@ export function applyCharms(report: RoundReport, equipped: readonly Equipped[], 
         case 'doubleWin':
           if (winnings > 0 && rng.next() < v) c += winnings;
           break;
+        case 'gemTokens':
+          t += v * (report.gems ?? 0);
+          break;
+        case 'nearMissTokens':
+          if (report.nearMiss) t += v;
+          break;
+        // The other slot effects act as the reels spin, not here.
       }
     }
     cash += c;
@@ -212,5 +254,17 @@ export function describeEffect(effect: Effect, level: number): string {
       return effect.minOdds > 0 ? `Wins at ${effect.minOdds}:1 or longer pay +${pct(v)}` : `Every win pays +${pct(v)}`;
     case 'doubleWin':
       return `${pct(v)} chance a win pays double`;
+    case 'gemTokens':
+      return `+${num(v)} Tokens for every gem in the slot pots`;
+    case 'nearMissTokens':
+      return `+${num(v)} Tokens when a slot spin is one short of the bonus`;
+    case 'slotNudge':
+      return `One short of a slot bonus, ${pct(v)} chance a reel nudges it in`;
+    case 'slotFill':
+      return `As a slot bonus starts, ${pct(v)} chance each pot that isn’t full fills`;
+    case 'slotWild':
+      return `${pct(v)} chance a slot spin turns a reel wild`;
+    case 'slotEncore':
+      return `${pct(v)} chance a slot bonus plays again`;
   }
 }

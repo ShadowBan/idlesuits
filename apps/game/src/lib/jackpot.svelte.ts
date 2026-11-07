@@ -89,7 +89,9 @@ class Jackpots {
 
   /** A machine hit one: it's recorded and starts over from its seed. */
   hit(hit: Omit<JackpotHit, 'at'>) {
-    this.history = [{ ...hit, at: Date.now() }, ...this.history].slice(0, 10);
+    // Two hits on one spin (a pair of Majors) still need times of their own: the list is keyed by them.
+    const at = Math.max(Date.now(), (this.history[0]?.at ?? 0) + 1);
+    this.history = [{ ...hit, at }, ...this.history].slice(0, 10);
     this[hit.tier] = JACKPOT_SEEDS[hit.tier];
     if (hit.tier === 'major') this.majorAt = pickHitPoint(this.major);
     this.hits++;
@@ -120,4 +122,6 @@ export const slotTest = $state({
   forceFeature: false,
   /** Fills every pot on the machine of the next spin. */
   fillPots: false,
+  /** Every slot charm fires whenever it can, until switched off: nudges, wild reels, pots filled, the bonus again. */
+  allCharms: false,
 });

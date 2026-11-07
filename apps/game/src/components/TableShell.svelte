@@ -4,6 +4,7 @@
   import { floor } from '../lib/floor.svelte';
   import type { Decimal } from '../lib/money';
   import { formatLimit } from '../lib/rooms';
+  import { route } from '../lib/route.svelte';
   import { ui } from '../lib/ui.svelte';
   import BankCounter from './BankCounter.svelte';
   import TokenCounter from './charms/TokenCounter.svelte';
@@ -83,7 +84,8 @@
   </dialog>
 {/if}
 
-<div class="app" class:compact={compact.current} class:machine data-cabinet={cabinet}>
+<!-- `data-game` picks the felt's colour: each game has its own, as a real casino's layouts do. -->
+<div class="app" class:compact={compact.current} class:machine data-cabinet={cabinet} data-game={route.current}>
   <header class="bar">
     <h1>{title[0]} <span>{title[1]}</span></h1>
 
@@ -237,6 +239,105 @@
       inset 0 0 50px rgb(0 0 0 / 0.55);
     overflow: hidden;
   }
+  /*
+   * A card table, dressed: a padded leather rail with stitching, a wood trim
+   * where it meets the felt, a pool of light over the middle and a pinstripe
+   * arc printed across the layout. Slot cabinets dress themselves.
+   */
+  .app:not(.machine) .table {
+    position: relative;
+    padding: 14px;
+    background:
+      radial-gradient(120% 50% at 50% 0%, rgb(255 255 255 / 0.13), transparent 55%),
+      radial-gradient(60% 40% at 50% 100%, rgb(255 255 255 / 0.05), transparent 70%),
+      linear-gradient(#3d2115, #26130b 55%, #150a06);
+    box-shadow:
+      0 14px 34px rgb(0 0 0 / 0.6),
+      inset 0 2px 1px rgb(255 255 255 / 0.16),
+      inset 0 -3px 2px rgb(0 0 0 / 0.55),
+      inset 0 0 0 1px rgb(0 0 0 / 0.6);
+  }
+  .app:not(.machine) .table::before {
+    content: '';
+    position: absolute;
+    inset: 6px;
+    border: 1.5px dashed rgb(255 220 170 / 0.2);
+    border-radius: 23px 23px 50% 50% / 23px 23px 104px 104px;
+    pointer-events: none;
+  }
+  .app:not(.machine) .felt {
+    isolation: isolate;
+    background:
+      url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.09 0'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)'/%3E%3C/svg%3E"),
+      radial-gradient(ellipse 65% 50% at 50% 40%, var(--felt-hi) 0%, var(--felt) 55%, var(--felt-deep) 100%);
+    box-shadow:
+      0 0 0 3px #8a5a2b,
+      0 0 0 4px #2a1508,
+      inset 0 0 0 2px rgb(0 0 0 / 0.35),
+      inset 0 0 70px rgb(0 0 0 / 0.6);
+  }
+  /* The pinstripe arc across the layout, behind everything on the felt. */
+  .app:not(.machine) .felt::after {
+    content: '';
+    position: absolute;
+    z-index: -1;
+    left: 6%;
+    right: 6%;
+    top: 46%;
+    height: 150%;
+    border: 2px solid rgb(236 216 160 / 0.14);
+    border-radius: 50%;
+    outline: 1px solid rgb(236 216 160 / 0.08);
+    outline-offset: 6px;
+    pointer-events: none;
+  }
+  .app.compact:not(.machine) .table {
+    padding: 7px;
+  }
+  .app.compact:not(.machine) .table::before,
+  .app.compact:not(.machine) .felt::after {
+    display: none;
+  }
+  /* Each game's felt: green, blue, red, burgundy, purple or teal, as real layouts come. */
+  .app {
+    --felt-hi: #1b6a4f;
+  }
+  .app[data-game='uth'],
+  .app[data-game='lir'] {
+    --felt: #17456e;
+    --felt-deep: #0a2240;
+    --felt-hi: #22609a;
+  }
+  .app[data-game='tcp'],
+  .app[data-game='paigow'] {
+    --felt: #6e1a22;
+    --felt-deep: #350a10;
+    --felt-hi: #8e2834;
+  }
+  .app[data-game='baccarat'] {
+    --felt: #5a1230;
+    --felt-deep: #2a0715;
+    --felt-hi: #781d42;
+  }
+  /* On a red felt the house deals its blue deck, and the dealer's name is lighter, so neither sinks into the cloth. */
+  .app[data-game='tcp'],
+  .app[data-game='paigow'],
+  .app[data-game='baccarat'] {
+    --card-back: #1f3f86;
+    --dealer: #ffb4a6;
+  }
+  .app[data-game='c4p'],
+  .app[data-game='djwild'] {
+    --felt: #3e2468;
+    --felt-deep: #1d1036;
+    --felt-hi: #553388;
+  }
+  .app[data-game='suits'],
+  .app[data-game='csp'] {
+    --felt: #0f5458;
+    --felt-deep: #06292c;
+    --felt-hi: #167379;
+  }
   .compact .table {
     padding: 6px;
     border-radius: 22px 22px 50% 50% / 22px 22px 60px 60px;
@@ -288,19 +389,28 @@
     left: 50%;
     transform: translateX(-50%);
     display: flex;
-    gap: 2px;
-    padding: 3px 8px 4px;
-    border-radius: 0 0 10px 10px;
-    background: linear-gradient(#120b07, #26170e);
-    box-shadow: 0 2px 4px rgb(0 0 0 / 0.5);
+    gap: 3px;
+    padding: 4px 10px 6px;
+    border-radius: 0 0 12px 12px;
+    /* A wooden tray, its slots dark between the stacks. */
+    background:
+      linear-gradient(rgb(0 0 0 / 0.55), rgb(0 0 0 / 0.55)) 10px 4px / calc(100% - 20px) 10px no-repeat,
+      linear-gradient(#6b4220, #4a2b14 60%, #2b1709);
+    box-shadow:
+      0 3px 6px rgb(0 0 0 / 0.55),
+      inset 0 -1px 0 rgb(255 255 255 / 0.12);
     pointer-events: none;
   }
   .tray span {
-    width: 14px;
-    height: 7px;
-    border-radius: 2px;
-    background: repeating-linear-gradient(90deg, var(--c) 0 3px, rgb(0 0 0 / 0.35) 3px 4px);
-    box-shadow: inset 0 -1px 0 rgb(0 0 0 / 0.4);
+    width: 16px;
+    height: 10px;
+    border-radius: 3px;
+    background:
+      linear-gradient(rgb(255 255 255 / 0.28), transparent 45%, rgb(0 0 0 / 0.3)),
+      repeating-linear-gradient(90deg, var(--c) 0 3px, rgb(0 0 0 / 0.35) 3px 4px);
+    box-shadow:
+      inset 0 -1px 0 rgb(0 0 0 / 0.4),
+      0 1px 0 rgb(0 0 0 / 0.5);
   }
   .compact .tray span {
     width: 9px;

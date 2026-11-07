@@ -23,7 +23,7 @@ interface GemDraw {
   byN?: number[];
 }
 
-const cache = new WeakMap<MachineDef, PotChain>();
+const cache = new WeakMap<MachineDef, Map<number, PotChain>>();
 
 /**
  * The pots, worked out exactly. Their progress carries from spin to spin, so
@@ -36,10 +36,11 @@ const cache = new WeakMap<MachineDef, PotChain>();
  * the next stretch starts. Repeating that from bonus to bonus settles on the
  * long run. A spin's chance of starting the bonus doesn't depend on the pots,
  * so the bonuses still come at the usual rate; only which pots are full
- * changes from one to the next.
+ * changes from one to the next. `topUp` is a charm's chance that each pot not
+ * yet full fills anyway as the bonus starts.
  */
-export function potChain(machine: MachineDef): PotChain {
-  const hit = cache.get(machine);
+export function potChain(machine: MachineDef, topUp = 0): PotChain {
+  const hit = cache.get(machine)?.get(topUp);
   if (hit) return hit;
   const pots = machine.pots ?? [];
   const trigger = machine.bonus.trigger;
@@ -93,9 +94,10 @@ export function potChain(machine: MachineDef): PotChain {
     }
     return { next, full };
   };
-  const emptied = (state: number, full: number): number => {
+  // The pots in `lit` empty, whatever they held: full, or topped up by a charm.
+  const emptied = (state: number, lit: number): number => {
     let next = state;
-    for (let i = 0; i < pots.length; i++) if (full & (1 << i)) next -= sizes[i]! * strides[i]!;
+    for (let i = 0; i < pots.length; i++) if (lit & (1 << i)) next -= (Math.floor(state / strides[i]!) % (sizes[i]! + 1)) * strides[i]!;
     return next;
   };
 
@@ -123,8 +125,17 @@ export function potChain(machine: MachineDef): PotChain {
       if (!spins[s]) continue;
       loudDraws.forEach((d, i) => {
         const { next: filled, full } = fill(s, d.gems);
-        into[full]![i]! += spins[s]!;
-        next[emptied(filled, full)]! += spins[s]! * d.p;
+        // With the charm, each pot not yet full fills on its own roll: every superset of the full ones, by its chance.
+        for (let lit = full; ; lit = (lit + 1) | full) {
+          if (lit >= masks) break;
+          const extra = lit & ~full;
+          let p = 1;
+          for (let k = 0; k < pots.length; k++) if (!(full & (1 << k))) p *= extra & (1 << k) ? topUp : 1 - topUp;
+          if (p) {
+            into[lit]![i]! += spins[s]! * p;
+            next[emptied(filled, lit)]! += spins[s]! * d.p * p;
+          }
+        }
       });
     }
     // Rounding nibbles at the total; keep it whole, and stop once a round changes nothing that matters.
@@ -147,6 +158,7 @@ export function potChain(machine: MachineDef): PotChain {
   const share = perBonus.map((byN) => byN.reduce((a, b) => a + b, 0) / sum);
   const litRates = pots.map((_, i) => share.reduce((sum, p, mask) => sum + (mask & (1 << i) ? p : 0), 0));
   const chain: PotChain = { starts, litRates, superRate: share[masks - 1] ?? 0 };
-  cache.set(machine, chain);
+  if (!cache.has(machine)) cache.set(machine, new Map());
+  cache.get(machine)!.set(topUp, chain);
   return chain;
 }

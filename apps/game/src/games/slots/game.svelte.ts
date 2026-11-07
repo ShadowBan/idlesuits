@@ -1,6 +1,7 @@
 import {
   cellsOf,
   coinPay,
+  countOf,
   jackpotPay,
   Rng,
   spinSlot,
@@ -20,6 +21,7 @@ import {
   type PotDef,
   type PotPower,
   type RoundReport,
+  type SlotCharms,
   type SlotSpinResult,
   type WayWin,
   type WheelResult,
@@ -84,6 +86,9 @@ const PICK_MS = 550;
 export const SUMMARY_MS = 7000;
 /** The bonus symbols light up and the cabinet goes wild this long before the bonus starts. */
 const TRIGGER_MS = 1700;
+/** A charm at work: the pause before it acts, and how long its moment holds. */
+const CHARM_PAUSE_MS = 450;
+const CHARM_MS = 1500;
 
 /** Wins big enough to stop the machine and celebrate, by how many bets they pay: a real machine's big-win ladder. */
 export const WIN_LEVELS = [
@@ -331,6 +336,8 @@ interface Spin {
   mystery: boolean;
   /** Everything paid, the must-hit Major included, in bets. */
   pay: number;
+  /** Which charm did each thing a charm did, for the screen to name. */
+  charms: Partial<Record<keyof SlotCharms, string>>;
 }
 
 function newSeed(): string {
@@ -372,6 +379,10 @@ export class SlotGame {
   bigWin = $state<BigWin | null>(null);
   /** The cells that started the bonus, lit up while the cabinet celebrates. */
   triggered = $state<number[]>([]);
+  /** A charm nudging a reel a step: which, and which way (-1 up, +1 down), so the reel can slide. */
+  nudging = $state<{ reel: number; dir: -1 | 1; key: number } | null>(null);
+  /** A charm turning a reel wild, or -1. */
+  wilding = $state(-1);
   roundBet = $state(new Decimal(0));
   last = $state<{ lines: BreakdownLine[]; net: number } | null>(null);
   lastBet = $state(new Decimal(0));
@@ -566,6 +577,9 @@ export class SlotGame {
       this.pots = [...this.potState];
     }
     slotTest.fillPots = false;
+    const charms = slotTest.allCharms
+      ? { charms: { nudge: 1, wild: 1, fill: 1, encore: 1 }, names: { nudge: 'Pit boss', wild: 'Pit boss', fill: 'Pit boss', encore: 'Pit boss' } }
+      : meta.slotCharms;
     const result = spinSlot({
       machine: this.machine,
       seed: { run: this.runSeed, round: this.round },
@@ -573,11 +587,12 @@ export class SlotGame {
       meters,
       forceFeature: slotTest.forceFeature,
       pots: this.potState,
+      charms: charms.charms,
     });
     slotTest.forceFeature = false;
     // The Major past its hidden point goes to this spin, unless the spin wins it anyway.
     const mystery = jackpots.majorDue && !jackpotsWon(result).includes('major');
-    const spin: Spin = { result, meters, mystery, pay: result.pay + (mystery ? meters.major : 0) };
+    const spin: Spin = { result, meters, mystery, pay: result.pay + (mystery ? meters.major : 0), charms: charms.names };
     this.roundBet = bet;
     if (!(await this.show(spin, bet))) return false;
     this.settle(spin, bet);
@@ -600,6 +615,8 @@ export class SlotGame {
     this.triggered = [];
     this.gems = {};
     this.potsInPlay = [];
+    this.nudging = null;
+    this.wilding = -1;
   }
 
   /**
@@ -611,9 +628,19 @@ export class SlotGame {
     grid: string[][],
     coins: { cell: number; value: CoinValue }[],
     wait: (ms: number) => Promise<boolean>,
-    opts: { spinMs: number; reelMs: number; tension: boolean; gems?: { cell: number; pot: number }[] },
+    opts: {
+      spinMs: number;
+      reelMs: number;
+      tension: boolean;
+      gems?: { cell: number; pot: number }[];
+      /** Charms at work on the base game: a reel stops where it was before a nudge, or before it turned wild. */
+      nudge?: SlotSpinResult['nudge'];
+      wildReel?: SlotSpinResult['wildReel'];
+      names?: Spin['charms'];
+    },
   ): Promise<boolean> {
     const { machine } = this;
+    const { nudge, wildReel } = opts;
     this.spinning = machine.reels.map(() => true);
     sfx.spin();
     if (!(await wait(opts.spinMs))) return false;
@@ -628,24 +655,55 @@ export class SlotGame {
       this.anticipating = tense ? r : -1;
       if (tense && this.seq.speed === 'smart') sfx.tension();
       if (!(await wait(tense ? ANTICIPATE_MS : opts.reelMs))) return false;
-      this.grid[r] = grid[r]!;
+      // A reel a charm is about to nudge or turn wild stops where it was first.
+      const shown = nudge?.reel === r ? nudge.before : wildReel?.reel === r ? wildReel.before : grid[r]!;
+      this.grid[r] = shown;
       this.spinning[r] = false;
-      const here = coins.filter((c) => Math.floor(c.cell / machine.rows) === r);
-      for (const c of here) this.coins[c.cell] = c.value;
-      // Gems on the coins go into their pots as the reel stops.
-      for (const g of opts.gems ?? []) {
-        if (Math.floor(g.cell / machine.rows) !== r) continue;
-        this.gems[g.cell] = g.pot;
-        this.pots[g.pot] = Math.min(machine.pots![g.pot]!.size, this.pots[g.pot]! + 1);
-        this.potHits[g.pot]!++;
-      }
-      const hits = grid[r]!.filter((s) => s === trigger).length;
+      const here = nudge?.reel === r ? [] : this.landReel(r, coins, opts.gems);
+      const hits = shown.filter((s) => s === trigger).length;
       landed += hits;
       if (here.length || (hits && trigger !== 'coin')) sfx.coin(landed);
       else sfx.reel();
     }
     this.anticipating = -1;
+
+    // The Lever Knob: one short, and a reel slides a step to bring the bonus in.
+    if (nudge) {
+      if (!(await wait(CHARM_PAUSE_MS))) return false;
+      this.nudging = { reel: nudge.reel, dir: nudge.dir, key: this.round };
+      this.grid[nudge.reel] = wildReel?.reel === nudge.reel ? wildReel.before : grid[nudge.reel]!;
+      this.landReel(nudge.reel, coins, opts.gems);
+      sfx.reset();
+      this.showBanner('Nudge!', null, undefined, opts.names?.nudge);
+      if (!(await wait(CHARM_MS))) return false;
+      this.banner = null;
+      this.nudging = null;
+    }
+    // The Joker's Cap: a reel turns wild.
+    if (wildReel) {
+      if (!(await wait(CHARM_PAUSE_MS))) return false;
+      this.wilding = wildReel.reel;
+      this.grid[wildReel.reel] = grid[wildReel.reel]!;
+      sfx.bigWin();
+      this.showBanner('Wild reel!', null, undefined, opts.names?.wild);
+      if (!(await wait(CHARM_MS))) return false;
+      this.banner = null;
+    }
     return true;
+  }
+
+  /** A reel has stopped: its coins show, and the gems on them drop into their pots. Returns its coins. */
+  private landReel(r: number, coins: { cell: number; value: CoinValue }[], gems: { cell: number; pot: number }[] = []): { cell: number; value: CoinValue }[] {
+    const { machine } = this;
+    const here = coins.filter((c) => Math.floor(c.cell / machine.rows) === r);
+    for (const c of here) this.coins[c.cell] = c.value;
+    for (const g of gems) {
+      if (Math.floor(g.cell / machine.rows) !== r) continue;
+      this.gems[g.cell] = g.pot;
+      this.pots[g.pot] = Math.min(machine.pots![g.pot]!.size, this.pots[g.pot]! + 1);
+      this.potHits[g.pot]!++;
+    }
+    return here;
   }
 
   /** Each collector on the screen takes every coin in turn, adding to `onto`. */
@@ -665,8 +723,10 @@ export class SlotGame {
   private async show(spin: Spin, bet: Decimal): Promise<boolean> {
     const { result } = spin;
     this.clear();
-    if (!(await this.spinReels(result.grid, result.coins, (ms) => this.wait(ms), { spinMs: SPIN_MS, reelMs: REEL_MS, tension: true, gems: result.gems }))) return false;
-    this.pots = [...result.filled];
+    const reels = { spinMs: SPIN_MS, reelMs: REEL_MS, tension: true, gems: result.gems, nudge: result.nudge, wildReel: result.wildReel, names: spin.charms };
+    if (!(await this.spinReels(result.grid, result.coins, (ms) => this.wait(ms), reels))) return false;
+    // A pot a charm tops up shows what the gems gave it until the bonus starts.
+    this.pots = result.filled.map((n, i) => (result.topped.includes(i) ? this.pots[i]! : n));
 
     if (result.wins.length) {
       this.wins = result.wins;
@@ -694,25 +754,36 @@ export class SlotGame {
       sfx.bigWin();
       if (!(await this.bonusWait(TRIGGER_MS))) return false;
       this.triggered = [];
+      // The Piggy Bank: pots that weren't full fill anyway.
+      if (result.topped.length) {
+        const pots = this.machine.pots ?? [];
+        for (const i of result.topped) {
+          this.pots[i] = pots[i]!.size;
+          this.potHits[i]!++;
+        }
+        sfx.reset();
+        this.showBanner(`${result.topped.map((i) => pots[i]!.name).join(' + ')} ${result.topped.length > 1 ? 'fill' : 'fills'}!`, null, undefined, spin.charms.fill);
+        if (!(await this.bonusWait(CHARM_MS))) return false;
+        this.banner = null;
+      }
       // Full pots empty into the bonus, their powers with them.
       this.potsInPlay = result.lit;
-      const played =
-        f.kind === 'holdSpin'
-          ? await this.playHoldSpin(f, bet, spin.meters, result.lit)
-          : f.kind === 'freeSpins'
-            ? await this.playFreeSpins(f, bet, spin.meters, result.lit)
-            : f.kind === 'wheel'
-              ? await this.playWheel(f, bet, spin.meters, result.lit)
-              : await this.playPick(f, bet, spin.meters, result.lit);
-      if (!played) return false;
-      this.win = bet.mul(result.pay);
-      // The bonus win stays up for a few seconds, in real time, or until the player closes it.
-      this.summary = this.summaryOf(f, bet, result);
-      const timer = setTimeout(() => this.dismiss(), SUMMARY_MS);
-      const closed = await this.seq.ask('summary');
-      clearTimeout(timer);
-      this.summary = null;
-      if (closed === null) return false;
+      if (!(await this.playFeature(f, bet, spin.meters, result.lit))) return false;
+      this.win = bet.mul(result.pay - (result.encore?.pay ?? 0));
+      if (!(await this.showSummary(this.summaryOf(f, bet, result)))) return false;
+      // The Boomerang: the whole bonus comes back for another go.
+      if (result.encore) {
+        this.feature = this.free = this.wheel = this.pick = null;
+        this.showBanner('It comes back!', null, undefined, `${spin.charms.encore ?? 'A charm'}: the bonus plays again`);
+        sfx.bigWin();
+        if (!(await this.bonusWait(BANNER_MS * 1.4))) return false;
+        this.banner = null;
+        this.potsInPlay = result.lit;
+        if (!(await this.playFeature(result.encore, bet, spin.meters, result.lit))) return false;
+        this.win = bet.mul(result.pay);
+        const again = this.summaryOf(result.encore, bet, result);
+        if (!(await this.showSummary({ ...again, title: `${again.title}, again` }))) return false;
+      }
     }
 
     if (spin.mystery) {
@@ -723,6 +794,30 @@ export class SlotGame {
       this.win = bet.mul(spin.pay);
     }
     return true;
+  }
+
+  /** Plays whichever bonus the spin started, with the pots' powers in it. */
+  private playFeature(f: SlotSpinResult['feature'] & {}, bet: Decimal, meters: JackpotMeters, lit: number[]): Promise<boolean> {
+    switch (f.kind) {
+      case 'holdSpin':
+        return this.playHoldSpin(f, bet, meters, lit);
+      case 'freeSpins':
+        return this.playFreeSpins(f, bet, meters, lit);
+      case 'wheel':
+        return this.playWheel(f, bet, meters, lit);
+      case 'pick':
+        return this.playPick(f, bet, meters, lit);
+    }
+  }
+
+  /** The bonus win stays up for a few seconds, in real time, or until the player closes it. */
+  private async showSummary(summary: BonusSummary): Promise<boolean> {
+    this.summary = summary;
+    const timer = setTimeout(() => this.dismiss(), SUMMARY_MS);
+    const closed = await this.seq.ask('summary');
+    clearTimeout(timer);
+    this.summary = null;
+    return closed !== null;
   }
 
   /**
@@ -1267,11 +1362,14 @@ export class SlotGame {
       seed: { run: this.runSeed, round: this.round },
       bets: [{ kind: 'main', stake: 1, net }],
       outcome: net > 0 ? 'win' : net === 0 ? 'push' : 'lose',
+      // For the slot charms: gems into the pots, and a spin one short of the bonus.
+      gems: spin.result.gems.length,
+      nearMiss: !spin.result.feature && countOf(spin.result.grid, triggerSymbol(this.machine)) === this.machine.bonus.trigger - 1,
     };
   }
 
   /** The spin's lines for the breakdown, in bets. */
-  private linesFor({ result, meters, mystery }: Spin): BreakdownLine[] {
+  private linesFor({ result, meters, mystery, charms }: Spin): BreakdownLine[] {
     const { machine } = this;
     const lines: BreakdownLine[] = [{ label: 'Spin', amount: -1 }];
     if (result.wins.length) {
@@ -1283,10 +1381,14 @@ export class SlotGame {
       const won = baseJackpots.reduce((sum, t) => sum + jackpotPay(machine, t, meters), 0);
       lines.push({ label: `Collected · ${plural(result.coins.length, 'coin')}`, amount: result.collectPay - won });
     }
-    const f = result.feature;
-    if (f) {
+    // The bonus, and again if a charm brought it back.
+    for (const [f, again] of [
+      [result.feature, false],
+      [result.encore, true],
+    ] as const) {
+      if (!f) continue;
       const won = f.jackpots.reduce((sum, t) => sum + jackpotPay(machine, t, meters), 0);
-      const name = bonusTitle(machine, result.lit);
+      const name = again ? `${charms.encore ?? 'Charm'} · ${bonusTitle(machine, result.lit).toLowerCase()} again` : bonusTitle(machine, result.lit);
       const label =
         f.kind === 'holdSpin'
           ? `${name} · ${plural(f.coins.length, 'coin')}`
@@ -1376,7 +1478,7 @@ export class SlotGame {
 
 /** Every jackpot a spin won, wherever it came from. */
 export function jackpotsWon(result: SlotSpinResult): JackpotTier[] {
-  return [...result.collects.flatMap((c) => c.jackpots), ...(result.feature?.jackpots ?? [])];
+  return [...result.collects.flatMap((c) => c.jackpots), ...(result.feature?.jackpots ?? []), ...(result.encore?.jackpots ?? [])];
 }
 
 /** The wheels by name, outermost first. */

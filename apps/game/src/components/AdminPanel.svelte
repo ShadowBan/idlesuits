@@ -153,6 +153,9 @@
           <button type="button" aria-pressed={slotTest.fillPots} onclick={() => (slotTest.fillPots = !slotTest.fillPots)}>
             {slotTest.fillPots ? 'Next spin: pots full ✓' : 'Fill every pot'}
           </button>
+          <button type="button" aria-pressed={slotTest.allCharms} onclick={() => (slotTest.allCharms = !slotTest.allCharms)}>
+            {slotTest.allCharms ? 'Slot charms always fire ✓' : 'Slot charms always fire'}
+          </button>
         </div>
         <div class="row">
           <button type="button" onclick={() => jackpots.set('grand', jackpots.grand * 2)}>Grand ×2</button>

@@ -2,6 +2,9 @@ import { describe, expect, it } from 'vitest';
 import {
   bonusValue,
   CARNIVAL_CROWN,
+  countOf,
+  nudgesFor,
+  wildWindow,
   coinCount,
   coinDistribution,
   countDistribution,
@@ -645,4 +648,98 @@ describe('every machine\'s pots', () => {
       expect(r.jackpots).toEqual(r.boards.map((b) => b.won));
     }
   });
+});
+
+describe('slot charms', () => {
+  it('leave every spin as it was when none are on', () => {
+    for (const machine of MACHINES) {
+      for (let round = 0; round < 300; round++) {
+        const a = spinSlot({ machine, seed: { run: 'none', round } });
+        const b = spinSlot({ machine, seed: { run: 'none', round }, charms: {} });
+        expect(b).toEqual(a);
+        expect(a).toMatchObject({ nudge: null, wildReel: null, topped: [], encore: null });
+      }
+    }
+  });
+
+  it('nudge a reel one step to bring in the bonus, only when one short', () => {
+    for (const machine of MACHINES) {
+      const id = triggerSymbol(machine);
+      let nudged = 0;
+      for (let round = 0; round < 3000; round++) {
+        const plain = spinSlot({ machine, seed: { run: 'nudge', round } });
+        const r = spinSlot({ machine, seed: { run: 'nudge', round }, charms: { nudge: 1 } });
+        const options = nudgesFor(machine, plain.stops);
+        if (!options.length) {
+          expect(r.nudge).toBeNull();
+          continue;
+        }
+        nudged++;
+        const n = r.nudge!;
+        expect(options).toContainEqual({ reel: n.reel, dir: n.dir });
+        const strip = machine.reels[n.reel]!;
+        expect(r.stops[n.reel]).toBe((plain.stops[n.reel]! + n.dir + strip.length) % strip.length);
+        expect(n.before).toEqual(plain.grid[n.reel]);
+        expect(countOf(plain.grid, id)).toBe(machine.bonus.trigger - 1);
+        expect(countOf(r.grid, id)).toBe(machine.bonus.trigger);
+        expect(r.feature).not.toBeNull();
+      }
+      expect(nudged, machine.id).toBeGreaterThan(10);
+    }
+  });
+
+  it('turn a middle reel wild, pay symbols only', () => {
+    for (const machine of MACHINES) {
+      const pays = new Set(machine.symbols.filter((x) => x.kind === 'pay').map((x) => x.id));
+      for (let round = 0; round < 300; round++) {
+        const plain = spinSlot({ machine, seed: { run: 'wild', round } });
+        const r = spinSlot({ machine, seed: { run: 'wild', round }, charms: { wild: 1 } });
+        const w = r.wildReel!;
+        expect(w.reel).toBeGreaterThanOrEqual(1);
+        expect(w.reel).toBeLessThanOrEqual(3);
+        expect(w.before).toEqual(plain.grid[w.reel]);
+        expect(r.grid[w.reel]).toEqual(wildWindow(machine, w.before));
+        expect(r.grid[w.reel]!.some((x) => pays.has(x))).toBe(false);
+        expect(r.waysPay).toBeGreaterThanOrEqual(plain.waysPay - 1e-9);
+      }
+    }
+  });
+
+  it('fill every pot as the bonus starts, and play the bonus again', () => {
+    for (const machine of MACHINES) {
+      for (let round = 0; round < 40; round++) {
+        const plain = spinSlot({ machine, seed: { run: 'fill', round }, forceFeature: true });
+        const r = spinSlot({ machine, seed: { run: 'fill', round }, forceFeature: true, charms: { fill: 1, encore: 1 } });
+        expect(r.lit).toEqual(machine.pots!.map((_, i) => i));
+        // Exactly the pots the gems left short are topped up.
+        expect(r.topped).toEqual(machine.pots!.flatMap((p, i) => (plain.filled[i]! < p.size ? [i] : [])));
+        expect(r.feature).toEqual(spinSlot({ machine: { ...machine, pots: machine.pots!.map((p) => ({ ...p, size: 0 })) }, seed: { run: 'fill', round }, forceFeature: true }).feature);
+        expect(r.pots.every((n) => n === 0)).toBe(true);
+        expect(r.encore).not.toBeNull();
+        expect(r.pay).toBeCloseTo(r.waysPay + r.collectPay + r.feature!.pay + r.encore!.pay, 9);
+      }
+    }
+  });
+
+  it('top pots up as often as the exact chain says, carried from spin to spin', () => {
+    const machine = CARNIVAL_CROWN;
+    const fill = 0.3;
+    const exact = potChain(machine, fill).litRates;
+    let held = machine.pots!.map(() => 0);
+    const counts = machine.pots!.map(() => 0);
+    let bonuses = 0;
+    for (let round = 0; round < 200_000; round++) {
+      const r = spinSlot({ machine, seed: { run: 'top', round }, pots: held, charms: { fill } });
+      if (r.feature) {
+        bonuses++;
+        for (const i of r.lit) counts[i]!++;
+      }
+      held = r.pots;
+    }
+    counts.forEach((n, i) => {
+      const p = exact[i]!;
+      expect(Math.abs(n / bonuses - p)).toBeLessThan(4.5 * Math.sqrt((p * (1 - p)) / bonuses));
+    });
+    expect(exact[2]!).toBeGreaterThan(potChain(machine).litRates[2]!);
+  }, 60_000);
 });

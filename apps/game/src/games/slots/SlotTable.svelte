@@ -309,7 +309,13 @@
         <SlotLights mode={lightMode} />
         <div class="glass" role="img" aria-label="Reels">
           {#each machine.reels as _, r (r)}
-            <div class="reel" class:slow={game.anticipating === r}>
+            <div
+              class="reel"
+              class:slow={game.anticipating === r}
+              class:nudge-down={game.nudging?.reel === r && game.nudging.dir === 1}
+              class:nudge-up={game.nudging?.reel === r && game.nudging.dir === -1}
+              class:wild-reel={game.wilding === r && !game.inBonus}
+            >
               {#if game.feature}
                 <!-- Hold & spin: coins stay; empty cells spin on their own. -->
                 {#each Array.from({ length: machine.rows }, (_, row) => row) as row (row)}
@@ -1498,6 +1504,52 @@
       inset 0 0 0 2px #ffd75e,
       0 0 16px rgb(255 215 94 / 0.6);
     animation: glow 0.5s ease-in-out infinite alternate;
+  }
+  /* A charm's nudge: the reel slides one step, overshoots and settles. */
+  .reel.nudge-down > .cell {
+    animation: nudge-down 0.55s cubic-bezier(0.3, 1.5, 0.5, 1);
+  }
+  .reel.nudge-up > .cell {
+    animation: nudge-up 0.55s cubic-bezier(0.3, 1.5, 0.5, 1);
+  }
+  .reel.nudge-down,
+  .reel.nudge-up {
+    box-shadow:
+      inset 0 0 0 2px var(--win),
+      0 0 22px color-mix(in srgb, var(--win) 70%, transparent);
+  }
+  @keyframes nudge-down {
+    from {
+      transform: translateY(100%);
+    }
+  }
+  @keyframes nudge-up {
+    from {
+      transform: translateY(-100%);
+    }
+  }
+  /* A charm's wild reel: each symbol flips over to a wild, and the reel blazes. */
+  .reel.wild-reel {
+    background: linear-gradient(#3a1d6e, #6c3fd1 50%, #3a1d6e);
+    box-shadow:
+      inset 0 0 0 2px #ffd75e,
+      0 0 26px rgb(208 140 255 / 0.8);
+    animation: glow 0.6s ease-in-out infinite alternate;
+  }
+  .reel.wild-reel > .cell {
+    animation: wildflip 0.6s ease-out backwards;
+  }
+  .reel.wild-reel > .cell:nth-child(2) {
+    animation-delay: 0.1s;
+  }
+  .reel.wild-reel > .cell:nth-child(3) {
+    animation-delay: 0.2s;
+  }
+  @keyframes wildflip {
+    from {
+      transform: rotateY(90deg) scale(1.3);
+      filter: brightness(3);
+    }
   }
   @keyframes glow {
     to {

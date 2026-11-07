@@ -14,6 +14,7 @@ import {
   RARITY_WEIGHTS,
   ruleTotal,
   SECRET_ODDS,
+  slotCharms,
   maxLevelOf,
   valueAt,
   type RoundReport,
@@ -215,5 +216,45 @@ describe('effects', () => {
     expect(applyCharms(report(), two, FRESH_RUN).triggers.some((t) => t.source === 'set:eastern')).toBe(false);
     const set = applyCharms(report(), three, FRESH_RUN).triggers.find((t) => t.source === 'set:eastern');
     expect(set?.tokens).toBeCloseTo(0.5);
+  });
+});
+
+describe('slot charms', () => {
+  it('earn Tokens for every gem and for a near miss, win or lose', () => {
+    const lost = report({ bets: [{ kind: 'main', stake: 1, net: -1 }], outcome: 'lose', gems: 3, nearMiss: true });
+    const out = applyCharms(
+      lost,
+      [
+        { id: 'magpie-feather', level: 10 },
+        { id: 'lever-knob', level: 1 },
+      ],
+      FRESH_RUN,
+    );
+    expect(out.tokens).toBeCloseTo(3 * 3 + 0.5);
+    expect(out.cash).toBe(0);
+    expect(applyCharms(report({ outcome: 'lose', bets: [{ kind: 'main', stake: 1, net: -1 }] }), [{ id: 'magpie-feather', level: 10 }], FRESH_RUN).tokens).toBe(0);
+  });
+
+  it('hand the slot machine its chances, combined across charms and the set, with who gave them', () => {
+    expect(slotCharms([{ id: 'acorn', level: 5 }])).toEqual({ charms: {}, names: {} });
+    const knob = slotCharms([{ id: 'lever-knob', level: 10 }]);
+    expect(knob.charms.nudge).toBeCloseTo(0.008, 12);
+    expect(knob.names.nudge).toBe('Lever Knob');
+    // The whole set: its own nudge rolls beside the Lever Knob's.
+    const all = slotCharms([
+      { id: 'lever-knob', level: 10 },
+      { id: 'piggy-bank', level: 1 },
+      { id: 'jokers-cap', level: 1 },
+      { id: 'boomerang', level: 10 },
+    ]);
+    expect(all.charms.nudge).toBeCloseTo(1 - (1 - 0.008) * (1 - 0.003), 12);
+    expect(all.names.nudge).toBe('Lever Knob + One-Armed Bandit');
+    expect(all.charms).toMatchObject({ fill: expect.closeTo(0.003, 12), wild: expect.closeTo(0.0015, 12), encore: expect.closeTo(0.035, 12) });
+  });
+
+  it('pay nothing themselves when a hand settles', () => {
+    const out = applyCharms(report(), [{ id: 'boomerang', level: 10 }, { id: 'jokers-cap', level: 10 }], FRESH_RUN);
+    expect(out.cash).toBe(0);
+    expect(out.triggers).toEqual([]);
   });
 });

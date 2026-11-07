@@ -58,6 +58,27 @@ And on the **slot floor**, original machines on one shared slot engine:
 Every machine's pots are a ladder: the first fills about every other bonus, the second about one in
 five, the third one in fifteen or so, and all three together, the Super, a few times in a hundred.
 
+And the **instant games**, the quick press-your-luck games online casinos run beside their slots
+(`packages/sim/src/instant`), each paying back exactly what the pit boss sets (97% to start):
+
+- **Dynamite Dig** — Mines. Bury 1–24 sticks of dynamite in 25 squares and dig. Gems raise the
+  cash-out, stars twice as much, and a mine cart takes a ride through four junctions (pick a tunnel;
+  one has caved in) for a multiplier; dynamite loses the bet. Every find also drops a share of the bet
+  in the Gem Vault, kept in dollars from round to round; 40 finds open its bonus board, which pays the
+  vault back on average. Each dig is priced so the cash-out after it, plus what it drops in the vault,
+  is worth on average what the cash-out is now, with the house's cut taken once up front: the payback
+  is the same however the player digs. With no stars, cart or vault it's the real game's rtp ÷ the
+  chance of surviving.
+- **Deep Drop** — Crash, on a fishing line. The multiplier climbs as the hook sinks until the line
+  snaps; reel in first, by hand or at a marker you can type. One line in 30 drops golden and pays
+  double. The snap point is drawn so the line lasts to x with chance r ÷ x, with r the payback less
+  the golden lines' share, so every reel-in pays back the same.
+- **Lucky Drop** — Plinko. Balls fall through 8, 12 or 16 rows of pegs, left or right as likely as not,
+  into slots paying most at the edges and less than the ball in the middle. Each slot's chance is
+  binomial, so a board's payback is an exact sum. One ball in 150 drops golden and sets off Fever:
+  six free balls, every slot paying double. Nine boards of our own, drawn so each pays within a sixth
+  of a percent of 97% with Fever, and scaled alike by the pit boss.
+
 See
 [docs/idle_suits_game_concept_v0_2.md](docs/idle_suits_game_concept_v0_2.md) for the design concept and
 [docs/decisions_v0_3.md](docs/decisions_v0_3.md) for the rules and decisions the build follows.

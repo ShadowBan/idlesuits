@@ -100,22 +100,45 @@ a set rewards collecting *and* levelling all three.
 | Luck of the Irish | Four-Leaf Clover, Pot of Gold, Golden Horseshoe | Every win pays a little more |
 | Eastern Fortune | Maneki-neko, Golden Toad, Jade Dragon | Many more Tokens |
 | Saints & Wards | Hamsa, Evil Eye, Saint Cajetan Medal | Losses shielded more often |
+| One-Armed Bandit | Piggy Bank, Joker's Cap, Boomerang | The slot machine nudges the bonus in |
 
-## Starter catalog (28)
+## Catalog (33, and two Secret)
 
 Traditional gambling charms first; many more themes to come.
 
 | Rarity | Charms |
 |---|---|
-| Common | Lucky Penny, Acorn, Fuzzy Dice, Wishbone, Lucky Socks, Horseshoe, Ladybug, Lucky Cricket |
-| Uncommon | Silver Dollar, Fortune Cookie, Magic 8-Ball, Pair of Dice, Golden Ticket, Mojo Bag, Lucky Bamboo |
-| Rare | Four-Leaf Clover, Rabbit's Foot, Maneki-neko, I-Ching Coins, Lucky Ace, Lucky Elephant |
-| Epic | Golden Toad, Hamsa, Evil Eye, Pot of Gold |
-| Legendary | Saint Cajetan Medal, Golden Horseshoe, Jade Dragon |
+| Common | Lucky Penny, Acorn, Fuzzy Dice, Wishbone, Lucky Socks, Horseshoe, Ladybug, Lucky Cricket, Magpie Feather |
+| Uncommon | Silver Dollar, Fortune Cookie, Magic 8-Ball, Pair of Dice, Golden Ticket, Mojo Bag, Lucky Bamboo, Lever Knob |
+| Rare | Four-Leaf Clover, Rabbit's Foot, Maneki-neko, I-Ching Coins, Lucky Ace, Lucky Elephant, Piggy Bank |
+| Epic | Golden Toad, Hamsa, Evil Eye, Pot of Gold, Joker's Cap |
+| Legendary | Saint Cajetan Medal, Golden Horseshoe, Jade Dragon, Boomerang |
 
 Each has its own small illustration, drawn as SVG to one style: a thick dark
 outline, flat colour, one highlight. They should read like keepsakes on a
 shelf.
+
+## Slot charms
+
+Five charms work inside the slot machines, as the reels spin, rather than on
+the settled hand. The slot engine takes their chances (`SlotCharms`, built
+from the loadout by `slotCharms`) and rolls each on a stream of its own, so
+a spin without them plays exactly as before.
+
+| Charm | Rarity | What it does | Level 1 → 10 |
+|---|---|---|---|
+| Magpie Feather | Common | Tokens for every gem that drops into a pot | 0.5 → 3 Tokens a gem |
+| Lever Knob | Uncommon | Tokens on a spin one short of the bonus; and a small chance a reel **nudges** a step to bring the bonus in | 0.5 → 3 Tokens; 0.15% → 0.8% |
+| Piggy Bank | Rare | As the bonus starts, each pot that isn't full may **fill anyway** | 0.3% → 1.5% a pot |
+| Joker's Cap | Epic | A spin may turn one of reels 2–4 **wild** | 0.15% → 0.7% a spin |
+| Boomerang | Legendary | The bonus may **play again** once it ends | 0.8% → 3.5% a bonus |
+
+The ones that change a spin are each worth a whole bonus or a wild reel when
+they fire, so their chances are small: each adds about 0.1–0.3% to a
+machine's payback at level 1 and about 0.6–1.5% at level 10. The slot edge
+is about 6%, so a full loadout of maxed slot charms comes close to even.
+The Token charms cost no payback and fire every few spins. The Piggy Bank's
+worth is exact: the pot chain takes its chance of a top-up (`potChain(m, topUp)`).
 
 ## Saving
 

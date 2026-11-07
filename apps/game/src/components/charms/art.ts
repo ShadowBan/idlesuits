@@ -287,6 +287,57 @@ export const CHARM_ART: Record<string, string> = {
     <path d="M38 50h10" stroke="#b8333a" stroke-width="1.4"/>
     <path d="M10 46h46v4H10z" fill="#24160d" ${T}/>
     ${shine('M17 24l-4 17')}`,
+
+  // The slot machine charms.
+  'magpie-feather': `
+    <path d="M12 56L48 10" fill="none" stroke="#2a1a12" stroke-width="4" stroke-linecap="round"/>
+    <path d="M12 56L48 10" fill="none" stroke="#e9e2d4" stroke-width="1.6" stroke-linecap="round"/>
+    <path d="M16 51c-2-10 4-24 14-32 8-6 16-9 20-10-1 5-4 13-10 21-8 11-18 19-24 21z" fill="#3b4a6e" ${O}/>
+    <path d="M27 39c4-6 9-11 14-15M31 43c4-4 7-8 10-12M22 34c3-6 7-11 12-14" fill="none" stroke="#7d92c4" stroke-width="1.3" stroke-linecap="round"/>
+    <path d="M38 23c3-4 7-8 12-14-1 5-4 12-8 17z" fill="#2fb3a3" ${T}/>
+    <path d="M40 25c2-3 5-7 9-12" fill="none" stroke="#5a7cff" stroke-width="1.6" stroke-linecap="round"/>
+    <path d="M18 47c2-5 5-9 8-12l4 5c-3 3-7 6-12 7z" fill="#f4f1ea" ${T}/>
+    ${shine('M20 40c1-6 4-12 9-17')}`,
+
+  'lever-knob': `
+    <path d="M30 60V30" stroke="#2a1a12" stroke-width="9" stroke-linecap="round"/>
+    <path d="M30 60V30" stroke="#c9ced6" stroke-width="5" stroke-linecap="round"/>
+    <path d="M28.5 56V34" stroke="#fff" stroke-opacity=".6" stroke-width="1.4" stroke-linecap="round"/>
+    <rect x="21" y="52" width="18" height="8" rx="3" fill="#8e949d" ${O}/>
+    <circle cx="30" cy="20" r="15" fill="#d93a32" ${O}/>
+    <circle cx="30" cy="20" r="15" fill="none" stroke="#a52a24" stroke-width="2" stroke-dasharray="0 0" opacity=".4"/>
+    <path d="M44 20c4 0 8 3 10 7M46 13c4-1 8 0 10 3" fill="none" stroke="#f2c64e" stroke-width="2.4" stroke-linecap="round"/>
+    ${shine('M21 14c2-4 6-6 10-6')}
+    <circle cx="24" cy="15" r="2.4" fill="#fff" opacity=".8"/>`,
+
+  'piggy-bank': `
+    <rect x="27" y="4" width="11" height="11" rx="5.5" fill="#f2c64e" ${O}/>
+    <path d="M30 9.5h5" stroke="#b08423" stroke-width="1.6" stroke-linecap="round"/>
+    <ellipse cx="32" cy="38" rx="22" ry="16" fill="#f59ab6" ${O}/>
+    <path d="M20 26l-4-8 9 4M40 23l6-6 1 9" fill="#f59ab6" ${O}/>
+    <rect x="26" y="21" width="12" height="3.4" rx="1.7" fill="#2a1a12"/>
+    <ellipse cx="54" cy="40" rx="5" ry="6" fill="#f7b3c7" ${O}/>
+    <g fill="#2a1a12"><circle cx="53" cy="38.5" r="1.2"/><circle cx="55.5" cy="41" r="1.2"/><circle cx="45" cy="33" r="2"/></g>
+    <path d="M18 52v6M26 54v5M38 54v5M46 52v6" ${O}/>
+    <path d="M10 36c-4 0-5-4-2-6" fill="none" ${O}/>
+    ${shine('M18 32c2-5 6-8 11-9')}`,
+
+  'jokers-cap': `
+    <path d="M14 48c-2-14-4-26-10-34 10 2 16 10 20 20 2-12 6-22 8-30 4 8 6 18 8 30 4-10 10-18 20-20-6 8-8 20-10 34z" fill="#7a4ad8" ${O}/>
+    <path d="M32 4c4 8 6 18 8 30l-8 14-8-14c2-12 6-22 8-30z" fill="#f2c64e" ${T}/>
+    <path d="M4 14c10 2 16 10 20 20l-10 14c-2-14-4-26-10-34z" fill="#d93a32" ${T}/>
+    <rect x="10" y="46" width="44" height="10" rx="4" fill="#f4f1ea" ${O}/>
+    <g fill="#2a1a12"><circle cx="20" cy="51" r="1.6"/><circle cx="32" cy="51" r="1.6"/><circle cx="44" cy="51" r="1.6"/></g>
+    <g fill="#f2c64e" ${T}><circle cx="4" cy="14" r="4"/><circle cx="32" cy="5" r="4"/><circle cx="60" cy="14" r="4"/></g>
+    ${shine('M20 40c-1-6-3-12-6-18')}`,
+
+  boomerang: `
+    <path d="M8 18c4-6 12-6 16 0l14 20c6 8 16 10 20 6 2 6-2 14-10 14-8 0-14-4-20-12L8 28c-2-3-2-7 0-10z" fill="#c8843f" ${O}/>
+    <path d="M12 22c2-2 6-2 8 1l14 20c4 6 10 9 16 9" fill="none" stroke="#a5652a" stroke-width="1.4" stroke-linecap="round"/>
+    <g fill="#f4f1ea" ${T}><circle cx="15" cy="22" r="2.2"/><circle cx="24" cy="30" r="2.2"/><circle cx="31" cy="40" r="2.2"/><circle cx="41" cy="48" r="2.2"/><circle cx="51" cy="51" r="2.2"/></g>
+    <g fill="#d93a32"><circle cx="19.5" cy="26" r="1.4"/><circle cx="27.5" cy="35" r="1.4"/><circle cx="36" cy="44.5" r="1.4"/><circle cx="46" cy="50" r="1.4"/></g>
+    <path d="M44 8c6 2 10 6 12 12M50 6l6 2-2 6" fill="none" stroke="#f2c64e" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+    ${shine('M11 20c2-3 6-4 9-2')}`,
 };
 
 /** Rarity colours: the frame, glow and label for each tier. */

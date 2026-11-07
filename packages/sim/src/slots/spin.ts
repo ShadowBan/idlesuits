@@ -1,6 +1,7 @@
 import { Rng, type Seed } from '../rng';
 import type {
   SlotBonusResult,
+  SlotCharms,
   CoinValue,
   Collect,
   CollectBonus,
@@ -38,6 +39,8 @@ export interface SlotSpinInput {
   forceFeature?: boolean;
   /** Each pot's gems as the spin starts; empty if not given. */
   pots?: readonly number[];
+  /** What the player's charms do to the spin. */
+  charms?: SlotCharms;
 }
 
 /**
@@ -405,15 +408,48 @@ export function playBonus(machine: MachineDef, coins: HeldCoin[], rng: Rng, mete
 }
 
 /**
+ * A nudge that brings in the bonus: a reel moved one step up or down so that
+ * one more of what starts the bonus shows, and none is lost. Every such move,
+ * reel by reel.
+ */
+export function nudgesFor(machine: MachineDef, stops: readonly number[]): { reel: number; dir: -1 | 1 }[] {
+  const id = triggerSymbol(machine);
+  const need = machine.bonus.trigger;
+  const grid = machine.reels.map((strip, r) => windowAt(strip, stops[r]!, machine.rows));
+  const have = countOf(grid, id);
+  if (have !== need - 1) return [];
+  const out: { reel: number; dir: -1 | 1 }[] = [];
+  machine.reels.forEach((strip, r) => {
+    const here = grid[r]!.filter((s) => s === id).length;
+    for (const dir of [-1, 1] as const) {
+      const moved = windowAt(strip, (stops[r]! + dir + strip.length) % strip.length, machine.rows).filter((s) => s === id).length;
+      if (moved === here + 1) out.push({ reel: r, dir });
+    }
+  });
+  return out;
+}
+
+/** A reel turned wild: every pay symbol on it a wild, anything else (coins, scatters) left as it is. */
+export function wildWindow(machine: MachineDef, window: readonly string[]): string[] {
+  const wild = symbolOf(machine, 'wild')!;
+  const pays = new Set(machine.symbols.filter((s) => s.kind === 'pay').map((s) => s.id));
+  return window.map((s) => (pays.has(s) ? wild : s));
+}
+
+/**
  * One spin: the reels stop, the ways pay, any collectors take the coins, and
  * enough coins or scatters start the bonus. Seeded, so any spin replays exactly.
+ * Charms can nudge a reel, turn one wild, fill pots or play the bonus again,
+ * each from a stream of its own.
  */
 export function spinSlot(input: SlotSpinInput): SlotSpinResult {
   const { machine } = input;
   const meters = input.meters ?? { major: machine.jackpots.major, grand: machine.jackpots.grand };
   const scale = input.waysScale ?? 1;
+  const charms = input.charms ?? {};
   const rng = new Rng(input.seed.run, 'slot', machine.id, input.seed.round);
   const coinRng = new Rng(input.seed.run, 'slot-coins', machine.id, input.seed.round);
+  const charmRng = (what: string) => new Rng(input.seed.run, 'slot-charm', what, machine.id, input.seed.round);
 
   let stops: number[];
   let grid: string[][];
@@ -421,6 +457,30 @@ export function spinSlot(input: SlotSpinInput): SlotSpinResult {
     stops = machine.reels.map((strip) => rng.int(strip.length));
     grid = machine.reels.map((strip, r) => windowAt(strip, stops[r]!, machine.rows));
     if (!input.forceFeature || triggers(machine, grid)) break;
+  }
+
+  // One short of the bonus: a charm may nudge a reel to bring it in.
+  let nudge: SlotSpinResult['nudge'] = null;
+  if (charms.nudge) {
+    const options = nudgesFor(machine, stops);
+    const roll = charmRng('nudge');
+    if (options.length && roll.next() < charms.nudge) {
+      const { reel, dir } = options[roll.int(options.length)]!;
+      const strip = machine.reels[reel]!;
+      nudge = { reel, dir, before: grid[reel]! };
+      stops[reel] = (stops[reel]! + dir + strip.length) % strip.length;
+      grid[reel] = windowAt(strip, stops[reel]!, machine.rows);
+    }
+  }
+  // A charm may turn one of the middle reels wild.
+  let wildReel: SlotSpinResult['wildReel'] = null;
+  if (charms.wild && symbolOf(machine, 'wild')) {
+    const roll = charmRng('wild');
+    if (roll.next() < charms.wild) {
+      const reel = 1 + roll.int(Math.max(1, machine.reels.length - 2));
+      wildReel = { reel, before: grid[reel]! };
+      grid[reel] = wildWindow(machine, grid[reel]!);
+    }
   }
 
   const coins = machine.coinValues ? coinsOn(machine, grid, coinRng) : [];
@@ -435,9 +495,24 @@ export function spinSlot(input: SlotSpinInput): SlotSpinResult {
   const gems = gemsOn(machine, carriers, new Rng(input.seed.run, 'slot-gems', machine.id, input.seed.round));
   const filled = potDefs.map((def, i) => Math.min(def.size, Math.max(0, Math.floor(input.pots?.[i] ?? 0)) + gems.filter((g) => g.pot === i).length));
   const starts = triggers(machine, grid);
+  // As the bonus starts, a charm may fill pots that aren't full yet.
+  const topped: number[] = [];
+  if (starts && charms.fill) {
+    const roll = charmRng('fill');
+    potDefs.forEach((def, i) => {
+      if (filled[i]! < def.size && roll.next() < charms.fill!) {
+        filled[i] = def.size;
+        topped.push(i);
+      }
+    });
+  }
   const lit = starts ? potDefs.flatMap((def, i) => (filled[i]! >= def.size ? [i] : [])) : [];
   const pots = filled.map((n, i) => (lit.includes(i) ? 0 : n));
 
-  const feature = starts ? playBonus(machine, coins, coinRng, meters, scale, lit.map((i) => potDefs[i]!.power)) : null;
-  return { stops, grid, coins, wins, waysPay, collects, collectPay, feature, pay: waysPay + collectPay + (feature?.pay ?? 0), gems, filled, lit, pots };
+  const powers = lit.map((i) => potDefs[i]!.power);
+  const feature = starts ? playBonus(machine, coins, coinRng, meters, scale, powers) : null;
+  // A charm may play the whole bonus again, with the same pots' powers.
+  const encore = feature && charms.encore && charmRng('encore').next() < charms.encore ? playBonus(machine, coins, charmRng('encore-play'), meters, scale, powers) : null;
+  const pay = waysPay + collectPay + (feature?.pay ?? 0) + (encore?.pay ?? 0);
+  return { stops, grid, coins, wins, waysPay, collects, collectPay, feature, pay, gems, filled, lit, pots, nudge, wildReel, topped, encore };
 }

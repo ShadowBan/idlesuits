@@ -8,6 +8,7 @@ import {
   ruleTotal,
   MAX_SLOTS,
   SLOT_COSTS,
+  slotCharms,
   STARTER_TOKENS,
   type CharmRunState,
   type CharmTrigger,
@@ -117,6 +118,11 @@ class Meta {
   /** Blind hands the poker tables deal beside the player's own, from Secret charms. */
   get extraHands(): number {
     return ruleTotal(this.equipped, 'extraHands');
+  }
+
+  /** What the equipped charms do to a slot spin, and which charm does each part. */
+  get slotCharms(): ReturnType<typeof slotCharms> {
+    return slotCharms(this.equipped);
   }
 
   /** Decks the Blackjack shoe goes without, from Secret charms. */

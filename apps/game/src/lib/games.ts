@@ -270,6 +270,65 @@ export function deckLabel(game: GameEntry): string {
 }
 
 /** A table or a machine by its route id. */
-export function findGame(id: string | null): GameEntry | SlotEntry | undefined {
-  return GAMES.find((g) => g.id === id) ?? SLOTS.find((s) => s.id === id);
+/** An instant game: no cards, no reels, one quick decision at a time. Its route is #/<id>. */
+export interface InstantEntry {
+  id: string;
+  name: string;
+  tagline: string;
+  blurb: string;
+  /** What kind of game it is, for its lobby card. */
+  kind: string;
+  /** Drawn on the card's face. */
+  motif: string[];
+  facts: string[];
+  accent: string;
+  load?: () => Promise<{ default: Component<GameProps> }>;
+}
+
+/**
+ * The instant games (`packages/sim/src/instant`): the quick press-your-luck
+ * games online casinos run beside their slots, each with an exact payback the
+ * pit boss sets.
+ */
+export const INSTANT: InstantEntry[] = [
+  {
+    id: 'mines',
+    name: 'Dynamite Dig',
+    tagline: 'Dig for gems. Don’t hit the dynamite.',
+    blurb:
+      'Choose how much dynamite is buried in a field of 25 squares, then dig. Every gem raises the cash-out, a star raises it twice as much, and you can take the money after any dig.',
+    kind: 'Mines',
+    motif: ['◆', '★', '✸'],
+    facts: ['1–24 sticks', 'Cash out any time'],
+    accent: '#5fd0ff',
+    load: () => import('../games/instant/MinesTable.svelte'),
+  },
+  {
+    id: 'deepdrop',
+    name: 'Deep Drop',
+    tagline: 'The deeper the hook, the bigger the catch.',
+    blurb:
+      'Drop a line into the deep. The multiplier climbs as the hook sinks, until something down there bites through the line. Reel in before it does, or set a marker and let the reel do it for you.',
+    kind: 'Crash',
+    motif: ['⚓', '≈', '⤓'],
+    facts: ['Up to 10,000×', 'Auto reel-in'],
+    accent: '#2fc4b2',
+    load: () => import('../games/instant/CrashTable.svelte'),
+  },
+  {
+    id: 'plinko',
+    name: 'Lucky Drop',
+    tagline: 'Drop the ball. Hope it strays.',
+    blurb:
+      'Balls bounce down through the pegs into the slots below. The edges pay the most, the middle pays least, even less than the ball. Choose 8, 12 or 16 rows and how wild the edges get.',
+    kind: 'Plinko',
+    motif: ['●', '∴', '▾'],
+    facts: ['3 boards', 'Up to 1,000×'],
+    accent: '#ff7ad9',
+    load: () => import('../games/instant/PlinkoTable.svelte'),
+  },
+];
+
+export function findGame(id: string | null): GameEntry | SlotEntry | InstantEntry | undefined {
+  return GAMES.find((g) => g.id === id) ?? SLOTS.find((s) => s.id === id) ?? INSTANT.find((g) => g.id === id);
 }
