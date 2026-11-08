@@ -1,5 +1,6 @@
 import { Clock } from './clock';
 import { tuning } from './tuning.svelte';
+import { autoplay } from './autoplay.svelte';
 import { load, save } from './save';
 
 export type SpeedMode = 'smart' | '1x' | '2x' | '5x';
@@ -50,8 +51,11 @@ export class Sequencer<Answer> {
   }
 
   /** Waits `ms` at 1×, scaled by speed. False if the game was reset meanwhile. */
-  wait(ms: number): Promise<boolean> {
-    return this.clock.wait(ms / FACTOR[this.speed]);
+  async wait(ms: number): Promise<boolean> {
+    if (!(await this.clock.wait(ms / FACTOR[this.speed]))) return false;
+    // Auto play holding a big win: the table waits on, in real time, until the hold is over.
+    const hold = autoplay.holdLeft();
+    return hold > 0 ? this.clock.wait(hold, false) : true;
   }
 
   /**

@@ -108,6 +108,61 @@ export function kenoSettle(spots: readonly number[], balls: readonly number[], r
   return { hits, gold, pay: base * (gold && base > 0 ? GOLD_BALL_X : 1) };
 }
 
+/**
+ * The Gold Card: the board itself, 1 to 80 in eight rows of ten, kept from
+ * draw to draw. Every draw stamps the gold ball's number, and every number
+ * the ticket catches. Finish a row of ten and it wins the Row pot; stamp all
+ * 80 and the card wins the Card pot, and starts again empty.
+ *
+ * Each draw feeds the pots a share of its bet, in dollars, and the ticket's
+ * pays are scaled to the floor's payback less those shares, so the ticket and
+ * the pots together pay back exactly the floor's payback however the card
+ * fills: every dollar put in a pot is paid back out of it.
+ */
+export const KENO_ROWS = 8;
+export const KENO_ROW_SIZE = 10;
+/** The share of each bet that goes to the Row pot, and to the Card pot. */
+export const KENO_ROW_SHARE = 0.04;
+export const KENO_CARD_SHARE = 0.04;
+
+/** The ticket's own payback once the pots have their shares: what `kenoPays` is scaled to. */
+export function kenoTicketRtp(rtp: number): number {
+  return rtp - KENO_ROW_SHARE - KENO_CARD_SHARE;
+}
+
+/** The row a number is in, 0 to 7. */
+export function kenoRow(n: number): number {
+  return Math.floor((n - 1) / KENO_ROW_SIZE);
+}
+
+export interface KenoStamp {
+  /** The numbers this draw stamped that weren't stamped before, in the order they came out. */
+  stamped: number[];
+  /** Rows this draw finished. */
+  rows: number[];
+  /** Every number is stamped: the card is full. */
+  full: boolean;
+}
+
+/** What a draw does to the card: stamps the gold ball and every number the ticket caught. `card` is what's stamped already. */
+export function kenoStamp(card: ReadonlySet<number>, ticket: readonly number[], balls: readonly number[]): KenoStamp {
+  const gold = balls[balls.length - 1]!;
+  const mine = new Set(ticket);
+  const stamped: number[] = [];
+  const now = new Set(card);
+  for (const b of balls) {
+    if ((mine.has(b) || b === gold) && !now.has(b)) {
+      now.add(b);
+      stamped.push(b);
+    }
+  }
+  const rows = [...new Set(stamped.map(kenoRow))].filter((r) => {
+    for (let n = r * KENO_ROW_SIZE + 1; n <= (r + 1) * KENO_ROW_SIZE; n++) if (!now.has(n)) return false;
+    return true;
+  });
+  return { stamped, rows: rows.sort((a, b) => a - b), full: now.size === KENO_NUMBERS };
+}
+
 /** A quick pick: `count` different numbers, from the round's seed. */
 export function kenoQuickPick(count: number, seed: { run: Seed; round: number }, salt = 0): number[] {
   const rng = new Rng(seed.run, 'keno-pick', seed.round, salt);

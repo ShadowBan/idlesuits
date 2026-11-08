@@ -1,3 +1,4 @@
+import { autoplay } from './autoplay.svelte';
 import {
   applyCharms,
   drawCharm,
@@ -153,6 +154,8 @@ class Meta {
       this.lifetimeTokens += tokens;
     }
     bankroll.settle(unit.mul(net + out.cash));
+    // Auto play's own rules: hold a big win, stop when the player asked it to.
+    autoplay.round(net + out.cash, bankroll.balance);
     const cashTriggers = out.triggers.filter((t) => t.cash > 0);
     this.flash = {
       key: ++this.flashes,

@@ -6,6 +6,7 @@
   import { formatLimit } from '../lib/rooms';
   import { route } from '../lib/route.svelte';
   import { SPEEDS, type SpeedControl } from '../lib/sequencer.svelte';
+  import { autoplay } from '../lib/autoplay.svelte';
   import { ui } from '../lib/ui.svelte';
   import BankCounter from './BankCounter.svelte';
   import TokenCounter from './charms/TokenCounter.svelte';
@@ -69,6 +70,31 @@
   const compact = new MediaQuery('(max-width: 899px)');
   let sheet = $state<HTMLDialogElement>();
 
+  // Auto play's shared rules follow this table's switch, and stop it when one of them says so.
+  /** Why auto play stopped, shown a few seconds by the auto controls. */
+  let stopped = $state<string | null>(null);
+  let stoppedTimer: ReturnType<typeof setTimeout> | undefined;
+  $effect(() => {
+    autoplay.setActive(autoPlay);
+    if (autoPlay) stopped = null;
+  });
+  $effect(() => () => {
+    autoplay.setActive(false);
+    clearTimeout(stoppedTimer);
+  });
+  let lastStop = untrack(() => autoplay.stops);
+  $effect(() => {
+    const stops = autoplay.stops;
+    if (stops === lastStop) return;
+    lastStop = stops;
+    untrack(() => {
+      if (autoPlay) onAuto(false);
+      stopped = autoplay.reason;
+    });
+    clearTimeout(stoppedTimer);
+    stoppedTimer = setTimeout(() => (stopped = null), 6000);
+  });
+
   function tap(e: MouseEvent) {
     if ((e.target as HTMLElement).closest('button, a, input, dialog')) return;
     onTapFelt?.();
@@ -97,11 +123,6 @@
     <TokenCounter />
 
     <div class="actions">
-      {#if !compact.current}
-        <button type="button" class="auto" aria-pressed={autoPlay} onclick={() => onAuto(!autoPlay)}>
-          Auto {autoPlay ? 'on' : 'off'}
-        </button>
-      {/if}
       {#if compact.current}
         <button type="button" onclick={onExit} aria-label="Back to the floor">←</button>
         <button type="button" onclick={() => sheet?.showModal()} aria-label="Bets and session">⋯</button>
@@ -141,22 +162,37 @@
     </div>
   </main>
 
-  {#if compact.current}
-    <!-- On a phone, auto play and the pace sit right over the action, a thumb away. -->
-    <div class="quick">
+  <!-- Auto play and the pace sit right over the action, a thumb away; ⚙ opens the game's auto play settings. -->
+  <div class="quick">
+    <div class="auto-group">
       <button type="button" class="auto-switch" role="switch" aria-checked={autoPlay} onclick={() => onAuto(!autoPlay)}>
         <i aria-hidden="true"></i>
-        Auto play <b>{autoPlay ? 'On' : 'Off'}</b>
+        Auto <b>{autoPlay ? 'On' : 'Off'}</b>
       </button>
-      {#if seq}
-        <div class="pace" role="group" aria-label="Deal speed">
-          {#each SPEEDS as s (s)}
-            <button type="button" aria-pressed={seq.speed === s} onclick={() => (seq.speed = s)}>{s === 'smart' ? 'Smart' : s}</button>
-          {/each}
-        </div>
-      {/if}
+      <button type="button" class="auto-gear" onclick={() => (ui.autoOpen = true)} aria-label="Auto play settings" title="Auto play settings">
+        <svg viewBox="0 0 24 24" aria-hidden="true"
+          ><path
+            d="M12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7Zm8.6 4.9-1.9-.4a7 7 0 0 1-.7 1.6l1.1 1.6-1.7 1.7-1.6-1.1a7 7 0 0 1-1.6.7l-.4 1.9h-2.4l-.4-1.9a7 7 0 0 1-1.6-.7l-1.6 1.1-1.7-1.7 1.1-1.6a7 7 0 0 1-.7-1.6l-1.9-.4v-2.4l1.9-.4a7 7 0 0 1 .7-1.6L5.6 6.2l1.7-1.7 1.6 1.1a7 7 0 0 1 1.6-.7l.4-1.9h2.4l.4 1.9a7 7 0 0 1 1.6.7l1.6-1.1 1.7 1.7-1.1 1.6a7 7 0 0 1 .7 1.6l1.9.4Z"
+          /></svg
+        >
+        {#if !compact.current}<span>Settings</span>{/if}
+      </button>
     </div>
-  {/if}
+    {#if autoplay.holding !== null}
+      <span class="auto-note hold">Holding a {autoplay.holding >= 100 ? autoplay.holding.toFixed(0) : autoplay.holding.toFixed(1)}× win</span>
+    {:else if stopped}
+      <span class="auto-note">Auto play stopped: {stopped}</span>
+    {:else if autoPlay && autoplay.rounds && !compact.current}
+      <span class="auto-note quiet">{autoplay.rounds} {autoplay.rounds === 1 ? 'round' : 'rounds'} on auto</span>
+    {/if}
+    {#if seq}
+      <div class="pace" role="group" aria-label="Deal speed">
+        {#each SPEEDS as s (s)}
+          <button type="button" aria-pressed={seq.speed === s} onclick={() => (seq.speed = s)}>{s === 'smart' ? 'Smart' : s}</button>
+        {/each}
+      </div>
+    {/if}
+  </div>
 
   <div class="act">{@render action()}</div>
 
@@ -169,10 +205,11 @@
   .app {
     display: grid;
     grid-template-columns: minmax(0, 1fr) 300px;
-    grid-template-rows: auto minmax(0, 1fr) auto;
+    grid-template-rows: auto minmax(0, 1fr) auto auto;
     grid-template-areas:
       'bar bar'
       'felt side'
+      'quick side'
       'act side';
     gap: 12px;
     height: 100dvh;
@@ -186,13 +223,73 @@
     gap: 6px;
     padding: 8px 8px 0;
   }
-  /* The phone's quick controls: auto play's switch and the pace, just over the action. */
+  /* Auto play's switch, its settings and the pace, just over the action. */
   .quick {
     grid-area: quick;
     display: flex;
     align-items: center;
     justify-content: space-between;
     gap: 8px;
+  }
+  .app:not(.compact) .quick {
+    justify-content: center;
+    gap: 14px;
+    margin-bottom: -6px;
+  }
+  .auto-group {
+    display: inline-flex;
+    gap: 4px;
+  }
+  .auto-gear {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 36px;
+    padding: 4px 12px;
+    border-radius: 999px;
+    border: 1px solid var(--line);
+    background: var(--rail);
+    font: 600 13px/1 var(--font-ui);
+    color: var(--ink);
+  }
+  .compact .auto-gear {
+    padding: 4px 9px;
+  }
+  .auto-gear svg {
+    width: 17px;
+    height: 17px;
+    fill: currentColor;
+  }
+  .auto-note {
+    padding: 5px 10px;
+    border-radius: 999px;
+    background: rgb(255 180 166 / 0.14);
+    font: 600 12px/1.2 var(--font-ui);
+    color: #ffb4a6;
+    animation: note-in 250ms ease;
+  }
+  .auto-note.hold {
+    background: rgb(255 215 94 / 0.16);
+    color: var(--gold);
+  }
+  .auto-note.quiet {
+    background: none;
+    color: var(--muted);
+    font-weight: 500;
+  }
+  .compact .auto-note {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    text-align: center;
+  }
+  @keyframes note-in {
+    from {
+      opacity: 0;
+      translate: 0 4px;
+    }
   }
   .auto-switch {
     display: inline-flex;
@@ -301,10 +398,6 @@
   .actions {
     display: flex;
     gap: 6px;
-  }
-  .auto[aria-pressed='true'] {
-    border-color: var(--gold);
-    color: var(--gold);
   }
   /* The table: a padded leather rail around the felt, curved along the players' side. */
   .table {

@@ -379,9 +379,9 @@
       <li>Auto play spins on its own and stops if you bust. Deal speed sets how fast the reels turn.</li>
       <li>
         The bonus waits for you at each step (a respin, Start, Spin wheel or a pick), even in auto play, which carries on once you
-        collect. Turn off "Play the bonus yourself" under Automation to let it play itself while you're away.
+        collect. Turn off "Play the bonus yourself" in the auto play settings (⚙ by the Auto switch) to let it play itself while you're away.
       </li>
-      <li>The bonus plays at normal speed even at 2× or 5×, so it gets its full drama. Turn off "Bonus at normal speed" under Automation to have it follow the deal speed.</li>
+      <li>The bonus plays at normal speed even at 2× or 5×, so it gets its full drama. Turn off "Bonus at normal speed" in the auto play settings to have it follow the deal speed.</li>
     </ul>
   </details>
 </RulesFrame>

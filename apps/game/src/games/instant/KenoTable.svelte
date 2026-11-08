@@ -1,12 +1,12 @@
 <script lang="ts">
   import { onDestroy } from 'svelte';
-  import { GOLD_BALL_X, KENO_DRAWN, KENO_MAX_SPOTS, KENO_NUMBERS, kenoOdds } from '@idlesuits/sim';
+  import { GOLD_BALL_X, KENO_CARD_SHARE, KENO_DRAWN, KENO_MAX_SPOTS, KENO_NUMBERS, KENO_ROW_SHARE, KENO_ROW_SIZE, KENO_ROWS, kenoOdds } from '@idlesuits/sim';
   import RulesFrame from '../../components/RulesFrame.svelte';
   import SeatOverlay from '../../components/SeatOverlay.svelte';
   import TablePanels from '../../components/TablePanels.svelte';
   import TableShell from '../../components/TableShell.svelte';
   import type { GameProps } from '../../lib/games';
-  import { formatMoney } from '../../lib/money';
+  import { Decimal, formatMoney } from '../../lib/money';
   import { unlockAudio } from '../../lib/sound';
   import BetPicker from './BetPicker.svelte';
   import { KenoGame } from './keno.svelte';
@@ -20,8 +20,15 @@
   let rules = $state<RulesFrame>();
 
   const numbers = Array.from({ length: KENO_NUMBERS }, (_, i) => i + 1);
-  const spots = $derived(game.picks.length);
-  const picked = $derived(new Set(game.picks));
+  const spots = $derived(game.ticket.length);
+  const picked = $derived(new Set(game.ticket));
+  /** Each row of the Gold Card: how many of its ten are stamped. */
+  const rowCounts = $derived(
+    Array.from({ length: KENO_ROWS }, (_, r) => Array.from({ length: KENO_ROW_SIZE }, (_, i) => r * KENO_ROW_SIZE + i + 1).filter((n) => game.card.has(n)).length),
+  );
+  const doneRows = $derived(new Set(game.cardNews?.rows ?? []));
+  const rowOf = (n: number) => Math.floor((n - 1) / KENO_ROW_SIZE);
+  const ago = (w: { draw: number }) => (game.rounds >= w.draw ? `#${w.draw}` : 'earlier');
   const drawn = $derived(game.drawn);
   const gold = $derived(game.balls.length === KENO_DRAWN ? game.balls[KENO_DRAWN - 1]! : null);
   const odds = $derived(kenoOdds(Math.max(1, spots)));
@@ -81,6 +88,16 @@
         { name: 'How often', tag: `${Math.max(1, spots)} in 80`, text: 'The gold ball is any one of the 80 numbers, so each number you mark is another chance at it.' },
       ],
     },
+    {
+      heading: 'The Gold Card',
+      note: 'The board keeps your stamps from draw to draw, and between visits.',
+      items: [
+        { name: 'Stamps', text: 'Every draw stamps the gold ball’s number, whoever’s it is, and every number your ticket catches. Mark numbers in a row you’re close to finishing.' },
+        { name: 'Finish a row', tag: 'Row pot', text: 'All ten numbers of a row stamped wins the Row pot.' },
+        { name: 'Fill the card', tag: 'Card pot', text: 'All 80 stamped wins the Card pot, and the card starts again.' },
+        { name: 'The pots', tag: `${(KENO_ROW_SHARE * 100).toFixed(0)}% + ${(KENO_CARD_SHARE * 100).toFixed(0)}%`, text: 'Each draw adds a share of its bet to each pot, so they grow as you play and pay back what went in.' },
+      ],
+    },
   ]}
 >
   {#snippet goal()}
@@ -95,9 +112,11 @@
         {spots === 1 ? 'spot' : 'spots'}, catching them all is {pct(odds[Math.max(1, spots)]!)}.
       </li>
       <li>
-        Every ticket pays back {(game.payback * 100).toFixed(1)}%, the gold ball included, however many numbers you mark. Each table is
-        scaled to the floor's payback exactly.
+        Every ticket pays back {(game.ticketPayback * 100).toFixed(1)}%, the gold ball included, however many numbers you mark, and the Gold
+        Card's pots pay back the other {((KENO_ROW_SHARE + KENO_CARD_SHARE) * 100).toFixed(0)}%: {(game.payback * 100).toFixed(1)}% in all,
+        exactly, the floor's payback.
       </li>
+      <li>Your last 50 wins are in Stats. Tap one to draw it again exactly, ball for ball. A replay stakes and pays nothing.</li>
     </ul>
   </details>
   <details>
@@ -134,6 +153,14 @@
         {/each}
       </div>
 
+      <!-- The Gold Card: stamps on the board itself, and what its pots hold. -->
+      <div class="cardbar" aria-label="Gold Card">
+        <span class="k">Gold Card</span>
+        <b>{game.card.size}/{KENO_NUMBERS}</b>
+        <span class="pot">Row pot <b>{formatMoney(game.rowPot)}</b></span>
+        <span class="pot big">Card pot <b>{formatMoney(game.cardPot)}</b></span>
+      </div>
+
       <div class="board" role="group" aria-label="Keno board, 1 to 80">
         {#each numbers as n (n)}
           {@const mine = picked.has(n)}
@@ -145,12 +172,20 @@
             class:out
             class:hit={mine && out}
             class:gold={gold === n}
+            class:stamped={game.card.has(n) || (game.cardNews !== null && game.freshStamps.has(n))}
+            class:fresh={game.freshStamps.has(n)}
+            class:rowdone={doneRows.has(rowOf(n))}
             aria-pressed={mine}
-            disabled={game.drawing || (!mine && spots >= KENO_MAX_SPOTS)}
+            disabled={game.busy || (!mine && spots >= KENO_MAX_SPOTS)}
             onclick={() => game.toggle(n)}
           >
             {n}
           </button>
+          {#if n % KENO_ROW_SIZE === 0}
+            {@const r = rowOf(n)}
+            {@const finished = rowCounts[r] === KENO_ROW_SIZE || doneRows.has(r)}
+            <span class="rowcount" class:near={rowCounts[r]! >= 8} class:done={finished} class:now={doneRows.has(r)} title="{rowCounts[r]} of {KENO_ROW_SIZE} stamped">{finished ? '★' : `${rowCounts[r]}`}</span>
+          {/if}
         {/each}
       </div>
 
@@ -164,12 +199,26 @@
         {/each}
       </ol>
 
-      {#if game.result}
+      {#if game.replaying}
+        <div class="replay" aria-live="polite">
+          <span>Replay · draw {ago(game.replaying)} · {game.replaying.ticket.length} spots</span>
+          <button type="button" onclick={() => game.stopReplay()}>Stop</button>
+        </div>
+      {/if}
+
+      {#if game.result && game.paid}
         {@const r = game.result}
-        {#key game.rounds}
-          <div class="verdict" class:won={r.pay > 0} class:gold={r.gold && r.pay > 0}>
+        {@const news = game.replaying ? null : game.cardNews}
+        {#key `${game.rounds}:${game.replaying?.round}`}
+          <div class="verdict" class:won={game.paid.x > 0} class:gold={(r.gold && r.pay > 0) || !!news?.full} class:long={!!news}>
             <span>{r.hits.length} of {spots} caught{r.gold ? ' · gold ball!' : ''}</span>
-            <b>{r.pay > 0 ? `+${formatMoney(game.lastBet.mul(r.pay))}` : 'No win'}</b>
+            <b>{game.paid.x > 0 ? `+${formatMoney(game.paid.bet.mul(game.paid.x))}` : 'No win'}</b>
+            {#if news?.full}
+              <span class="card">Gold Card full! Card pot {formatMoney(news.cardPot)}</span>
+            {/if}
+            {#if news?.rows.length}
+              <span class="card">{news.rows.length === 1 ? 'Row' : `${news.rows.length} rows`} complete · Row pot {formatMoney(news.rowPot)}</span>
+            {/if}
           </div>
         {/key}
       {/if}
@@ -191,11 +240,11 @@
     <div class="ibar">
       <BetPicker {game} />
       <div class="isegmented" role="group" aria-label="Ticket">
-        <button type="button" disabled={game.drawing} onclick={() => game.quickPick()}>Quick pick</button>
-        <button type="button" disabled={game.drawing || !spots} onclick={() => game.clearPicks()}>Clear</button>
+        <button type="button" disabled={game.busy} onclick={() => game.quickPick()}>Quick pick</button>
+        <button type="button" disabled={game.busy || !game.picks.length} onclick={() => game.clearPicks()}>Clear</button>
       </div>
       <button type="button" class="go primary" disabled={!game.canPlay || game.autoPlay} onclick={() => game.play()}>
-        {game.drawing ? 'Drawing…' : 'Draw'}
+        {game.drawing ? 'Drawing…' : game.replaying ? 'Replaying…' : 'Draw'}
       </button>
       <span class="note">
         {spots ? `${spots} ${spots === 1 ? 'spot' : 'spots'} · tops out at ${fmtX(top)}×, ×${GOLD_BALL_X} on the gold ball` : 'Mark 1 to 10 numbers, or Quick pick'}
@@ -216,6 +265,29 @@
       sessionNet={game.sessionNet}
       history={game.history}
     >
+      {#snippet record()}
+        <section class="panel ipanel wins">
+          <h2>Last {game.wins.length || 50} wins <span>tap to replay</span></h2>
+          {#if game.wins.length}
+            <ol>
+              {#each game.wins as w (`${w.run}:${w.round}`)}
+                <li>
+                  <button type="button" disabled={game.busy} onclick={() => game.replay(w)} aria-label="Replay draw {w.draw}">
+                    <span class="x" class:big={w.pay >= 10}>{w.pay >= 100 ? w.pay.toFixed(0) : w.pay.toFixed(2)}×</span>
+                    <span class="what">
+                      {w.hits} of {w.ticket.length}{w.gold ? ' · gold' : ''}{w.full ? ' · card full' : w.rows ? ' · row' : ''}
+                    </span>
+                    <span class="amt">+{formatMoney(new Decimal(w.bet).mul(w.pay))}</span>
+                    <span class="play" aria-hidden="true">▶</span>
+                  </button>
+                </li>
+              {/each}
+            </ol>
+          {:else}
+            <p class="note">Your wins land here, newest first. Any of them can be drawn again exactly, ball for ball.</p>
+          {/if}
+        </section>
+      {/snippet}
       <section class="panel ipanel">
         <h2>This ticket <span>{spots || 1} {spots === 1 ? 'spot' : 'spots'}</span></h2>
         <table class="ladder">
@@ -231,8 +303,17 @@
           </tbody>
         </table>
         <p class="note">
-          Catch the gold ball (the last drawn) and the win is ×{GOLD_BALL_X}. Pays back {(game.payback * 100).toFixed(1)}%, gold ball included,
-          exactly.
+          Catch the gold ball (the last drawn) and the win is ×{GOLD_BALL_X}. The ticket pays back {(game.ticketPayback * 100).toFixed(1)}%, and the
+          Gold Card's pots the other {((KENO_ROW_SHARE + KENO_CARD_SHARE) * 100).toFixed(0)}%: {(game.payback * 100).toFixed(1)}% in all, exactly.
+        </p>
+      </section>
+      <section class="panel ipanel">
+        <h2>Gold Card <span>{game.card.size} of {KENO_NUMBERS} stamped</span></h2>
+        <div class="row"><span>Row pot</span><b>{formatMoney(game.rowPot)}</b></div>
+        <div class="row"><span>Card pot</span><b>{formatMoney(game.cardPot)}</b></div>
+        <p class="note">
+          Every draw stamps the gold ball's number and every number you catch. Finish a row of ten for the Row pot; stamp all 80 for the Card
+          pot. Each draw adds {(KENO_ROW_SHARE * 100).toFixed(0)}% of its bet to each pot.
         </p>
       </section>
     </TablePanels>
@@ -304,7 +385,7 @@
 
   .board {
     display: grid;
-    grid-template-columns: repeat(10, var(--cell));
+    grid-template-columns: repeat(10, var(--cell)) calc(var(--cell) * 0.55);
     grid-auto-rows: calc(var(--cell) * 0.82);
     gap: min(0.6cqw, 0.7cqh);
     padding: min(1cqw, 1.2cqh);
@@ -367,6 +448,113 @@
   .cell.gold {
     outline: 3px solid #ffd75e;
     outline-offset: 1px;
+  }
+  /* The Gold Card's stamp: a little gold star in the corner, kept from draw to draw. */
+  .cell.stamped::before {
+    content: '★';
+    position: absolute;
+    top: 6%;
+    right: 8%;
+    font-size: calc(var(--cell) * 0.2);
+    line-height: 1;
+    color: #ffd75e;
+    text-shadow: 0 0 4px rgb(255 215 94 / 0.8);
+  }
+  .cell.mine.stamped::before {
+    color: #7a4a00;
+    text-shadow: none;
+  }
+  .cell.fresh::before {
+    animation: stamp 500ms cubic-bezier(0.3, 1.6, 0.5, 1);
+  }
+  @keyframes stamp {
+    from {
+      transform: scale(3) rotate(-30deg);
+      opacity: 0;
+    }
+  }
+  /* A row finished this draw: it shines gold, cell after cell. */
+  .cell.rowdone {
+    box-shadow:
+      inset 0 0 0 2px #ffd75e,
+      0 0 14px rgb(255 215 94 / 0.6);
+    animation: rowdone 900ms ease 2;
+  }
+  @keyframes rowdone {
+    50% {
+      background: linear-gradient(#ffe9a0, #e8b84c);
+      color: #2a1a06;
+    }
+  }
+  .rowcount {
+    display: grid;
+    place-items: center;
+    font: 700 calc(var(--cell) * 0.26) / 1 var(--font-ui);
+    color: rgb(207 220 242 / 0.5);
+    font-variant-numeric: tabular-nums;
+  }
+  .rowcount.near {
+    color: #ffd75e;
+  }
+  .rowcount.done {
+    color: rgb(255 215 94 / 0.7);
+    font-size: calc(var(--cell) * 0.36);
+  }
+  .rowcount.now {
+    color: #ffd75e;
+    text-shadow: 0 0 10px rgb(255 215 94 / 0.9);
+    animation: pop 600ms ease 2;
+  }
+
+  .cardbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    justify-content: center;
+    gap: 4px 14px;
+    padding: 6px 14px;
+    border-radius: 999px;
+    background: rgb(232 192 106 / 0.1);
+    box-shadow: inset 0 0 0 1px rgb(232 192 106 / 0.35);
+    font: 600 12px/1.2 var(--font-ui);
+    color: #cfdcf2;
+  }
+  .cardbar .k {
+    font: 700 11px/1 var(--font-display);
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--gold);
+  }
+  .cardbar b {
+    color: #fff;
+    font-variant-numeric: tabular-nums;
+  }
+  .cardbar .pot.big b {
+    color: var(--gold);
+  }
+
+  .replay {
+    position: absolute;
+    top: 8px;
+    left: 50%;
+    translate: -50% 0;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 6px 8px 6px 14px;
+    border-radius: 999px;
+    background: rgb(122 216 255 / 0.18);
+    box-shadow: inset 0 0 0 1px rgb(122 216 255 / 0.5);
+    font: 600 12px/1 var(--font-ui);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: #bfe8ff;
+    z-index: 2;
+  }
+  .replay button {
+    min-height: 0;
+    padding: 4px 10px;
+    font-size: 12px;
   }
   .cell.gold.hit {
     background: radial-gradient(circle at 50% 40%, #fff8dc, #ffd75e 55%, #b8861e);
@@ -451,6 +639,13 @@
     font: 700 clamp(28px, 7cqw, 52px) / 1 var(--font-display);
     color: #8a9ab5;
   }
+  .verdict .card {
+    color: var(--gold);
+    letter-spacing: 0.06em;
+  }
+  .verdict.long {
+    animation-duration: 3.6s;
+  }
   .verdict:not(.won) b {
     font-size: clamp(22px, 5cqw, 34px);
   }
@@ -490,6 +685,51 @@
       animation: none;
     }
   }
+  /* The last wins, each a button that draws it again. */
+  .wins ol {
+    display: grid;
+    gap: 3px;
+    max-height: 340px;
+    margin: 0;
+    padding: 0;
+    overflow-y: auto;
+    list-style: none;
+  }
+  .wins button {
+    display: grid;
+    grid-template-columns: 58px 1fr auto 16px;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    min-height: 0;
+    padding: 5px 8px;
+    border: 0;
+    border-radius: 6px;
+    background: rgb(255 255 255 / 0.03);
+    text-align: left;
+    font: 12px/1.3 var(--font-ui);
+    font-variant-numeric: tabular-nums;
+  }
+  .wins button:hover:not(:disabled) {
+    background: rgb(255 255 255 / 0.09);
+  }
+  .wins .x {
+    font-weight: 700;
+    color: #8cf0b8;
+  }
+  .wins .x.big {
+    color: var(--gold);
+  }
+  .wins .what {
+    color: var(--muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .wins .play {
+    color: var(--muted);
+    font-size: 10px;
+  }
   /* A tall, narrow felt (a phone): the tray in two rows of ten, so the balls stay big enough to read. */
   @container (max-aspect-ratio: 1 / 1) {
     .tray {
@@ -498,7 +738,7 @@
       border-radius: 18px;
     }
     .board {
-      --cell: min(8.3cqw, 6.4cqh);
+      --cell: min(7.9cqw, 6.2cqh);
       grid-auto-rows: var(--cell);
     }
   }

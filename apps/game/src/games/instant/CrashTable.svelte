@@ -148,7 +148,7 @@
       items: [
         { name: 'Golden line', tag: `1 in ${Math.round(1 / GOLD_CHANCE)} · pays ×${GOLD_X}`, text: `Some lines drop with a gold hook, shown as they drop. Whatever a golden line lands pays ${GOLD_X} times over.` },
         { name: 'Where it would have snapped', text: 'Reel in, and the deep shows you how much further the line would have held.' },
-        { name: 'Auto play marker', tag: 'Auto tab', text: 'In auto play, lines drop one after another and reel in at the depth you mark. Lines you drop yourself, you reel in yourself.' },
+        { name: 'Auto play marker', tag: 'Auto ⚙ settings', text: 'In auto play, lines drop one after another and reel in at the depth you mark. Lines you drop yourself, you reel in yourself.' },
       ],
     },
   ]}

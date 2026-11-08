@@ -4,9 +4,10 @@
   import { floor } from '../lib/floor.svelte';
   import { formatMoney, type Decimal } from '../lib/money';
   import { formatLimit } from '../lib/rooms';
-  import { SPEEDS, type SpeedControl } from '../lib/sequencer.svelte';
+  import type { SpeedControl } from '../lib/sequencer.svelte';
   import { meta } from '../lib/meta.svelte';
   import { ui, type PanelTab } from '../lib/ui.svelte';
+  import AutoDialog from './AutoDialog.svelte';
   import BlindBetsPanel from './BlindBetsPanel.svelte';
   import Breakdown from './Breakdown.svelte';
   import CharmsPanel from './charms/CharmsPanel.svelte';
@@ -26,7 +27,7 @@
     history: { round: number; text: string; sub?: string; net: Decimal }[];
     /** The Pays tab: the game's bets, pay tables and side bets. */
     children?: Snippet;
-    /** Panels for what auto play follows at this table (a raise plan), right under Automation. */
+    /** What auto play follows at this table (a raise plan), in the auto play window under the shared rules. */
     automation?: Snippet;
     /** The table's own options, in the Table tab. */
     options?: Snippet;
@@ -57,7 +58,6 @@
   const TABS: { id: PanelTab; label: string }[] = [
     { id: 'pays', label: 'Pays' },
     { id: 'stats', label: 'Stats' },
-    { id: 'auto', label: 'Auto' },
     { id: 'charms', label: 'Charms' },
     { id: 'table', label: 'Table' },
   ];
@@ -70,6 +70,9 @@
   runs itself, the charms on, and the table's own details. Settings for the
   whole casino live in the Settings panel.
 -->
+<!-- Opened from the auto controls by the table's buttons; it lives here, with the game's own auto settings. -->
+<AutoDialog {seq} {autoPlay} {onAuto} {automation} />
+
 <div class="tabs" role="tablist" aria-label="Table information">
   {#each TABS as tab (tab.id)}
     <button
@@ -81,7 +84,6 @@
       onclick={() => (ui.tab = tab.id)}
     >
       {tab.label}
-      {#if tab.id === 'auto' && autoPlay}<i class="on" aria-label="(on)"></i>{/if}
       {#if tab.id === 'charms' && charmsOn}<small>{charmsOn}</small>{/if}
     </button>
   {/each}
@@ -91,24 +93,6 @@
   {#if ui.tab === 'pays'}
     {#if blind}<BlindBetsPanel {...blind} />{/if}
     {@render children?.()}
-  {:else if ui.tab === 'auto'}
-    <section class="panel">
-      <h2>Automation</h2>
-      <label class="switch">
-        <input type="checkbox" checked={autoPlay} onchange={(e) => onAuto(e.currentTarget.checked)} />
-        Auto play
-        <small>stops if you bust</small>
-      </label>
-      <div class="row">
-        <span class="muted">Deal speed</span>
-        <div class="speed" role="group" aria-label="Deal speed">
-          {#each SPEEDS as s (s)}
-            <button type="button" aria-pressed={seq.speed === s} onclick={() => (seq.speed = s)}>{s}</button>
-          {/each}
-        </div>
-      </div>
-    </section>
-    {@render automation?.()}
   {:else if ui.tab === 'charms'}
     <CharmsPanel />
   {:else if ui.tab === 'stats'}
@@ -181,47 +165,13 @@
     text-transform: uppercase;
     color: var(--muted);
   }
-  .switch {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    font: 14px/1.3 var(--font-ui);
-  }
-  .switch small {
-    margin-left: auto;
-    color: var(--muted);
-    font-size: 12px;
-  }
-  .row {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 10px;
-    font: 13px/1.3 var(--font-ui);
-  }
-  .speed {
-    display: flex;
-    border: 1px solid var(--line);
-    border-radius: 8px;
-    overflow: hidden;
-  }
-  .speed button {
-    border: 0;
-    border-radius: 0;
-    padding: 5px 9px;
-    text-transform: capitalize;
-  }
-  .speed button[aria-pressed='true'] {
-    background: var(--gold);
-    color: var(--felt-deep);
-  }
   /* Tabs: a segmented strip on the rail, the open one in gold. */
   .tabs {
     position: sticky;
     top: 0;
     z-index: 1;
     display: grid;
-    grid-template-columns: repeat(5, minmax(0, 1fr));
+    grid-template-columns: repeat(4, minmax(0, 1fr));
     gap: 3px;
     padding: 4px;
     border-radius: 12px;
@@ -243,14 +193,6 @@
     letter-spacing: 0.05em;
     text-transform: uppercase;
     color: var(--muted);
-  }
-  /* Auto play on: a green light on its tab, wherever the sidebar is open. */
-  .tabs .on {
-    width: 7px;
-    height: 7px;
-    border-radius: 50%;
-    background: #6be08f;
-    box-shadow: 0 0 6px #6be08f;
   }
   .tabs small {
     padding: 1px 5px;

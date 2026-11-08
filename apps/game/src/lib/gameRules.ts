@@ -52,16 +52,17 @@ export const PENETRATION: RuleKnob = {
 };
 
 /**
- * How roulette pays Tokens, read by the table. Off: the spin as one bet, its
- * net odds when it wins overall. On: every winning bet's odds, weighted by its
- * share of the chips on the layout, whether or not the spin won overall.
+ * How roulette pays Tokens, read by the table. On (as designed): every winning
+ * bet's odds, weighted by its share of the chips on the layout, whether or not
+ * the spin won overall. Off: the spin as one bet, its net odds only when it
+ * wins overall.
  */
 export const ROULETTE_TOKENS: RuleKnob = {
   path: 'tokensPerBet',
   label: 'Tokens per winning bet',
   group: 'Tokens',
   hint: 'on: each winning bet, by its share of the chips · off: the spin’s net, only when it wins overall',
-  value: false,
+  value: true,
 };
 
 const category = (key: string) => CATEGORY_NAMES[Number(key) as keyof typeof CATEGORY_NAMES];

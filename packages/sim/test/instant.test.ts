@@ -50,6 +50,11 @@ import {
   kenoPays,
   kenoQuickPick,
   kenoSettle,
+  kenoStamp,
+  kenoTicketRtp,
+  kenoRow,
+  KENO_CARD_SHARE,
+  KENO_ROW_SHARE,
 } from '../src';
 
 /** Mean and standard error of a sample. */
@@ -297,5 +302,34 @@ describe('keno', () => {
     expect(golden.pay).toBeCloseTo(plain.pay * GOLD_BALL_X, 12);
     const miss = Array.from({ length: KENO_NUMBERS }, (_, i) => i + 1).find((x) => !balls.includes(x))!;
     expect(kenoSettle([miss], balls, 0.97)).toEqual({ hits: [], gold: false, pay: 0 });
+  });
+});
+
+describe('the Gold Card', () => {
+  it('stamps the gold ball and the ticket’s catches, finishes rows, and fills', () => {
+    const balls = kenoDraw({ run: 'c', round: 2 });
+    const gold = balls[KENO_DRAWN - 1]!;
+    const ticket = [balls[0]!, balls[5]!, 80 - (balls.includes(80) ? 1 : 0)];
+    const r = kenoStamp(new Set(), ticket, balls);
+    const caught = ticket.filter((n) => balls.includes(n));
+    expect(new Set(r.stamped)).toEqual(new Set([...caught, gold]));
+    expect(r.rows).toEqual([]);
+    expect(r.full).toBe(false);
+    // A row one short: the draw that brings its last number finishes it.
+    const row = kenoRow(gold);
+    const almost = new Set(Array.from({ length: 10 }, (_, i) => row * 10 + i + 1).filter((n) => n !== gold));
+    expect(kenoStamp(almost, [], balls).rows).toEqual([row]);
+    // A card one short of full.
+    const nearly = new Set(Array.from({ length: KENO_NUMBERS }, (_, i) => i + 1).filter((n) => n !== gold));
+    expect(kenoStamp(nearly, [], balls)).toMatchObject({ stamped: [gold], full: true });
+    // Nothing is stamped twice.
+    expect(kenoStamp(new Set([gold]), [gold], balls).stamped).toEqual([]);
+  });
+
+  it('leaves the ticket and the pots together paying the floor’s payback', () => {
+    for (let spots = 1; spots <= KENO_MAX_SPOTS; spots++) {
+      const ticket = kenoPayback(spots, kenoTicketRtp(0.97));
+      expect(ticket + KENO_ROW_SHARE + KENO_CARD_SHARE, `${spots} spots`).toBeCloseTo(0.97, 12);
+    }
   });
 });
