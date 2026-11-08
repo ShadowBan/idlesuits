@@ -26,6 +26,8 @@ export interface GameEntry {
   decks: number;
   /** The deck carries a joker (Pai Gow, DJ Wild). */
   joker?: boolean;
+  /** How the game is dealt when it isn't from cards (roulette's wheel), for its lobby card. */
+  dealt?: string;
   /** Loaded only when the table is opened, so the lobby stays small. */
   load?: () => Promise<{ default: Component<GameProps> }>;
 }
@@ -170,6 +172,19 @@ export const GAMES: GameEntry[] = [
     load: () => import('../games/baccarat/BaccaratTable.svelte'),
   },
   {
+    id: 'roulette',
+    decks: 0,
+    dealt: 'Single-zero wheel',
+    name: 'Single Zero Roulette',
+    tagline: 'Place your bets. The ball picks one.',
+    blurb:
+      'Lay chips on numbers, the lines between them, or red, black, odd, even, the dozens and columns. Every bet covering the number the ball lands on pays: 35:1 straight up, down to even money.',
+    facts: ['37 pockets', 'Every bet 2.70%', 'Auto play'],
+    motif: ['17', '0', '32'],
+    accent: '#ff5a5a',
+    load: () => import('../games/roulette/RouletteTable.svelte'),
+  },
+  {
     id: 'draw',
     decks: 1,
     name: 'Draw Poker',
@@ -265,6 +280,7 @@ export const SLOTS: SlotEntry[] = [
 
 /** How the game is dealt, for its lobby card: "6-deck shoe", "1 deck + joker". */
 export function deckLabel(game: GameEntry): string {
+  if (game.dealt) return game.dealt;
   if (game.decks > 1) return `${game.decks}-deck shoe`;
   return game.joker ? '1 deck + joker' : '1 deck';
 }
@@ -326,6 +342,18 @@ export const INSTANT: InstantEntry[] = [
     facts: ['3 boards', 'Up to 1,000×'],
     accent: '#ff7ad9',
     load: () => import('../games/instant/PlinkoTable.svelte'),
+  },
+  {
+    id: 'keno',
+    name: 'Golden Keno',
+    tagline: 'Mark your numbers. Catch the gold ball.',
+    blurb:
+      'Mark up to ten numbers of 80, then twenty balls are drawn. The more of yours come up, the more the ticket pays. The last ball is gold: catch it and the win is tripled.',
+    kind: 'Keno',
+    motif: ['7', '23', '61'],
+    facts: ['1–10 spots', 'Gold ball ×3'],
+    accent: '#e8c06a',
+    load: () => import('../games/instant/KenoTable.svelte'),
   },
 ];
 

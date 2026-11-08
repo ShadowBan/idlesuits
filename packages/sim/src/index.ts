@@ -27,3 +27,4 @@ export * from './blind';
 export * from './baccarat';
 export * from './slots';
 export * from './instant';
+export * from './roulette';

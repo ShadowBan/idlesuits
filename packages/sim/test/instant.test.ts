@@ -40,6 +40,16 @@ import {
   Rng,
   starsFor,
   type MinesFind,
+  GOLD_BALL_X,
+  KENO_DRAWN,
+  KENO_MAX_SPOTS,
+  KENO_NUMBERS,
+  kenoDraw,
+  kenoOdds,
+  kenoPayback,
+  kenoPays,
+  kenoQuickPick,
+  kenoSettle,
 } from '../src';
 
 /** Mean and standard error of a sample. */
@@ -224,5 +234,68 @@ describe('plinko', () => {
     expect(a.slot).toBe(a.path.filter((s) => s === 1).length);
     const others = Array.from({ length: 20 }, (_, i) => dropBall(12, { run: 'b', round: 1 }, i + 1).path.join(''));
     expect(new Set(others).size).toBeGreaterThan(15);
+  });
+});
+
+describe('keno', () => {
+  it('draws 20 different balls from 1 to 80, and replays them exactly', () => {
+    const balls = kenoDraw({ run: 'k', round: 3 });
+    expect(balls).toHaveLength(KENO_DRAWN);
+    expect(new Set(balls).size).toBe(KENO_DRAWN);
+    expect(balls.every((b) => b >= 1 && b <= KENO_NUMBERS)).toBe(true);
+    expect(kenoDraw({ run: 'k', round: 3 })).toEqual(balls);
+    expect(kenoDraw({ run: 'k', round: 4 })).not.toEqual(balls);
+    const pick = kenoQuickPick(7, { run: 'k', round: 3 });
+    expect(new Set(pick).size).toBe(7);
+    expect(pick).toEqual([...pick].sort((a, b) => a - b));
+  });
+
+  it('catches each number of hits as often as the hypergeometric says', () => {
+    const spots = [3, 17, 25, 40, 41, 66];
+    const odds = kenoOdds(spots.length);
+    expect(odds.reduce((a, b) => a + b, 0)).toBeCloseTo(1, 12);
+    const n = 100_000;
+    const counts = Array<number>(spots.length + 1).fill(0);
+    let gold = 0;
+    for (let round = 0; round < n; round++) {
+      const r = kenoSettle(spots, kenoDraw({ run: 'h', round }), 0.97);
+      counts[r.hits.length]!++;
+      if (r.gold) gold++;
+    }
+    odds.forEach((p, k) => expect(Math.abs(counts[k]! / n - p), `${k} hits`).toBeLessThan(4.5 * Math.sqrt((p * (1 - p)) / n) + 1e-9));
+    // The gold ball is any one ball in 80: one of six spots 6/80 of the time.
+    const p = spots.length / KENO_NUMBERS;
+    expect(Math.abs(gold / n - p)).toBeLessThan(4.5 * Math.sqrt((p * (1 - p)) / n));
+  });
+
+  it('pays back exactly the floor’s payback on every ticket, gold ball included', () => {
+    for (let spots = 1; spots <= KENO_MAX_SPOTS; spots++) {
+      for (const rtp of [0.9, 0.97]) expect(kenoPayback(spots, rtp), `${spots} spots`).toBeCloseTo(rtp, 12);
+      // More hits never pays less, and catching every spot pays the most.
+      const pays = kenoPays(spots, 0.97);
+      const won = pays.slice(1);
+      expect(won).toEqual([...won].sort((a, b) => a - b));
+      expect(pays[spots]).toBe(Math.max(...pays));
+    }
+    // And in play: a ticket's average win over many draws comes to it. (Big tickets' tops are too rare to sample fairly.)
+    for (const spots of [1, 2, 4]) {
+      const pick = kenoQuickPick(spots, { run: 'q', round: spots });
+      const pays: number[] = [];
+      for (let round = 0; round < 200_000; round++) pays.push(kenoSettle(pick, kenoDraw({ run: 'p' + spots, round }), 0.97).pay);
+      const { mean, se } = stats(pays);
+      expect(Math.abs(mean - 0.97), `${spots} spots`).toBeLessThan(4.5 * se);
+    }
+  });
+
+  it('multiplies a win when the gold ball, the last one drawn, is a spot', () => {
+    const balls = kenoDraw({ run: 'g', round: 1 });
+    const last = balls[KENO_DRAWN - 1]!;
+    const plain = kenoSettle([balls[0]!], balls, 0.97);
+    const golden = kenoSettle([last], balls, 0.97);
+    expect(plain.gold).toBe(false);
+    expect(golden.gold).toBe(true);
+    expect(golden.pay).toBeCloseTo(plain.pay * GOLD_BALL_X, 12);
+    const miss = Array.from({ length: KENO_NUMBERS }, (_, i) => i + 1).find((x) => !balls.includes(x))!;
+    expect(kenoSettle([miss], balls, 0.97)).toEqual({ hits: [], gold: false, pay: 0 });
   });
 });

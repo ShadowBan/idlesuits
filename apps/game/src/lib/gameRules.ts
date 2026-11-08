@@ -51,6 +51,19 @@ export const PENETRATION: RuleKnob = {
   max: 95,
 };
 
+/**
+ * How roulette pays Tokens, read by the table. Off: the spin as one bet, its
+ * net odds when it wins overall. On: every winning bet's odds, weighted by its
+ * share of the chips on the layout, whether or not the spin won overall.
+ */
+export const ROULETTE_TOKENS: RuleKnob = {
+  path: 'tokensPerBet',
+  label: 'Tokens per winning bet',
+  group: 'Tokens',
+  hint: 'on: each winning bet, by its share of the chips · off: the spin’s net, only when it wins overall',
+  value: false,
+};
+
 const category = (key: string) => CATEGORY_NAMES[Number(key) as keyof typeof CATEGORY_NAMES];
 
 export const GAME_RULES: Record<string, GameRules> = {
@@ -69,6 +82,7 @@ export const GAME_RULES: Record<string, GameRules> = {
   csp: { base: CSP_RULES, name: category },
   c4p: { base: C4P_RULES, name: (k) => (k in C4P_RULES.superBonus ? humanize(k) : undefined) },
   baccarat: { base: BACCARAT_RULES, extra: [PENETRATION] },
+  roulette: { base: {}, extra: [ROULETTE_TOKENS] },
   djwild: { base: DJ_RULES, name: (k) => DJ_CATEGORY_NAMES[Number(k) as keyof typeof DJ_CATEGORY_NAMES] },
 };
 

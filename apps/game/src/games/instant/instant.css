@@ -57,6 +57,25 @@
     linear-gradient(#1a0a2e, #0d0518);
 }
 
+/* Golden Keno: a night-blue lottery lounge, trimmed in gold. */
+.app.machine[data-cabinet='keno'] .table {
+  background:
+    linear-gradient(160deg, rgb(255 255 255 / 0.1), transparent 40%),
+    linear-gradient(#10264a, #0a1830 60%, #060f1f);
+  box-shadow:
+    0 10px 30px rgb(0 0 0 / 0.55),
+    inset 0 0 0 2px #e8c06a,
+    inset 0 0 0 5px #0a1830,
+    inset 0 0 0 6px rgb(232 192 106 / 0.45),
+    inset 0 0 40px rgb(232 192 106 / 0.12);
+}
+.app.machine[data-cabinet='keno'] .felt {
+  background:
+    radial-gradient(ellipse 70% 45% at 50% 0%, rgb(232 192 106 / 0.16), transparent 70%),
+    radial-gradient(circle, rgb(255 255 255 / 0.05) 1px, transparent 1.5px) 0 0 / 24px 24px,
+    linear-gradient(#0d1f3d, #071226);
+}
+
 /* The stage: the game's board, centred on the felt. */
 .istage {
   position: relative;
