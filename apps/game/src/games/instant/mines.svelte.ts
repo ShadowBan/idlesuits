@@ -44,6 +44,21 @@ export interface VaultBonus {
   done: boolean;
 }
 
+/** A cashed-out board kept with its win: enough to dig it again exactly. */
+export interface MinesReplay {
+  run: string;
+  round: number;
+  bombs: number;
+  /** The squares dug, in order. */
+  digs: number[];
+  /** What it cashed out at, in bets. */
+  pay: number;
+  bet: string;
+}
+
+/** Between squares in a replay. */
+const REPLAY_DIG_MS = 420;
+
 /**
  * Dynamite Dig: Mines. The player buries 1–24 sticks of dynamite in 25
  * squares, stakes the bet and digs. Gems and stars raise the cash-out (see
@@ -77,6 +92,14 @@ export class MinesGame extends InstantGame {
   /** Counts finds, so the vault can pulse as cash drops in. */
   drops = $state(0);
   private pick: Rng;
+  /** The squares dug this round, in order. */
+  private digOrder: number[] = [];
+  /** The round that just settled, as the wins list keeps it to replay. */
+  lastReplay = $state<MinesReplay | null>(null);
+  /** A kept board being dug again: nothing staked, nothing paid. */
+  replaying = $state.raw<MinesReplay | null>(null);
+  /** The replay has dug its last square: its board holds until the player moves on. */
+  replayDone = $state(false);
   /** A finished round waiting on the vault's bonus before it settles. */
   private pending: { round: number; bet: Decimal; pay: number; text: string; sub: string } | null = null;
 
@@ -126,18 +149,20 @@ export class MinesGame extends InstantGame {
 
   /** Nothing is waiting on the player but the next dig or a new round. */
   get busy(): boolean {
-    return this.ride !== null || this.bonus !== null;
+    return this.ride !== null || this.bonus !== null || (this.replaying !== null && !this.replayDone);
   }
 
   /** Stakes the bet and deals a fresh board. */
   begin(): boolean {
     if (this.live || this.busy) return false;
+    this.closeReplay();
     const s = this.stake();
     if (!s) return false;
     this.live = s;
     this.board = minesBoard(this.bombs, { run: this.runSeed, round: s.round });
     this.dug = {};
     this.found = [];
+    this.digOrder = [];
     this.ended = null;
     this.shown = false;
     sfx.chip();
@@ -151,6 +176,7 @@ export class MinesGame extends InstantGame {
     if (!this.board || this.dug[i] !== undefined) return;
     const tile = this.board[i]!;
     this.dug[i] = tile;
+    this.digOrder.push(i);
     if (tile === 'bomb') {
       sfx.lose();
       this.finish('boom', i, 0);
@@ -226,6 +252,7 @@ export class MinesGame extends InstantGame {
 
   private finish(how: 'boom' | 'cashed', at: number, pay: number) {
     const { round, bet } = this.live!;
+    this.keep(round, bet, pay);
     const finds = this.found.length;
     const stars = this.found.filter((f) => f.tile === 'star').length;
     const carts = this.found.filter((f) => f.tile === 'cart');
@@ -248,6 +275,49 @@ export class MinesGame extends InstantGame {
       return;
     }
     this.settle(round, bet, pay, text, sub, this.linesFor(pay, finds));
+  }
+
+  /** What the wins list keeps of a finished round, set as it ends, before it settles. */
+  private keep(round: number, bet: Decimal, pay: number) {
+    this.lastReplay = { run: this.runSeed, round, bombs: this.bombs, digs: [...this.digOrder], pay, bet: bet.toString() };
+  }
+
+  /**
+   * Digs a kept board again, exactly: the same board from its seed, the same
+   * squares in the same order, then the cash-out and the whole board. Nothing
+   * is staked or paid. Auto play stops for it.
+   */
+  async replay(d: MinesReplay) {
+    if (this.live || this.busy) return;
+    this.setAutoPlay(false);
+    this.replaying = d;
+    this.replayDone = false;
+    this.board = minesBoard(d.bombs, { run: d.run, round: d.round });
+    this.dug = {};
+    this.found = [];
+    this.ended = null;
+    this.shown = false;
+    const board = this.board;
+    for (const i of d.digs) {
+      if (!(await this.seq.wait(REPLAY_DIG_MS)) || this.replaying !== d) return;
+      const tile = board[i]!;
+      this.dug = { ...this.dug, [i]: tile };
+      if (tile === 'star' || tile === 'cart') sfx.bigWin();
+      else sfx.coin(Object.keys(this.dug).length);
+    }
+    if (!(await this.seq.wait(REPLAY_DIG_MS)) || this.replaying !== d) return;
+    this.ended = { how: 'cashed', at: -1, pay: new Decimal(d.bet).mul(d.pay) };
+    this.shown = true;
+    sfx.win();
+    // The replay holds here, the whole board shown, until the player moves on.
+    this.replayDone = true;
+  }
+
+  /** Puts a finished replay away; the board stays as it is until the next round deals a new one. */
+  closeReplay() {
+    if (!this.replaying || !this.replayDone) return;
+    this.replaying = null;
+    this.replayDone = false;
   }
 
   private linesFor(pay: number, finds: number) {

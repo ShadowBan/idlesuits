@@ -1,12 +1,14 @@
 <script lang="ts">
-  import type { ComponentProps, Snippet } from 'svelte';
+  import { untrack, type ComponentProps, type Snippet } from 'svelte';
   import type { BreakdownLine } from '../lib/breakdown';
   import { floor } from '../lib/floor.svelte';
-  import { formatMoney, type Decimal } from '../lib/money';
+  import { Decimal, formatMoney } from '../lib/money';
   import { formatLimit } from '../lib/rooms';
   import type { SpeedControl } from '../lib/sequencer.svelte';
   import { meta } from '../lib/meta.svelte';
+  import { route } from '../lib/route.svelte';
   import { ui, type PanelTab } from '../lib/ui.svelte';
+  import { wins, type WinRecord } from '../lib/wins.svelte';
   import AutoDialog from './AutoDialog.svelte';
   import BlindBetsPanel from './BlindBetsPanel.svelte';
   import Breakdown from './Breakdown.svelte';
@@ -35,6 +37,12 @@
     record?: Snippet;
     /** The table's blind hands and the player's bets, for setting how the extra hands bet. */
     blind?: ComponentProps<typeof BlindBetsPanel>;
+    /**
+     * For a game that can draw a round again: `data` is what it needs to
+     * replay the round that just settled (kept with the win), `play` draws a
+     * kept win again, and `busy` holds the replay buttons while it can't.
+     */
+    replay?: { data: unknown; play: (data: unknown) => void; busy: boolean };
   }
 
   let {
@@ -53,7 +61,39 @@
     options,
     record,
     blind,
+    replay,
   }: Props = $props();
+
+  /*
+   * The last wins: each round that settles in the black joins the list, with
+   * the game's replay data if it has any. A history entry is told apart from
+   * the last by its round, text and net, so a re-render never records it twice.
+   */
+  const keyOf = (h: Props['history'][number] | undefined) => (h ? `${h.round}|${h.text}|${h.net.toString()}` : '');
+  let lastKey = untrack(() => keyOf(history[0]));
+  $effect(() => {
+    const h = history[0];
+    const key = keyOf(h);
+    if (!h || key === lastKey) return;
+    lastKey = key;
+    if (!h.net.gt(0)) return;
+    untrack(() =>
+      wins.record(route.current ?? 'table', {
+        round: h.round,
+        text: h.text,
+        sub: h.sub,
+        net: h.net.toString(),
+        unit: lastUnit.toString(),
+        at: Date.now(),
+        replay: replay?.data ? $state.snapshot(replay.data) : undefined,
+      }),
+    );
+  });
+  const myWins = $derived(wins.list(route.current ?? 'table'));
+  const fmtX = (x: number) => (x >= 100 ? x.toFixed(0) : x >= 10 ? x.toFixed(1) : x.toFixed(2));
+  function play(w: WinRecord) {
+    if (replay && w.replay !== undefined && !replay.busy) replay.play(w.replay);
+  }
 
   const TABS: { id: PanelTab; label: string }[] = [
     { id: 'pays', label: 'Pays' },
@@ -102,6 +142,28 @@
       <Breakdown lines={last?.lines ?? []} net={last?.net ?? null} ante={lastUnit} />
     </section>
 
+    <section class="panel wins">
+      <h2>Last {myWins.length || ''} wins {#if replay}<span class="muted">tap ▶ to replay</span>{/if}</h2>
+      {#if myWins.length}
+        <ol>
+          {#each myWins as w (`${w.at}:${w.round}`)}
+            {@const x = wins.times(w)}
+            {@const can = !!replay && w.replay !== undefined}
+            <li>
+              <button type="button" disabled={!can || replay?.busy} onclick={() => play(w)} aria-label={can ? `Replay ${w.text}` : w.text}>
+                <span class="x" class:big={x >= 10}>+{fmtX(x)}×</span>
+                <span class="what">{w.text}{w.sub ? ` · ${w.sub}` : ''}</span>
+                <span class="amt">{formatMoney(new Decimal(w.net), true)}</span>
+                <span class="play" aria-hidden="true">{can ? '▶' : ''}</span>
+              </button>
+            </li>
+          {/each}
+        </ol>
+      {:else}
+        <p class="muted small">Your wins land here, newest first{replay ? '. Any of them can be drawn again exactly' : ''}.</p>
+      {/if}
+    </section>
+
     <section class="panel">
       <h2>Session</h2>
       <dl>
@@ -125,6 +187,7 @@
         </ol>
       {/if}
     </section>
+
   {:else}
     <section class="panel">
       <h2>{floor.room.name}</h2>
@@ -247,5 +310,66 @@
   }
   .loss {
     color: var(--loss);
+  }
+  /* The last wins: newest first, each a button that replays it where the game can. */
+  .wins ol {
+    display: grid;
+    gap: 3px;
+    max-height: 320px;
+    margin: 0;
+    padding: 0;
+    overflow-y: auto;
+    list-style: none;
+  }
+  .wins h2 {
+    display: flex;
+    justify-content: space-between;
+  }
+  .wins h2 span {
+    letter-spacing: 0;
+    text-transform: none;
+    font-weight: 400;
+  }
+  .wins button {
+    display: grid;
+    grid-template-columns: 58px minmax(0, 1fr) auto 12px;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    min-height: 0;
+    padding: 5px 8px;
+    border: 0;
+    border-radius: 6px;
+    background: rgb(255 255 255 / 0.03);
+    text-align: left;
+    font: 12px/1.3 var(--font-ui);
+    font-variant-numeric: tabular-nums;
+  }
+  .wins button:disabled {
+    opacity: 1;
+    cursor: default;
+  }
+  .wins button:hover:not(:disabled) {
+    background: rgb(255 255 255 / 0.09);
+  }
+  .wins .x {
+    font-weight: 700;
+    color: #8cf0b8;
+  }
+  .wins .x.big {
+    color: var(--gold);
+  }
+  .wins .what {
+    color: var(--muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .wins .amt {
+    color: #8cf0b8;
+  }
+  .wins .play {
+    color: var(--muted);
+    font-size: 10px;
   }
 </style>

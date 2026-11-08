@@ -6,10 +6,10 @@
   import TablePanels from '../../components/TablePanels.svelte';
   import TableShell from '../../components/TableShell.svelte';
   import type { GameProps } from '../../lib/games';
-  import { formatMoney } from '../../lib/money';
+  import { Decimal, formatMoney } from '../../lib/money';
   import { unlockAudio } from '../../lib/sound';
   import BetPicker from './BetPicker.svelte';
-  import { PlinkoGame, type Ball } from './plinko.svelte';
+  import { PlinkoGame, type Ball, type PlinkoReplay } from './plinko.svelte';
   import './instant.css';
 
   let { onExit }: GameProps = $props();
@@ -161,6 +161,15 @@
   onRules={() => rules?.open()}
   {onExit}
   onTapFelt={onTap}
+  replay={game.replaying
+    ? {
+        label: `${game.replaying.rows} rows, ${game.replaying.risk} risk${game.replaying.golden ? ' · the golden ball' : ''}`,
+        result: game.replayDone ? `${label(game.replaying.x)}×${game.replaying.golden ? ' Fever' : ''} · +${formatMoney(new Decimal(game.replaying.bet).mul(game.replaying.x))}` : undefined,
+        won: game.replaying.x > 1,
+        done: game.replayDone,
+        onClose: game.replayDone ? () => game.closeReplay() : undefined,
+      }
+    : null}
 >
   {#snippet felt()}
     <div class="istage plinko-stage" class:fever={!!game.fever}>
@@ -290,6 +299,7 @@
       stats={game.stats('Balls')}
       sessionNet={game.sessionNet}
       history={game.history}
+      replay={{ data: game.lastReplay, play: (d) => game.replay(d as PlinkoReplay), busy: game.locked }}
     >
       <section class="panel ipanel">
         <h2>This board <span>{game.rows} rows · {game.risk} risk</span></h2>

@@ -55,6 +55,17 @@ import {
   kenoRow,
   KENO_CARD_SHARE,
   KENO_ROW_SHARE,
+  KENO_BUFFS,
+  KENO_BUFF_START,
+  KENO_PATTERN_ODDS,
+  KENO_GOLD_RUSH_X,
+  kenoAfterDraw,
+  kenoBuffOnDraw,
+  kenoBuffRate,
+  kenoBuffShare,
+  kenoBuffValue,
+  kenoPatterns,
+  type KenoBuffState,
 } from '../src';
 
 /** Mean and standard error of a sample. */
@@ -328,8 +339,86 @@ describe('the Gold Card', () => {
 
   it('leaves the ticket and the pots together paying the floor’s payback', () => {
     for (let spots = 1; spots <= KENO_MAX_SPOTS; spots++) {
-      const ticket = kenoPayback(spots, kenoTicketRtp(0.97));
-      expect(ticket + KENO_ROW_SHARE + KENO_CARD_SHARE, `${spots} spots`).toBeCloseTo(0.97, 12);
+      const ticket = kenoPayback(spots, kenoTicketRtp(0.97, spots));
+      expect(ticket * (1 + kenoBuffShare(spots)) + KENO_ROW_SHARE + KENO_CARD_SHARE, `${spots} spots`).toBeCloseTo(0.97, 12);
     }
+  });
+});
+
+describe('pattern meters', () => {
+  it('finds each pattern on the board', () => {
+    expect(kenoPatterns([33, 34, 35, 36, 37]).run).toEqual([33, 34, 35, 36, 37]);
+    // Five across the end of one row and the start of the next is no run.
+    expect(kenoPatterns([8, 9, 10, 11, 12]).run).toBeUndefined();
+    expect(kenoPatterns([4, 14, 24, 34, 44, 54]).tower).toEqual([4, 14, 24, 34, 44, 54]);
+    expect(kenoPatterns([41, 43, 45, 46, 47, 49, 50]).crowd).toHaveLength(7);
+    expect(kenoPatterns([1, 10, 80]).corners).toEqual([1, 10, 80]);
+    expect(kenoPatterns([1, 10, 33])).toEqual({});
+  });
+
+  it('turns up as often as the exact counts say', () => {
+    const n = 400_000;
+    const seen = { run: 0, tower: 0, crowd: 0, corners: 0 };
+    for (let round = 0; round < n; round++) for (const k of Object.keys(kenoPatterns(kenoDraw({ run: 'pm', round })))) seen[k as keyof typeof seen]++;
+    for (const [k, p] of Object.entries(KENO_PATTERN_ODDS)) expect(Math.abs(seen[k as keyof typeof seen] / n - p), k).toBeLessThan(4.5 * Math.sqrt((p * (1 - p)) / n));
+    // About one buff in 50 paid draws, all four meters together.
+    const rate = KENO_BUFFS.reduce((sum, d) => sum + kenoBuffRate(d), 0);
+    expect(1 / rate).toBeGreaterThan(45);
+    expect(1 / rate).toBeLessThan(60);
+  });
+
+  it('fills meters on paid draws only, queues buffs, and runs the first down a draw at a time', () => {
+    const run = [33, 34, 35, 36, 37, 1, 2];
+    let state: KenoBuffState = KENO_BUFF_START;
+    const steps = KENO_BUFFS.find((d) => d.kind === 'double')!.steps;
+    for (let i = 0; i < steps - 1; i++) state = kenoAfterDraw(state, run, true).state;
+    expect(state.meters.run).toBe(steps - 1);
+    expect(kenoAfterDraw(state, run, false).state.meters.run).toBe(steps - 1);
+    const full = kenoAfterDraw(state, run, true);
+    expect(full.granted).toEqual(['double']);
+    expect(full.state.meters.run).toBe(0);
+    expect(full.state.queue).toEqual([{ kind: 'double', left: 5 }]);
+    expect(kenoAfterDraw(full.state, [], true).state.queue).toEqual([{ kind: 'double', left: 4 }]);
+  });
+
+  it('prices each buff exactly: a Free Spot and a Gold Rush add what they say', () => {
+    const ticket = [5, 18, 27, 44, 62];
+    const rtp = kenoTicketRtp(0.97, ticket.length);
+    for (const kind of ['freeSpot', 'goldRush'] as const) {
+      const n = 200_000;
+      let plain = 0;
+      let buffed = 0;
+      for (let round = 0; round < n; round++) {
+        const seed = { run: 'bv' + kind, round };
+        const balls = kenoDraw(seed);
+        plain += kenoSettle(ticket, balls, rtp).pay;
+        buffed += kenoSettle(ticket, balls, rtp, kenoBuffOnDraw(kind, ticket, seed)).pay;
+      }
+      const expected = kenoBuffValue(kind, ticket.length);
+      expect(Math.abs(buffed / plain - 1 - expected), kind).toBeLessThan(0.12 * expected);
+    }
+    expect(kenoBuffOnDraw('goldRush', ticket, { run: 'x', round: 1 }).goldX).toBe(KENO_GOLD_RUSH_X);
+  });
+
+  it('pays back the ticket and its buffs together, draw after draw, as the exact sum says', () => {
+    const ticket = [12, 47];
+    const rtp = kenoTicketRtp(0.97, ticket.length);
+    let state: KenoBuffState = KENO_BUFF_START;
+    let paid = 0;
+    let staked = 0;
+    const pays: number[] = [];
+    for (let round = 0; round < 400_000; round++) {
+      const seed = { run: 'loop', round };
+      const balls = kenoDraw(seed);
+      const buff = kenoBuffOnDraw(state.queue[0]?.kind, ticket, seed);
+      const pay = kenoSettle(ticket, balls, rtp, buff).pay;
+      if (!buff.onHouse) staked++;
+      paid += pay;
+      pays.push(pay);
+      state = kenoAfterDraw(state, balls, !buff.onHouse).state;
+    }
+    const target = 0.97 - KENO_ROW_SHARE - KENO_CARD_SHARE;
+    const { se } = stats(pays);
+    expect(Math.abs(paid / staked - target)).toBeLessThan(5 * se * 1.1);
   });
 });

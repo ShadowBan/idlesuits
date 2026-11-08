@@ -36,6 +36,13 @@
     cabinet?: string;
     /** The table's pace, for the quick controls on a phone. */
     seq?: SpeedControl;
+    /**
+     * A kept win being drawn again. The table is marked the same way at every
+     * game while one is loaded: a cyan frame with viewfinder corners, and a
+     * bar at the felt's foot saying what it is, its result once it has played
+     * out, and Stop or Close.
+     */
+    replay?: { label: string; result?: string; won?: boolean; done: boolean; onClose?: () => void } | null;
   }
 
   let {
@@ -53,6 +60,7 @@
     machine = false,
     cabinet,
     seq,
+    replay = null,
   }: Props = $props();
 
   /**
@@ -159,6 +167,22 @@
       {/key}
       <!-- Inside the felt so its container units measure the felt; no box of its own. -->
       <div class="surface" style:--card-w={cardWidth}>{@render felt()}</div>
+      {#if replay}
+        <!-- A replay is loaded: the table is framed like a camera's viewfinder, and says so at its foot. -->
+        <div class="replay-frame" class:done={replay.done} aria-hidden="true">
+          <i class="tl"></i><i class="tr"></i><i class="bl"></i><i class="br"></i>
+        </div>
+        <div class="replay-bar" role="status">
+          <span class="tag">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5V2L7 6l5 4V7a5 5 0 1 1-5 5H5a7 7 0 1 0 7-7Z" /></svg>
+            Replay
+          </span>
+          <span class="what">{replay.label}</span>
+          {#if replay.result}<b class:won={replay.won}>{replay.result}</b>{/if}
+          <small>nothing staked</small>
+          {#if replay.onClose}<button type="button" onclick={replay.onClose}>{replay.done ? 'Close' : 'Stop'}</button>{/if}
+        </div>
+      {/if}
     </div>
   </main>
 
@@ -767,5 +791,148 @@
       height: auto;
       border-radius: 14px;
     }
+  }
+  /* A replay loaded: the felt framed in cyan, viewfinder corners, and a bar at its foot. The same at every game. */
+  .replay-frame {
+    position: absolute;
+    inset: 0;
+    z-index: 6;
+    border-radius: inherit;
+    pointer-events: none;
+    box-shadow:
+      inset 0 0 0 3px rgb(95 208 255 / 0.85),
+      inset 0 0 60px rgb(95 208 255 / 0.22);
+    animation: replay-in 300ms ease;
+  }
+  .replay-frame i {
+    position: absolute;
+    width: 34px;
+    height: 34px;
+    border: 4px solid #8fe3ff;
+    filter: drop-shadow(0 0 6px rgb(95 208 255 / 0.9));
+  }
+  .replay-frame .tl {
+    top: 14px;
+    left: 14px;
+    border-right: 0;
+    border-bottom: 0;
+    border-top-left-radius: 6px;
+  }
+  .replay-frame .tr {
+    top: 14px;
+    right: 14px;
+    border-left: 0;
+    border-bottom: 0;
+    border-top-right-radius: 6px;
+  }
+  .replay-frame .bl {
+    bottom: 14px;
+    left: 14px;
+    border-right: 0;
+    border-top: 0;
+    border-bottom-left-radius: 6px;
+  }
+  .replay-frame .br {
+    bottom: 14px;
+    right: 14px;
+    border-left: 0;
+    border-top: 0;
+    border-bottom-right-radius: 6px;
+  }
+  /* While it plays, the corners breathe; once it holds, they stay still. */
+  .replay-frame:not(.done) i {
+    animation: viewfinder 1.2s ease-in-out infinite alternate;
+  }
+  @keyframes viewfinder {
+    to {
+      opacity: 0.4;
+    }
+  }
+  @keyframes replay-in {
+    from {
+      opacity: 0;
+    }
+  }
+  .replay-bar {
+    position: absolute;
+    left: 50%;
+    bottom: 12px;
+    translate: -50% 0;
+    z-index: 7;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    max-width: calc(100% - 110px);
+    padding: 5px 6px 5px 6px;
+    border-radius: 999px;
+    background: rgb(4 20 34 / 0.94);
+    box-shadow:
+      inset 0 0 0 1.5px rgb(95 208 255 / 0.85),
+      0 4px 18px rgb(0 0 0 / 0.5);
+    font: 600 12px/1 var(--font-ui);
+    color: #d6f3ff;
+    white-space: nowrap;
+  }
+  .replay-bar .tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 5px 10px 5px 8px;
+    border-radius: 999px;
+    background: #5fd0ff;
+    color: #032433;
+    font: 700 12px/1 var(--font-display);
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+  }
+  .replay-bar .tag svg {
+    width: 14px;
+    height: 14px;
+    fill: currentColor;
+  }
+  .replay-bar .what {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .replay-bar b {
+    color: #bfd0ea;
+  }
+  .replay-bar b.won {
+    color: #8cf0b8;
+  }
+  .replay-bar small {
+    color: rgb(214 243 255 / 0.55);
+    font-size: 11px;
+  }
+  .replay-bar button {
+    min-height: 0;
+    padding: 5px 12px;
+    border-radius: 999px;
+    font-size: 12px;
+  }
+  .compact .replay-bar {
+    bottom: 8px;
+    gap: 6px;
+    max-width: calc(100% - 24px);
+    font-size: 11px;
+  }
+  .compact .replay-bar small {
+    display: none;
+  }
+  /* A table's felt curves away at its foot: the lower corners sit up where the felt still is. */
+  .app:not(.machine) .replay-frame .bl,
+  .app:not(.machine) .replay-frame .br {
+    bottom: 64px;
+  }
+  .app:not(.machine) .replay-frame .bl {
+    left: 22px;
+  }
+  .app:not(.machine) .replay-frame .br {
+    right: 22px;
+  }
+  .compact .replay-frame i {
+    width: 22px;
+    height: 22px;
+    border-width: 3px;
   }
 </style>

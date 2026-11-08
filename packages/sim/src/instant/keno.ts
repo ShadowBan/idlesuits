@@ -99,13 +99,28 @@ export interface KenoResult {
   pay: number;
 }
 
-/** What a ticket pays on a draw at the floor's payback. */
-export function kenoSettle(spots: readonly number[], balls: readonly number[], rtp: number): KenoResult {
+/** A buff's effect on one draw (see KENO_BUFFS). */
+export interface KenoDrawBuff {
+  /** A free extra number on the ticket: counts as one of the ticket's own if drawn, the gold ball included. */
+  free?: number;
+  /** What the gold ball multiplies by, in place of GOLD_BALL_X. */
+  goldX?: number;
+  /** What the whole win is multiplied by. */
+  times?: number;
+}
+
+/**
+ * What a ticket pays on a draw, from the table for its spots scaled to
+ * `ticketRtp` (see `kenoTicketRtp`), with any buff on the draw. A free spot's
+ * catch counts toward the hits, up to the ticket's own spots.
+ */
+export function kenoSettle(spots: readonly number[], balls: readonly number[], ticketRtp: number, buff: KenoDrawBuff = {}): KenoResult {
   const drawnSet = new Set(balls);
-  const hits = spots.filter((n) => drawnSet.has(n));
-  const gold = spots.includes(balls[balls.length - 1]!);
-  const base = kenoPays(spots.length, rtp)[hits.length] ?? 0;
-  return { hits, gold, pay: base * (gold && base > 0 ? GOLD_BALL_X : 1) };
+  const marked = buff.free !== undefined && !spots.includes(buff.free) ? [...spots, buff.free] : spots;
+  const hits = marked.filter((n) => drawnSet.has(n));
+  const gold = marked.includes(balls[balls.length - 1]!);
+  const base = kenoPays(spots.length, ticketRtp)[Math.min(hits.length, spots.length)] ?? 0;
+  return { hits, gold, pay: base * (gold && base > 0 ? (buff.goldX ?? GOLD_BALL_X) : 1) * (buff.times ?? 1) };
 }
 
 /**
@@ -125,9 +140,13 @@ export const KENO_ROW_SIZE = 10;
 export const KENO_ROW_SHARE = 0.04;
 export const KENO_CARD_SHARE = 0.04;
 
-/** The ticket's own payback once the pots have their shares: what `kenoPays` is scaled to. */
-export function kenoTicketRtp(rtp: number): number {
-  return rtp - KENO_ROW_SHARE - KENO_CARD_SHARE;
+/**
+ * The ticket's own payback, what `kenoPays` is scaled to: the floor's payback
+ * less the pots' shares, and less what the pattern meters' buffs pay on
+ * average, which is a fixed share of the ticket's own (`kenoBuffShare`).
+ */
+export function kenoTicketRtp(rtp: number, spots: number): number {
+  return (rtp - KENO_ROW_SHARE - KENO_CARD_SHARE) / (1 + kenoBuffShare(spots));
 }
 
 /** The row a number is in, 0 to 7. */
@@ -172,4 +191,218 @@ export function kenoQuickPick(count: number, seed: { run: Seed; round: number },
     [pool[i], pool[j]] = [pool[j]!, pool[i]!];
   }
   return pool.slice(0, count).sort((a, b) => a - b);
+}
+
+/*
+ * Pattern meters. Each paid draw is checked for four patterns among its 20
+ * balls, laid out on the board (eight rows of ten):
+ *
+ *   run      five in a row across one row (33-34-35-36-37)
+ *   tower    six in one column
+ *   crowd    seven or more in one row
+ *   corners  three of the four corners (1, 10, 71, 80)
+ *
+ * Each pattern fills its own meter a step; a full meter grants its buff and
+ * starts again. Buffs wait their turn and run one at a time, for a number of
+ * draws. Every pattern's chance is exact (counted, not sampled), so each buff
+ * comes, in the long run, once in (meter steps ÷ chance) paid draws, and what
+ * the buffs pay on average is a fixed share of the ticket's own pays. The
+ * ticket is scaled down by that share, so ticket, buffs and pots together pay
+ * back exactly the floor's payback, for a ticket kept the same.
+ */
+export type KenoPattern = 'run' | 'tower' | 'crowd' | 'corners';
+export type KenoBuffKind = 'double' | 'freeSpot' | 'freeDraws' | 'goldRush';
+
+export interface KenoBuffDef {
+  kind: KenoBuffKind;
+  name: string;
+  pattern: KenoPattern;
+  /** The pattern, in a few words. */
+  patternName: string;
+  /** Pattern sightings to fill the meter. */
+  steps: number;
+  /** Draws the buff lasts. */
+  draws: number;
+  /** What it does, in a few words. */
+  blurb: string;
+}
+
+export const KENO_BUFFS: readonly KenoBuffDef[] = [
+  { kind: 'double', name: 'Double Up', pattern: 'run', patternName: '5 in a row across', steps: 6, draws: 5, blurb: 'wins pay ×2' },
+  { kind: 'freeSpot', name: 'Free Spot', pattern: 'tower', patternName: '6 in one column', steps: 5, draws: 3, blurb: 'a free extra number' },
+  { kind: 'freeDraws', name: 'Free Draws', pattern: 'crowd', patternName: '7 in one row', steps: 3, draws: 3, blurb: 'draws on the house' },
+  { kind: 'goldRush', name: 'Gold Rush', pattern: 'corners', patternName: '3 of the 4 corners', steps: 9, draws: 5, blurb: 'gold ball ×10' },
+];
+export const KENO_GOLD_RUSH_X = 10;
+export const KENO_CORNERS = [1, 10, 71, 80] as const;
+
+/** The patterns among a draw's balls, each with the numbers that make it. */
+export function kenoPatterns(balls: readonly number[]): Partial<Record<KenoPattern, number[]>> {
+  const drawn = new Set(balls);
+  const out: Partial<Record<KenoPattern, number[]>> = {};
+  for (let row = 0; row < KENO_ROWS; row++) {
+    const inRow: number[] = [];
+    let run: number[] = [];
+    for (let i = 1; i <= KENO_ROW_SIZE; i++) {
+      const n = row * KENO_ROW_SIZE + i;
+      if (drawn.has(n)) {
+        inRow.push(n);
+        run.push(n);
+        if (run.length >= 5 && !out.run) out.run = [...run];
+        else if (out.run && run.length > out.run.length && out.run[0] === run[0]) out.run = [...run];
+      } else run = [];
+    }
+    if (inRow.length >= 7 && !out.crowd) out.crowd = inRow;
+  }
+  for (let col = 1; col <= KENO_ROW_SIZE; col++) {
+    const inCol = Array.from({ length: KENO_ROWS }, (_, r) => r * KENO_ROW_SIZE + col).filter((n) => drawn.has(n));
+    if (inCol.length >= 6 && !out.tower) out.tower = inCol;
+  }
+  const corners = KENO_CORNERS.filter((n) => drawn.has(n));
+  if (corners.length >= 3) out.corners = corners;
+  return out;
+}
+
+/** Coefficient of x^k in the product of polynomials (as coefficient lists), up to degree k. */
+function coefficient(polys: readonly (readonly number[])[], k: number): number {
+  let acc = [1];
+  for (const p of polys) {
+    const next = Array<number>(Math.min(k, acc.length - 1 + p.length - 1) + 1).fill(0);
+    acc.forEach((a, i) => p.forEach((b, j) => i + j <= k && (next[i + j]! += a * b)));
+    acc = next;
+  }
+  return acc[k] ?? 0;
+}
+
+/** Ways to choose j of a row's ten cells with no five in a row, j = 0 … 10. */
+function noRunOfFive(): number[] {
+  // By position along the row: how many chosen, and the run ending here.
+  let ways = new Map<string, number>([['0,0', 1]]);
+  for (let i = 0; i < KENO_ROW_SIZE; i++) {
+    const next = new Map<string, number>();
+    for (const [key, w] of ways) {
+      const [j, run] = key.split(',').map(Number) as [number, number];
+      const skip = `${j},0`;
+      next.set(skip, (next.get(skip) ?? 0) + w);
+      if (run + 1 < 5) {
+        const take = `${j + 1},${run + 1}`;
+        next.set(take, (next.get(take) ?? 0) + w);
+      }
+    }
+    ways = next;
+  }
+  const out = Array<number>(KENO_ROW_SIZE + 1).fill(0);
+  for (const [key, w] of ways) out[Number(key.split(',')[0])]! += w;
+  return out;
+}
+
+/** Each pattern's exact chance on a draw. */
+export const KENO_PATTERN_ODDS: Readonly<Record<KenoPattern, number>> = (() => {
+  const all = choose(KENO_NUMBERS, KENO_DRAWN);
+  const capped = (size: number, max: number) => Array.from({ length: size + 1 }, (_, j) => (j <= max ? choose(size, j) : 0));
+  const rowsNoRun = coefficient(Array(KENO_ROWS).fill(noRunOfFive()), KENO_DRAWN);
+  const colsUnderSix = coefficient(Array(KENO_ROW_SIZE).fill(capped(KENO_ROWS, 5)), KENO_DRAWN);
+  const rowsUnderSeven = coefficient(Array(KENO_ROWS).fill(capped(KENO_ROW_SIZE, 6)), KENO_DRAWN);
+  const corners = (choose(4, 3) * choose(76, 17) + choose(4, 4) * choose(76, 16)) / all;
+  return { run: 1 - rowsNoRun / all, tower: 1 - colsUnderSix / all, crowd: 1 - rowsUnderSeven / all, corners };
+})();
+
+/** How often each buff comes, per paid draw, in the long run: its pattern's chance over its meter's steps. */
+export function kenoBuffRate(def: KenoBuffDef): number {
+  return KENO_PATTERN_ODDS[def.pattern] / def.steps;
+}
+
+/** A table's payback as drawn with the gold ball at `goldX`, and with a free spot (n + 1 numbers, paid on at most n). */
+function drawnPaybackWith(spots: number, goldX: number, freeSpot = false): number {
+  const marked = spots + (freeSpot ? 1 : 0);
+  const odds = kenoOdds(marked);
+  const table = drawn(spots);
+  return odds.reduce((sum, p, k) => sum + p * table[Math.min(k, spots)]! * (1 + (k / KENO_DRAWN) * (goldX - 1)), 0);
+}
+
+/** What one draw of a buff adds, as a share of an ordinary draw's ticket pay. */
+export function kenoBuffValue(kind: KenoBuffKind, spots: number): number {
+  const plain = drawnPaybackWith(spots, GOLD_BALL_X);
+  switch (kind) {
+    case 'double':
+      return 1;
+    case 'freeDraws':
+      return 1;
+    case 'goldRush':
+      return drawnPaybackWith(spots, KENO_GOLD_RUSH_X) / plain - 1;
+    case 'freeSpot':
+      return drawnPaybackWith(spots, GOLD_BALL_X, true) / plain - 1;
+  }
+}
+
+/** What the buffs pay on average per paid draw, as a share of the ticket's own pays. */
+export function kenoBuffShare(spots: number): number {
+  return KENO_BUFFS.reduce((sum, def) => sum + kenoBuffRate(def) * def.draws * kenoBuffValue(def.kind, spots), 0);
+}
+
+/** The free number for a Free Spot draw: one not on the ticket, from the round's seed. */
+export function kenoFreeSpot(ticket: readonly number[], seed: { run: Seed; round: number }): number {
+  const rng = new Rng(seed.run, 'keno-free', seed.round);
+  const open = Array.from({ length: KENO_NUMBERS }, (_, i) => i + 1).filter((n) => !ticket.includes(n));
+  return open[rng.int(open.length)]!;
+}
+
+/** The meters' fill and the buffs waiting, the first running: kept from draw to draw. */
+export interface KenoBuffState {
+  meters: Record<KenoPattern, number>;
+  /** Buffs earned, in order; the first is the one the next draw plays under, with the draws it has left. */
+  queue: { kind: KenoBuffKind; left: number }[];
+}
+
+export const KENO_BUFF_START: KenoBuffState = { meters: { run: 0, tower: 0, crowd: 0, corners: 0 }, queue: [] };
+
+export function kenoBuffDef(kind: KenoBuffKind): KenoBuffDef {
+  return KENO_BUFFS.find((d) => d.kind === kind)!;
+}
+
+/**
+ * After a draw: the buff it played under (the first in the queue) uses up a
+ * draw, and, if it was a paid draw, each pattern among its balls fills its
+ * meter a step; a full meter adds its buff to the end of the queue and starts
+ * again. Free draws fill no meters.
+ */
+export function kenoAfterDraw(
+  state: KenoBuffState,
+  balls: readonly number[],
+  paid: boolean,
+): { state: KenoBuffState; patterns: Partial<Record<KenoPattern, number[]>>; granted: KenoBuffKind[] } {
+  const queue = state.queue.map((b) => ({ ...b }));
+  if (queue[0]) {
+    queue[0].left--;
+    if (queue[0].left <= 0) queue.shift();
+  }
+  const meters = { ...state.meters };
+  const granted: KenoBuffKind[] = [];
+  const patterns = paid ? kenoPatterns(balls) : {};
+  for (const def of KENO_BUFFS) {
+    if (!patterns[def.pattern]) continue;
+    meters[def.pattern]++;
+    if (meters[def.pattern] >= def.steps) {
+      meters[def.pattern] = 0;
+      queue.push({ kind: def.kind, left: def.draws });
+      granted.push(def.kind);
+    }
+  }
+  return { state: { meters, queue }, patterns, granted };
+}
+
+/** How a buff plays out on one draw: what it does to the ticket, and whether the draw is on the house. */
+export function kenoBuffOnDraw(kind: KenoBuffKind | undefined, ticket: readonly number[], seed: { run: Seed; round: number }): KenoDrawBuff & { free?: number; onHouse: boolean } {
+  switch (kind) {
+    case 'double':
+      return { times: 2, onHouse: false };
+    case 'goldRush':
+      return { goldX: KENO_GOLD_RUSH_X, onHouse: false };
+    case 'freeSpot':
+      return { free: kenoFreeSpot(ticket, seed), onHouse: false };
+    case 'freeDraws':
+      return { onHouse: true };
+    default:
+      return { onHouse: false };
+  }
 }

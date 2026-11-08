@@ -20,10 +20,10 @@
   import TablePanels from '../../components/TablePanels.svelte';
   import TableShell from '../../components/TableShell.svelte';
   import type { GameProps } from '../../lib/games';
-  import { formatMoney } from '../../lib/money';
+  import { Decimal, formatMoney } from '../../lib/money';
   import { unlockAudio } from '../../lib/sound';
   import BetPicker from './BetPicker.svelte';
-  import { MinesGame } from './mines.svelte';
+  import { MinesGame, type MinesReplay } from './mines.svelte';
   import './instant.css';
 
   let { onExit }: GameProps = $props();
@@ -165,6 +165,15 @@
   onAuto={(on) => game.setAutoPlay(on)}
   onRules={() => rules?.open()}
   {onExit}
+  replay={game.replaying
+    ? {
+        label: `${game.replaying.bombs} ${game.replaying.bombs === 1 ? 'stick' : 'sticks'} · ${game.replaying.digs.length} digs`,
+        result: game.replayDone ? `cashed out ${game.replaying.pay.toFixed(2)}× · +${formatMoney(new Decimal(game.replaying.bet).mul(game.replaying.pay))}` : undefined,
+        won: true,
+        done: game.replayDone,
+        onClose: game.replayDone ? () => game.closeReplay() : undefined,
+      }
+    : null}
 >
   {#snippet felt()}
     <div class="istage mines-stage" class:blast={game.ended?.how === 'boom'}>
@@ -374,6 +383,7 @@
       stats={game.stats('Rounds')}
       sessionNet={game.sessionNet}
       history={game.history}
+      replay={{ data: game.lastReplay, play: (d) => game.replay(d as MinesReplay), busy: !!game.live || game.busy }}
     >
       {#snippet automation()}
         <section class="panel ipanel">

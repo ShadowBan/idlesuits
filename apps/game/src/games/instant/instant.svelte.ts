@@ -134,10 +134,13 @@ export class InstantGame {
    * and the net settles through the charms. `text` and `sub` go in the
    * history; `lines` explain the pay in the breakdown.
    */
-  settle(round: number, bet: Decimal, pay: number, text: string, sub: string, lines: BreakdownLine[] = []) {
-    this.out = Math.max(0, this.out - 1);
-    bankroll.settle(bet);
-    const net = pay - 1;
+  settle(round: number, bet: Decimal, pay: number, text: string, sub: string, lines: BreakdownLine[] = [], onHouse = false) {
+    // A round on the house (a free draw) staked nothing: all it pays is won.
+    if (!onHouse) {
+      this.out = Math.max(0, this.out - 1);
+      bankroll.settle(bet);
+    }
+    const net = onHouse ? pay : pay - 1;
     const report: RoundReport = {
       game: this.id,
       seed: { run: this.runSeed, round },
@@ -146,11 +149,11 @@ export class InstantGame {
     };
     const charms = meta.settleRound(report, bet, net);
     const units = net + charms.extra;
-    this.last = { lines: [{ label: 'Bet', amount: -1 }, ...lines, ...charms.lines], net: units };
+    this.last = { lines: [...(onHouse ? [] : [{ label: 'Bet', amount: -1 }]), ...lines, ...charms.lines], net: units };
     const money = bet.mul(units);
     this.lastBet = bet;
     this.rounds++;
-    this.wagered = this.wagered.add(bet);
+    if (!onHouse) this.wagered = this.wagered.add(bet);
     this.returned = this.returned.add(bet.mul(pay));
     this.sessionNet = this.sessionNet.add(money);
     if (bet.mul(pay).gt(this.biggestWin)) this.biggestWin = bet.mul(pay);

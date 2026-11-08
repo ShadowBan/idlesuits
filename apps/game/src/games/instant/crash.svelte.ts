@@ -1,5 +1,5 @@
 import { crashAt, crashLineRtp, crashPoint, CRASH_CAP, GOLD_X, isGoldenLine } from '@idlesuits/sim';
-import { type Decimal } from '../../lib/money';
+import { Decimal } from '../../lib/money';
 import { load, save } from '../../lib/save';
 import { sfx } from '../../lib/sound';
 import { InstantGame } from './instant.svelte';
@@ -12,6 +12,18 @@ const AUTO_NEXT_MS = 1600;
 export const MIN_REEL = 1.01;
 
 export type LinePhase = 'idle' | 'sinking' | 'landed' | 'snapped';
+
+/** A line that was reeled in, kept with its win: enough to sink it again exactly. */
+export interface CrashReplay {
+  run: string;
+  round: number;
+  /** Where it was reeled in, and where it would have snapped. */
+  at: number;
+  snap: number;
+  golden: boolean;
+  bet: string;
+}
+
 
 /**
  * Deep Drop: Crash on a fishing line. The bet is staked as the line drops;
@@ -38,6 +50,10 @@ export class CrashGame extends InstantGame {
   /** The last lines' snap points, newest first: what the deep has been doing. */
   recent = $state<number[]>(load<number[]>('deepdrop.recent', []).filter((x) => typeof x === 'number').slice(0, 14));
   private live: { round: number; bet: Decimal; snap: number } | null = null;
+  /** The line that just settled, as the wins list keeps it to replay. */
+  lastReplay = $state<CrashReplay | null>(null);
+  /** A kept line being sunk again: nothing staked, nothing paid. */
+  replaying = $state.raw<CrashReplay | null>(null);
   private frame = 0;
 
   constructor() {
@@ -68,7 +84,9 @@ export class CrashGame extends InstantGame {
 
   /** Stakes the bet and drops the line. */
   drop(): boolean {
-    if (this.live) return false;
+    if (this.live || this.phase === 'sinking') return false;
+    // A replay holding its catch steps aside for a real line.
+    this.replaying = null;
     const s = this.stake();
     if (!s) return false;
     const seed = { run: this.runSeed, round: s.round };
@@ -134,7 +152,50 @@ export class CrashGame extends InstantGame {
     const text = landed ? `${gold}Reeled in ${this.m.toFixed(2)}×` : live.snap <= 1 ? `${gold}Snapped at once` : `${gold}Snapped at ${live.snap.toFixed(2)}×`;
     const sub = landed ? `line held to ${live.snap.toFixed(2)}×` : this.autoPlay ? `auto play at ${this.marker.toFixed(2)}×` : 'reeled by hand';
     const lines = landed ? [{ label: `Reeled in at ${this.m.toFixed(2)}×${this.golden ? `, golden ×${GOLD_X}` : ''}`, amount: pay }] : [];
+    this.lastReplay = { run: this.runSeed, round: live.round, at: this.m, snap: live.snap, golden: this.golden, bet: live.bet.toString() };
     this.settle(live.round, live.bet, pay, text, sub, lines);
+  }
+
+  /**
+   * Sinks a kept line again, exactly: the same golden hook, the same climb,
+   * reeled in at the same depth, and where it would have snapped. Nothing is
+   * staked or paid. Auto play stops for it.
+   */
+  replay(d: CrashReplay) {
+    if (this.live || this.phase === 'sinking') return;
+    this.setAutoPlay(false);
+    this.replaying = d;
+    this.golden = d.golden;
+    this.result = null;
+    this.m = 1;
+    this.phase = 'sinking';
+    sfx.spin();
+    const start = performance.now();
+    const pace = PACE[this.seq.speed] ?? 1;
+    const step = (now: number) => {
+      if (this.replaying !== d) return;
+      const m = crashAt((now - start) * pace);
+      if (m >= d.at) {
+        this.m = d.at;
+        this.phase = 'landed';
+        this.result = { at: d.at, pay: new Decimal(d.bet).mul(d.at * (d.golden ? GOLD_X : 1)), snap: d.snap };
+        // The replay holds here, the catch on the hook and the snap point shown, until the player moves on.
+        sfx.win();
+        return;
+      }
+      this.m = m;
+      this.frame = requestAnimationFrame(step);
+    };
+    this.frame = requestAnimationFrame(step);
+  }
+
+  /** Puts a held replay away: the line comes back up to the boat. */
+  closeReplay() {
+    if (!this.replaying || this.phase === 'sinking') return;
+    this.replaying = null;
+    this.result = null;
+    this.m = 1;
+    this.phase = 'idle';
   }
 
   /** Auto play: line after line, reeling in at the marker. */
@@ -150,6 +211,7 @@ export class CrashGame extends InstantGame {
   }
 
   setAutoPlay(on: boolean) {
+    if (on) this.closeReplay();
     const was = this.autoPlay;
     this.autoPlay = on && this.started && !this.gameOver;
     if (this.autoPlay && !was) void this.runAuto();

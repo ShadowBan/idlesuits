@@ -10,7 +10,7 @@
   import type { GameProps } from '../../lib/games';
   import { formatMoney } from '../../lib/money';
   import { unlockAudio } from '../../lib/sound';
-  import { RouletteGame, SPIN_MS } from './game.svelte';
+  import { RouletteGame, SPIN_MS, type RouletteReplay } from './game.svelte';
   import RouletteBoard from './RouletteBoard.svelte';
   import RouletteRules from './RouletteRules.svelte';
   import RouletteWheel from './RouletteWheel.svelte';
@@ -26,7 +26,8 @@
   /** While the ball runs, and as it settles, the board shows the layout that was spun. */
   const showing = $derived(game.spinning || Object.keys(game.results).length ? game.spinLayout : game.layout);
   const landed = $derived(game.spinning ? null : game.pocket);
-  const net = $derived(game.last ? game.lastUnit.mul(game.last.net) : null);
+  /** The spin's result on show: a replay's, while one runs, else the last spin's. */
+  const net = $derived(game.replaying ? game.replayNet : game.last ? game.lastUnit.mul(game.last.net) : null);
 
   /** Hot and cold: how often each number came up in the last hundred. */
   const counts = $derived.by(() => {
@@ -76,6 +77,15 @@
   onAuto={(on) => game.setAutoPlay(on)}
   onRules={() => rules?.open()}
   {onExit}
+  replay={game.replaying
+    ? {
+        label: 'the same spin, the same chips',
+        result: game.replayDone && game.pocket !== null && game.replayNet ? `${game.pocket} · ${game.replayNet.gt(0) ? '+' : ''}${formatMoney(game.replayNet)}` : undefined,
+        won: !!game.replayNet?.gt(0),
+        done: game.replayDone,
+        onClose: game.replayDone ? () => game.closeReplay() : undefined,
+      }
+    : null}
 >
   {#snippet felt()}
     <div class="layout" class:compact={compact.current}>
@@ -90,8 +100,8 @@
           {/each}
         </ol>
         {#if landed !== null && net}
-          {#key game.hands}
-            <div class="verdict {pocketColor(landed)}">
+          {#key `${game.hands}:${game.spins}`}
+            <div class="verdict {pocketColor(landed)}" class:held={!!game.replaying}>
               <b>{landed}</b>
               <span class:won={net.gt(0)}>{net.gt(0) ? `+${formatMoney(net)}` : net.lt(0) ? `−${formatMoney(net.neg())}` : 'Push'}</span>
             </div>
@@ -104,7 +114,7 @@
           results={game.results}
           winning={landed}
           vertical={compact.current}
-          disabled={game.spinning || !game.started}
+          disabled={game.spinning || (!!game.replaying && !game.replayDone) || !game.started}
           onPlace={place}
           onTake={(id) => game.take(id)}
         />
@@ -162,6 +172,7 @@
       ]}
       sessionNet={game.sessionNet}
       history={game.history.map((h) => ({ round: h.round, text: String(h.pocket), sub: `${formatMoney(h.staked)} down`, net: h.net }))}
+      replay={{ data: game.lastReplay, play: (d) => game.replay(d as RouletteReplay), busy: game.spinning || (!!game.replaying && !game.replayDone) }}
     >
       {#snippet record()}
         <section class="panel">
@@ -344,6 +355,16 @@
   .verdict span.won {
     color: #8cf0b8;
     text-shadow: 0 0 14px rgb(140 240 184 / 0.6);
+  }
+  /* A replay's result stays up while the replay holds. */
+  .verdict.held {
+    animation: verdict-in 300ms ease both;
+  }
+  @keyframes verdict-in {
+    from {
+      opacity: 0;
+      scale: 0.7;
+    }
   }
   @keyframes verdict {
     0% {

@@ -9,7 +9,7 @@
   import { formatMoney } from '../../lib/money';
   import { unlockAudio } from '../../lib/sound';
   import BetPicker from './BetPicker.svelte';
-  import { CrashGame, MIN_REEL } from './crash.svelte';
+  import { CrashGame, MIN_REEL, type CrashReplay } from './crash.svelte';
   import './instant.css';
 
   let { onExit }: GameProps = $props();
@@ -46,9 +46,14 @@
       surfaced = false;
       return;
     }
-    if (phase === 'idle') return;
+    if (phase === 'idle') {
+      surfaced = true;
+      return;
+    }
     const timers: ReturnType<typeof setTimeout>[] = [];
-    if (phase === 'landed' && !untrack(() => game.autoPlay)) {
+    // A replay holds down at the spot where the line would have snapped, until it's put away.
+    if (phase === 'landed' && untrack(() => game.replaying)) timers.push(setTimeout(() => (peek = true), 1300));
+    else if (phase === 'landed' && !untrack(() => game.autoPlay)) {
       timers.push(setTimeout(() => (peek = true), 1300));
       timers.push(setTimeout(() => ((surfaced = true), (peek = false)), 3600));
     } else timers.push(setTimeout(() => (surfaced = true), 1500));
@@ -189,6 +194,15 @@
   onRules={() => rules?.open()}
   {onExit}
   onTapFelt={onTap}
+  replay={game.replaying
+    ? {
+        label: `reeled in at ${fmtX(game.replaying.at)}×${game.replaying.golden ? ', golden line' : ''}`,
+        result: game.phase === 'landed' && game.result ? `+${formatMoney(game.result.pay)}` : undefined,
+        won: true,
+        done: game.phase === 'landed',
+        onClose: game.phase === 'landed' ? () => game.closeReplay() : undefined,
+      }
+    : null}
 >
   {#snippet felt()}
     <div
@@ -358,6 +372,7 @@
       stats={game.stats('Lines')}
       sessionNet={game.sessionNet}
       history={game.history}
+      replay={{ data: game.lastReplay, play: (d) => game.replay(d as CrashReplay), busy: game.sinking }}
     >
       {#snippet automation()}
         <section class="panel ipanel">

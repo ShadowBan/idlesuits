@@ -26,6 +26,15 @@ export interface HistoryEntry {
   net: Decimal;
 }
 
+/** A spin kept with its win: enough to spin it again exactly. */
+export interface RouletteReplay {
+  run: string;
+  round: number;
+  /** The layout it was spun with, in dollars, as strings so any size survives saving. */
+  layout: Record<string, string>;
+}
+
+
 function newSeed(): string {
   return Math.random().toString(36).slice(2, 10);
 }
@@ -81,6 +90,13 @@ export class RouletteGame {
   spinLayout = $state<Layout>({});
   /** Counts the spins this table has animated, so the wheel turns afresh each time. */
   spins = $state(0);
+  /** The spin that just settled, as the wins list keeps it to replay. */
+  lastReplay = $state<RouletteReplay | null>(null);
+  /** A kept spin being spun again, and what it won then: nothing staked, nothing paid. */
+  replaying = $state.raw<RouletteReplay | null>(null);
+  /** The replay's ball has landed: its spin holds on the table until the player moves on. */
+  replayDone = $state(false);
+  replayNet = $state<Decimal | null>(null);
 
   started = $state(false);
   gameOver = $state(false);
@@ -128,7 +144,7 @@ export class RouletteGame {
 
   get canSpin(): boolean {
     const total = this.total;
-    return this.started && !this.gameOver && !this.spinning && total.gte(floor.room.min) && total.lte(this.bank);
+    return this.started && !this.gameOver && !this.spinning && (!this.replaying || this.replayDone) && total.gte(floor.room.min) && total.lte(this.bank);
   }
 
   /** Why the layout can't be spun yet, if the table's limits are what stop it. */
@@ -145,7 +161,8 @@ export class RouletteGame {
 
   /** Puts a chip of `amount` on a bet, up to the room's maximum per bet and what the bankroll covers. */
   place(id: string, amount: Decimal): boolean {
-    if (this.spinning || !rouletteBet(id)) return false;
+    if (this.spinning || (this.replaying && !this.replayDone) || !rouletteBet(id)) return false;
+    this.leaveReplay();
     const now = this.layout[id] ?? new Decimal(0);
     const headroom = floor.room.max.sub(now);
     const spare = this.bank.sub(this.total);
@@ -162,6 +179,7 @@ export class RouletteGame {
   /** Takes back the last chip put down. */
   undo() {
     if (this.spinning) return;
+    this.leaveReplay();
     const chip = this.placed.pop();
     if (!chip) return;
     const left = (this.layout[chip.id] ?? new Decimal(0)).sub(chip.amount);
@@ -175,6 +193,7 @@ export class RouletteGame {
   /** Takes every chip off one bet. */
   take(id: string) {
     if (this.spinning || !this.layout[id]) return;
+    this.leaveReplay();
     const next = { ...this.layout };
     delete next[id];
     this.layout = next;
@@ -189,6 +208,7 @@ export class RouletteGame {
 
   clear() {
     if (this.spinning) return;
+    this.leaveReplay();
     this.layout = {};
     this.placed = [];
     this.results = {};
@@ -198,6 +218,7 @@ export class RouletteGame {
   /** Puts the last spin's layout back down, if the bankroll covers it. */
   rebet() {
     if (this.spinning) return;
+    this.leaveReplay();
     const total = Object.values(this.lastLayout).reduce((sum, v) => sum.add(v), new Decimal(0));
     if (total.lte(0) || total.gt(this.bank)) return;
     this.layout = { ...this.lastLayout };
@@ -213,6 +234,7 @@ export class RouletteGame {
   /** Doubles every bet, within the room's maximum, if the bankroll covers it. */
   double() {
     if (this.spinning) return;
+    this.leaveReplay();
     const next: Layout = {};
     for (const [id, v] of Object.entries(this.layout)) next[id] = Decimal.min(v.mul(2), floor.room.max);
     const total = Object.values(next).reduce((sum, v) => sum.add(v), new Decimal(0));
@@ -240,6 +262,59 @@ export class RouletteGame {
     this.persist();
   }
 
+  /**
+   * Spins a kept spin again, exactly: its layout on the table and the ball into
+   * the same pocket, each bet lit as it won or lost. Nothing is staked or paid,
+   * and the player's own chips come back after. Auto play stops for it.
+   */
+  async replay(d: RouletteReplay) {
+    if (this.spinning || (this.replaying && !this.replayDone)) return;
+    this.setAutoPlay(false);
+    this.leaveReplay();
+    const layout = fromSaved(d.layout);
+    const unit = Object.values(layout).reduce((sum, v) => sum.add(v), new Decimal(0));
+    if (unit.lte(0)) return;
+    this.replaying = d;
+    this.replayDone = false;
+    this.replayNet = null;
+    this.spinLayout = layout;
+    this.results = {};
+    this.pocket = rouletteSpin({ run: d.run, round: d.round });
+    this.spinning = true;
+    this.spins++;
+    sfx.spin();
+    const done = () => this.replaying === d;
+    if (!(await this.seq.wait(SPIN_MS)) || !done()) return this.endReplay();
+    sfx.chip();
+    if (!(await this.seq.wait(LAND_MS)) || !done()) return this.endReplay();
+    const stakes = Object.fromEntries(Object.entries(layout).map(([id, v]) => [id, v.div(unit).toNumber()]));
+    const result = rouletteSettle(stakes, this.pocket);
+    this.results = Object.fromEntries(result.bets.map((b) => [b.id, b.net]));
+    this.replayNet = unit.mul(result.net);
+    this.spinning = false;
+    sfx.win();
+    // The replay holds here, its chips and number on the table, until the player moves on.
+    this.replayDone = true;
+  }
+
+  private endReplay() {
+    this.replaying = null;
+    this.replayDone = false;
+    this.replayNet = null;
+    this.spinning = false;
+    this.results = {};
+  }
+
+  /** A finished replay steps aside for whatever the player does next. */
+  private leaveReplay() {
+    if (this.replaying && this.replayDone) this.endReplay();
+  }
+
+  /** Puts a replay away, held or mid-spin. */
+  closeReplay() {
+    if (this.replayDone) this.endReplay();
+  }
+
   start() {
     if (this.started || this.seq.disposed) return;
     this.started = true;
@@ -251,6 +326,7 @@ export class RouletteGame {
   }
 
   setAutoPlay(on: boolean) {
+    if (on) this.leaveReplay();
     this.autoPlay = on;
     if (on && this.seq.awaiting === 'spin' && this.canSpin) this.seq.answer(true);
   }
@@ -303,6 +379,7 @@ export class RouletteGame {
   }
 
   private async playRound(): Promise<boolean> {
+    this.leaveReplay();
     const layout = { ...this.layout };
     const unit = Object.values(layout).reduce((sum, v) => sum.add(v), new Decimal(0));
     const pocket = rouletteSpin({ run: this.runSeed, round: this.round });
@@ -361,6 +438,7 @@ export class RouletteGame {
   private settle(result: RouletteResult, unit: Decimal, layout: Layout) {
     this.tokensBySpin += Math.max(0, result.net);
     this.tokensByBet += result.bets.reduce((sum, b) => sum + Math.max(0, b.net), 0);
+    this.lastReplay = { run: this.runSeed, round: this.round, layout: toSaved(layout) };
     const charms = meta.settleRound(this.reportFor(result), unit, result.net);
     const units = result.net + charms.extra;
     const lines: BreakdownLine[] = result.bets

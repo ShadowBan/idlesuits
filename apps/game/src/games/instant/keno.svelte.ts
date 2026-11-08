@@ -1,10 +1,16 @@
 import {
   GOLD_BALL_X,
+  KENO_BUFF_START,
+  KENO_BUFFS,
   KENO_CARD_SHARE,
   KENO_DRAWN,
   KENO_MAX_SPOTS,
   KENO_NUMBERS,
   KENO_ROW_SHARE,
+  kenoAfterDraw,
+  kenoBuffDef,
+  kenoBuffOnDraw,
+  kenoBuffShare,
   kenoDraw,
   kenoPayback,
   kenoPays,
@@ -12,12 +18,17 @@ import {
   kenoSettle,
   kenoStamp,
   kenoTicketRtp,
+  type KenoBuffKind,
+  type KenoBuffState,
+  type KenoDrawBuff,
+  type KenoPattern,
   type KenoResult,
 } from '@idlesuits/sim';
 import type { BreakdownLine } from '../../lib/breakdown';
 import { Decimal } from '../../lib/money';
 import { load, save, saveSoon } from '../../lib/save';
 import { sfx } from '../../lib/sound';
+import { wins } from '../../lib/wins.svelte';
 import { InstantGame } from './instant.svelte';
 
 /** Between balls, at 1×; the gold ball takes a breath longer. */
@@ -29,10 +40,8 @@ const TENSE_MS = 520;
 const TENSE_X = 10;
 /** After a draw, how long auto play lets it sit before the next. */
 const AUTO_NEXT_MS = 1300;
-/** A replay's result stays up this long before the board goes back to the player's own ticket. */
-const REPLAY_HOLD_MS = 2600;
-/** Wins kept to look back on and replay. */
-const WINS_KEPT = 50;
+/** A buff just earned: the draw after it waits a moment longer, so it can be seen. */
+const BUFF_NEWS_MS = 1600;
 
 /** A win, kept to look back on: enough to draw it again exactly. */
 export interface KenoWin {
@@ -51,6 +60,9 @@ export interface KenoWin {
   /** Rows of the Gold Card it finished, and whether it filled the card. */
   rows: number;
   full: boolean;
+  /** The buff it was drawn under, if any, and what that did. */
+  buff?: KenoBuffKind;
+  drawBuff?: KenoDrawBuff;
 }
 
 /** What a draw did to the Gold Card, for the board to show once it's in. */
@@ -76,9 +88,38 @@ function savedPot(key: string): Decimal {
   }
 }
 
-function savedWins(): KenoWin[] {
-  const saved = load<KenoWin[]>('keno.wins', []);
-  return Array.isArray(saved) ? saved.filter((w) => w && typeof w.run === 'string' && Array.isArray(w.ticket)).slice(0, WINS_KEPT) : [];
+/** Keno kept its own list of wins before every game had one: moved into the shared list once. */
+function moveOldWins() {
+  const old = load<KenoWin[] | null>('keno.wins', null);
+  if (!Array.isArray(old) || !old.length || wins.list('keno').length) return;
+  for (const w of [...old].reverse()) {
+    if (!w || typeof w.run !== 'string' || !Array.isArray(w.ticket)) continue;
+    const bet = new Decimal(w.bet);
+    wins.record('keno', {
+      round: w.draw,
+      text: `${w.hits} of ${w.ticket.length}${w.gold ? ' · gold' : ''}`,
+      sub: `${w.pay >= 10 ? w.pay.toFixed(0) : w.pay.toFixed(2)}×`,
+      net: bet.mul(w.pay - 1).toString(),
+      unit: w.bet,
+      at: Date.now(),
+      replay: w,
+    });
+  }
+  save('keno.wins', null);
+}
+
+function savedBuffs(): KenoBuffState {
+  const saved = load<KenoBuffState | null>('keno.buffs', null);
+  if (!saved || typeof saved !== 'object') return structuredClone(KENO_BUFF_START);
+  const meters = { ...KENO_BUFF_START.meters };
+  for (const def of KENO_BUFFS) {
+    const v = saved.meters?.[def.pattern];
+    if (Number.isInteger(v) && v >= 0 && v < def.steps) meters[def.pattern] = v;
+  }
+  const queue = Array.isArray(saved.queue)
+    ? saved.queue.filter((b) => KENO_BUFFS.some((d) => d.kind === b?.kind) && Number.isInteger(b.left) && b.left > 0 && b.left <= kenoBuffDef(b.kind).draws)
+    : [];
+  return { meters, queue };
 }
 
 /**
@@ -91,7 +132,12 @@ function savedWins(): KenoWin[] {
  * The Gold Card: the board keeps a stamp on every number the ticket catches
  * and on every gold ball. A finished row of ten wins the Row pot, a full card
  * the Card pot; each draw feeds both a share of its bet (see `kenoStamp`).
- * The card and the pots are kept between visits.
+ *
+ * Pattern meters: patterns among a paid draw's balls fill four meters, and a
+ * full meter earns a buff for the draws after it (see `kenoAfterDraw`). Buffs
+ * wait their turn; the bet can't change while one waits or runs, so a buff
+ * plays at the bet that earned it. The card, pots, meters and buffs are all
+ * kept between visits.
  */
 export class KenoGame extends InstantGame {
   picks = $state<number[]>([]);
@@ -114,16 +160,28 @@ export class KenoGame extends InstantGame {
   /** Numbers stamped by the draw just shown, to flash on the board. */
   freshStamps = $state<Set<number>>(new Set());
 
-  /** The last wins, newest first, to look back on and replay. */
-  wins = $state<KenoWin[]>(savedWins());
+  /** The pattern meters and the buffs waiting. */
+  buffs = $state<KenoBuffState>(savedBuffs());
+  /** The buff the draw on screen is playing under, and its free number for a Free Spot. */
+  drawBuff = $state<{ kind: KenoBuffKind; free?: number } | null>(null);
+  /** The patterns the last draw made, with their numbers, to light on the board. */
+  patterns = $state<Partial<Record<KenoPattern, number[]>>>({});
+  /** Buffs the last draw earned, for a moment on screen. */
+  earned = $state<KenoBuffKind[]>([]);
+
+  /** The draw that just settled, as the wins list keeps it to replay. */
+  lastReplay = $state<KenoWin | null>(null);
   /** A win being replayed: the board shows its ticket and its draw. */
-  replaying = $state<KenoWin | null>(null);
+  replaying = $state.raw<KenoWin | null>(null);
+  /** The replay has finished drawing and holds its last state until the player moves on. */
+  replayDone = $state(false);
 
   constructor() {
     super('keno');
     const saved = load<number[]>('keno.picks', []);
     const valid = Array.isArray(saved) ? [...new Set(saved.filter((n) => Number.isInteger(n) && n >= 1 && n <= KENO_NUMBERS))] : [];
     this.picks = valid.slice(0, KENO_MAX_SPOTS).sort((a, b) => a - b);
+    moveOldWins();
   }
 
   /** The ticket on the board: the player's own, or a replayed win's. */
@@ -131,19 +189,49 @@ export class KenoGame extends InstantGame {
     return this.replaying?.ticket ?? this.picks;
   }
 
-  /** What each number of hits pays on this ticket, 0 to its spots: the floor's payback less the pots' shares. */
+  /** The ticket's own payback: the floor's, less the pots' shares and what the buffs pay on average. */
+  get ticketRtp(): number {
+    return kenoTicketRtp(this.rtp, Math.max(1, this.ticket.length));
+  }
+
+  /** What each number of hits pays on this ticket, 0 to its spots. */
   get pays(): number[] {
-    return kenoPays(Math.max(1, this.ticket.length), kenoTicketRtp(this.rtp));
+    return kenoPays(Math.max(1, this.ticket.length), this.ticketRtp);
   }
 
-  /** The ticket's own payback, before the pots. */
+  /** The ticket's own payback, before buffs and pots. */
   get ticketPayback(): number {
-    return kenoPayback(Math.max(1, this.ticket.length), kenoTicketRtp(this.rtp));
+    return kenoPayback(Math.max(1, this.ticket.length), this.ticketRtp);
   }
 
-  /** Everything together, ticket and pots: the floor's payback. */
+  /** What the buffs pay back on average. */
+  get buffPayback(): number {
+    return this.ticketPayback * kenoBuffShare(Math.max(1, this.ticket.length));
+  }
+
+  /** Everything together, ticket, buffs and pots: the floor's payback. */
   get payback(): number {
-    return this.ticketPayback + KENO_ROW_SHARE + KENO_CARD_SHARE;
+    return this.ticketPayback + this.buffPayback + KENO_ROW_SHARE + KENO_CARD_SHARE;
+  }
+
+  /** The buff the next draw plays under, if any. */
+  get nextBuff(): { kind: KenoBuffKind; left: number } | null {
+    return this.buffs.queue[0] ?? null;
+  }
+
+  /** The next draw is on the house. */
+  get freeDraw(): boolean {
+    return this.nextBuff?.kind === 'freeDraws';
+  }
+
+  /** A buff is waiting or running: the bet stays where it is until they're used. */
+  get betLocked(): boolean {
+    return this.buffs.queue.length > 0;
+  }
+
+  setStep(step: number) {
+    if (this.betLocked) return;
+    super.setStep(step);
   }
 
   /** The draw's balls so far, as a set, for marking the board. */
@@ -151,17 +239,19 @@ export class KenoGame extends InstantGame {
     return new Set(this.balls);
   }
 
-  /** The ticket's numbers drawn so far. */
+  /** The ticket's numbers drawn so far, a Free Spot's included. */
   get hits(): number {
-    return this.ticket.filter((n) => this.drawn.has(n)).length;
+    const free = this.drawBuff?.free;
+    return [...this.ticket, ...(free !== undefined ? [free] : [])].filter((n) => this.drawn.has(n)).length;
   }
 
   get busy(): boolean {
-    return this.drawing || this.replaying !== null;
+    return this.drawing || (this.replaying !== null && !this.replayDone);
   }
 
   get canPlay(): boolean {
-    return this.canBet && !this.busy && this.picks.length > 0;
+    if (!this.started || this.gameOver || this.busy || !this.picks.length) return false;
+    return this.freeDraw || this.canBet;
   }
 
   private setPicks(picks: number[]) {
@@ -172,11 +262,14 @@ export class KenoGame extends InstantGame {
     this.result = null;
     this.cardNews = null;
     this.freshStamps = new Set();
+    this.patterns = {};
+    this.drawBuff = null;
   }
 
   /** Marks a number, or unmarks it. Up to ten. Not while balls are coming out. */
   toggle(n: number) {
     if (this.busy) return;
+    this.leaveReplay();
     if (this.picks.includes(n)) this.setPicks(this.picks.filter((p) => p !== n));
     else if (this.picks.length < KENO_MAX_SPOTS) this.setPicks([...this.picks, n]);
     else return;
@@ -186,28 +279,32 @@ export class KenoGame extends InstantGame {
   /** A fresh ticket of `count` random numbers: as many as are marked now, or five. */
   quickPick(count = this.picks.length || 5) {
     if (this.busy) return;
+    this.leaveReplay();
     this.setPicks(kenoQuickPick(Math.min(KENO_MAX_SPOTS, Math.max(1, count)), { run: this.runSeed, round: this.round }, Date.now() % 100_000));
     sfx.chip();
   }
 
   clearPicks() {
     if (this.busy) return;
+    this.leaveReplay();
     this.setPicks([]);
   }
 
   /**
-   * Draws the balls one by one onto the board for `ticket`. The pace slows
-   * for a ball that could make a big win: one more catch away from paying
-   * TENSE_X bets or more, near the end. False if the game was reset.
+   * Draws the balls one by one onto the board for `ticket` (and a Free
+   * Spot's number). The pace slows for a ball that could make a big win: one
+   * more catch away from paying TENSE_X bets or more, near the end. False if
+   * the game was reset.
    */
-  private async reveal(ticket: readonly number[], balls: readonly number[], pays: readonly number[]): Promise<boolean> {
+  private async reveal(ticket: readonly number[], balls: readonly number[], pays: readonly number[], buff: KenoDrawBuff): Promise<boolean> {
     this.balls = [];
     sfx.spin();
+    const marked = buff.free !== undefined ? [...ticket, buff.free] : ticket;
     let caught = 0;
     for (let i = 0; i < KENO_DRAWN; i++) {
       const last = i === KENO_DRAWN - 1;
       const left = KENO_DRAWN - i;
-      const next = (pays[caught + 1] ?? 0) * (last ? GOLD_BALL_X : 1);
+      const next = (pays[Math.min(caught + 1, ticket.length)] ?? 0) * (last ? (buff.goldX ?? GOLD_BALL_X) : 1) * (buff.times ?? 1);
       this.tense = left <= 5 && next >= TENSE_X;
       if (!(await this.seq.wait(last ? GOLD_MS : this.tense ? TENSE_MS : BALL_MS))) {
         this.tense = false;
@@ -215,7 +312,7 @@ export class KenoGame extends InstantGame {
       }
       const ball = balls[i]!;
       this.balls = [...this.balls, ball];
-      if (ticket.includes(ball)) {
+      if (marked.includes(ball)) {
         caught++;
         sfx.coin(caught);
       } else sfx.tick();
@@ -224,28 +321,50 @@ export class KenoGame extends InstantGame {
     return true;
   }
 
-  /** Stakes the bet and draws the 20 balls, one by one, then pays the ticket and stamps the card. False if it couldn't start. */
+  /**
+   * Plays a draw: stakes the bet (unless a Free Draw is up), draws the 20
+   * balls under any buff, then pays the ticket, stamps the card and fills the
+   * meters. False if it couldn't start.
+   */
   async play(): Promise<boolean> {
     if (!this.canPlay) return false;
-    const s = this.stake();
-    if (!s) return false;
+    this.leaveReplay();
+    const head = this.nextBuff;
+    const onHouse = head?.kind === 'freeDraws';
+    let round: number;
+    let bet: Decimal;
+    if (onHouse) {
+      round = this.round++;
+      bet = this.bet;
+    } else {
+      const s = this.stake();
+      if (!s) return false;
+      ({ round, bet } = s);
+    }
     const ticket = [...this.picks];
-    const balls = kenoDraw({ run: this.runSeed, round: s.round });
+    const seed = { run: this.runSeed, round };
+    const balls = kenoDraw(seed);
+    const buff = kenoBuffOnDraw(head?.kind, ticket, seed);
     const pays = this.pays;
     this.drawing = true;
     this.result = null;
     this.paid = null;
     this.cardNews = null;
     this.freshStamps = new Set();
-    if (!(await this.reveal(ticket, balls, pays))) return false;
+    this.patterns = {};
+    this.earned = [];
+    this.drawBuff = head ? { kind: head.kind, free: buff.free } : null;
+    if (!(await this.reveal(ticket, balls, pays, buff))) return false;
 
-    const result = kenoSettle(ticket, balls, kenoTicketRtp(this.rtp));
+    const result = kenoSettle(ticket, balls, this.ticketRtp, buff);
     this.result = result;
 
-    // The Gold Card: this bet's shares go in the pots, then the stamps, and anything they finish pays.
-    this.rowPot = this.rowPot.add(s.bet.mul(KENO_ROW_SHARE));
-    this.cardPot = this.cardPot.add(s.bet.mul(KENO_CARD_SHARE));
-    const stamp = kenoStamp(this.card, ticket, balls);
+    // The Gold Card: a paid draw's shares go in the pots; then the stamps, and anything they finish pays.
+    if (!onHouse) {
+      this.rowPot = this.rowPot.add(bet.mul(KENO_ROW_SHARE));
+      this.cardPot = this.cardPot.add(bet.mul(KENO_CARD_SHARE));
+    }
+    const stamp = kenoStamp(this.card, buff.free !== undefined ? [...ticket, buff.free] : ticket, balls);
     const card = new Set(this.card);
     for (const n of stamp.stamped) card.add(n);
     let rowPaid = new Decimal(0);
@@ -261,39 +380,52 @@ export class KenoGame extends InstantGame {
     this.card = stamp.full ? new Set() : card;
     this.freshStamps = new Set(stamp.stamped);
     this.cardNews = stamp.rows.length || stamp.full ? { rows: stamp.rows, full: stamp.full, rowPot: rowPaid, cardPot: cardPaid } : null;
+
+    // The meters: the buff this draw played under uses up a draw; a paid draw's patterns fill their meters.
+    const after = kenoAfterDraw(this.buffs, balls, !onHouse);
+    this.buffs = after.state;
+    this.patterns = after.patterns;
+    this.earned = after.granted;
     this.saveCard();
     this.drawing = false;
 
-    const potX = rowPaid.add(cardPaid).div(s.bet).toNumber();
+    const potX = rowPaid.add(cardPaid).div(bet).toNumber();
     const x = result.pay + potX;
-    this.paid = { x, bet: s.bet };
-    if (x >= 10 || stamp.full) sfx.bigWin();
+    this.paid = { x, bet };
+    if (x >= 10 || stamp.full || after.granted.length) sfx.bigWin();
     else if (x > 0) sfx.win();
-    const base = result.gold && result.pay > 0 ? result.pay / GOLD_BALL_X : result.pay;
-    const lines: BreakdownLine[] = result.pay > 0 ? [{ label: `${result.hits.length} of ${ticket.length} · ${base.toFixed(2)}×`, amount: base }] : [];
-    if (result.gold && result.pay > 0) lines.push({ label: `Gold ball · ×${GOLD_BALL_X}`, amount: result.pay - base });
-    if (rowPaid.gt(0)) lines.push({ label: `Gold Card · ${stamp.rows.length === 1 ? 'row' : `${stamp.rows.length} rows`} done · Row pot`, amount: rowPaid.div(s.bet).toNumber() });
-    if (cardPaid.gt(0)) lines.push({ label: 'Gold Card full · Card pot', amount: cardPaid.div(s.bet).toNumber() });
-    const card$ = stamp.full ? ' · card full!' : stamp.rows.length ? ' · row!' : '';
-    const text = `${result.hits.length} of ${ticket.length}${result.gold ? ' · gold' : ''}${card$}`;
-    this.settle(s.round, s.bet, x, text, x > 0 ? `${x >= 10 ? x.toFixed(0) : x.toFixed(2)}×` : 'no win', lines);
-    // A win worth keeping: more back than the bet, or a full card.
-    if (x > 1 || stamp.full) {
-      const win: KenoWin = {
-        run: this.runSeed,
-        round: s.round,
-        draw: this.rounds,
-        ticket,
-        bet: s.bet.toString(),
-        pay: x,
-        hits: result.hits.length,
-        gold: result.gold,
-        rows: stamp.rows.length,
-        full: stamp.full,
-      };
-      this.wins = [win, ...this.wins].slice(0, WINS_KEPT);
-      saveSoon('keno.wins', () => $state.snapshot(this.wins));
+
+    const times = buff.times ?? 1;
+    const goldX = buff.goldX ?? GOLD_BALL_X;
+    const base = result.pay / times / (result.gold && result.pay > 0 ? goldX : 1);
+    const lines: BreakdownLine[] = [];
+    if (result.pay > 0) {
+      lines.push({ label: `${result.hits.length} of ${ticket.length}${buff.free !== undefined ? ' with the free spot' : ''} · ${base.toFixed(2)}×`, amount: base });
+      if (result.gold) lines.push({ label: `Gold ball · ×${goldX}${head?.kind === 'goldRush' ? ' (Gold Rush)' : ''}`, amount: base * (goldX - 1) });
+      if (times > 1) lines.push({ label: `Double Up · ×${times}`, amount: result.pay - result.pay / times });
     }
+    if (rowPaid.gt(0)) lines.push({ label: `Gold Card · ${stamp.rows.length === 1 ? 'row' : `${stamp.rows.length} rows`} done · Row pot`, amount: rowPaid.div(bet).toNumber() });
+    if (cardPaid.gt(0)) lines.push({ label: 'Gold Card full · Card pot', amount: cardPaid.div(bet).toNumber() });
+    const tag = head ? ` · ${kenoBuffDef(head.kind).name}` : '';
+    const card$ = stamp.full ? ' · card full!' : stamp.rows.length ? ' · row!' : '';
+    const text = `${result.hits.length} of ${ticket.length}${result.gold ? ' · gold' : ''}${tag}${card$}`;
+    // What the wins list keeps to draw this again, set before the round settles into the history.
+    this.lastReplay = {
+      run: this.runSeed,
+      round,
+      draw: this.rounds + 1,
+      ticket,
+      bet: bet.toString(),
+      pay: x,
+      hits: result.hits.length,
+      gold: result.gold,
+      rows: stamp.rows.length,
+      full: stamp.full,
+      buff: head?.kind,
+      drawBuff: buff.free !== undefined || buff.goldX || buff.times ? { free: buff.free, goldX: buff.goldX, times: buff.times } : undefined,
+    };
+    this.settle(round, bet, x, text, x > 0 ? `${x >= 10 ? x.toFixed(0) : x.toFixed(2)}×` : 'no win', lines, onHouse);
+
     return true;
   }
 
@@ -301,48 +433,60 @@ export class KenoGame extends InstantGame {
     saveSoon('keno.card', () => [...this.card]);
     saveSoon('keno.rowPot', () => this.rowPot.toString());
     saveSoon('keno.cardPot', () => this.cardPot.toString());
+    saveSoon('keno.buffs', () => $state.snapshot(this.buffs));
   }
 
   /**
    * Draws a past win again, exactly, from its seed: its ticket on the board,
-   * the same balls in the same order, the same gold ball. Nothing is staked
-   * or paid, and the card is left as it is. Auto play stops for it.
+   * the same balls in the same order, the same gold ball, under the same buff.
+   * Nothing is staked or paid, and the card and meters are left as they are.
+   * Auto play stops for it.
    */
   async replay(win: KenoWin) {
     if (this.busy) return;
     this.setAutoPlay(false);
+    this.leaveReplay();
     this.replaying = win;
+    this.replayDone = false;
     this.result = null;
     this.paid = null;
     this.cardNews = null;
     this.freshStamps = new Set();
+    this.patterns = {};
+    this.earned = [];
+    const buff = win.drawBuff ?? {};
+    this.drawBuff = win.buff ? { kind: win.buff, free: buff.free } : null;
     const balls = kenoDraw({ run: win.run, round: win.round });
-    if (!(await this.reveal(win.ticket, balls, this.pays))) {
+    if (!(await this.reveal(win.ticket, balls, this.pays, buff))) {
       this.replaying = null;
       return;
     }
-    // The result as it paid then: the same ticket, balls and payback setting may differ, so show what it paid.
-    this.result = kenoSettle(win.ticket, balls, kenoTicketRtp(this.rtp));
+    this.result = kenoSettle(win.ticket, balls, this.ticketRtp, buff);
     this.paid = { x: win.pay, bet: new Decimal(win.bet) };
     sfx.win();
-    if (!(await this.seq.wait(REPLAY_HOLD_MS))) {
-      this.replaying = null;
-      return;
-    }
-    if (this.replaying === win) {
-      this.replaying = null;
-      this.balls = [];
-      this.result = null;
-    }
+    // The replay holds here, its draw on the board, until the player moves on.
+    this.replayDone = true;
   }
 
-  /** Ends a replay at once, back to the player's own ticket. */
-  stopReplay() {
-    if (!this.replaying) return;
-    this.seq.reset();
+  private endReplay() {
     this.replaying = null;
+    this.replayDone = false;
     this.balls = [];
     this.result = null;
+    this.paid = null;
+    this.drawBuff = null;
+  }
+
+  /** A finished replay steps aside for whatever the player does next. */
+  private leaveReplay() {
+    if (this.replaying && this.replayDone) this.endReplay();
+  }
+
+  /** Ends a replay, mid-draw or held, back to the player's own ticket. */
+  stopReplay() {
+    if (!this.replaying) return;
+    if (!this.replayDone) this.seq.reset();
+    this.endReplay();
     this.tense = false;
   }
 
@@ -360,7 +504,8 @@ export class KenoGame extends InstantGame {
           if (!this.drawing) this.autoPlay = false;
           return;
         }
-        if (!(await this.seq.wait(AUTO_NEXT_MS))) return;
+        // A buff just earned gets a moment on screen before the next draw.
+        if (!(await this.seq.wait(AUTO_NEXT_MS + (this.earned.length ? BUFF_NEWS_MS : 0)))) return;
       }
     } finally {
       this.looping = false;
@@ -368,6 +513,7 @@ export class KenoGame extends InstantGame {
   }
 
   setAutoPlay(on: boolean) {
+    if (on) this.leaveReplay();
     this.autoPlay = on && this.started && !this.gameOver && this.picks.length > 0;
     if (this.autoPlay) void this.runAuto();
   }
