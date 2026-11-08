@@ -1,7 +1,7 @@
 <script lang="ts">
   import { BACCARAT_BONUSES as BONUSES, type BaccaratRules } from '@idlesuits/sim';
   import RulesFrame from '../../components/RulesFrame.svelte';
-  import { formatEdge } from '../../lib/sidebets.svelte';
+  import { sideBetsGlance } from '../../lib/glance';
 
   let { rules }: { rules: BaccaratRules } = $props();
   let frame: RulesFrame;
@@ -19,6 +19,17 @@
     { title: 'Back a hand', demo: 'Banker', text: 'Bet on the Player or the Banker. Neither is you; nobody decides anything.' },
     { title: 'Two cards each', demo: '9', text: 'Tens and faces count 0, aces 1. Only the last digit counts: 7 + 8 is 5.' },
     { title: 'Closest to 9', demo: '8 v 6', text: 'A third card may come by fixed rules. Nearest to nine wins.' },
+  ]}
+  glance={[
+    {
+      heading: 'Your bet',
+      note: 'Pick one hand to back. It comes back on a tie.',
+      items: [
+        { name: 'Banker', tag: `1:1 less ${+(rules.commission * 100).toFixed(2)}% · edge 1.06%`, text: 'Wins a little more often, so a win pays less: the best bet on the table.' },
+        { name: 'Player', tag: '1:1 · edge 1.24%', text: 'Pays even money, no commission.' },
+      ],
+    },
+    sideBetsGlance(BONUSES, 'Optional, off until you put a chip on one. Each pays on the cards alone, whichever hand wins.'),
   ]}
 >
   {#snippet goal()}
@@ -47,14 +58,6 @@
     </ul>
   </details>
 
-  <details>
-    <summary>Side bets</summary>
-    <ul>
-      {#each BONUSES as bet (bet.id)}
-        <li><b>{bet.name}</b>: {bet.blurb.charAt(0).toLowerCase() + bet.blurb.slice(1)} Pays {bet.rows[0]!.pays}:1. House edge {formatEdge(bet.edge)}.</li>
-      {/each}
-    </ul>
-  </details>
 
   <details>
     <summary>Playing here</summary>

@@ -72,6 +72,18 @@ export class BlindHands<R> {
   /** How each seat bets, in seat order. Seats past what the charms give wait, unused. */
   bets = $state<BlindBets[]>([]);
   private hands: { stake: BlindStake; result: R }[] = [];
+  /** What this round's blind hands have down, all in: money the player's own hand can't raise with. */
+  private held = new Decimal(0);
+
+  /**
+   * Whether the bankroll covers `more` on the player's own hand, on top of
+   * `down` already bet on it this round and everything the blind hands hold.
+   * Bets are paid from the bankroll when the hand settles, so a raise the
+   * player can't cover is never offered.
+   */
+  covers(bank: Decimal, down: Decimal, more: Decimal): boolean {
+    return bank.sub(this.held).sub(down).gte(more);
+  }
 
   constructor(
     private readonly key: string,
@@ -146,6 +158,7 @@ export class BlindHands<R> {
    */
   deal(bank: Decimal, mine: BlindStake, main: number, play: (stake: BlindStake, seat: Seat) => R): Seat {
     const stakes = this.stakes(bank, mine, main);
+    this.held = stakes.reduce((sum, s) => sum.add(s.unit.mul(unitsDown(main, s.sides))), new Decimal(0));
     const of = stakes.length + 1;
     this.hands = stakes.map((stake, index) => ({ stake, result: play(stake, { index, of }) }));
     return { index: stakes.length, of };
@@ -201,6 +214,7 @@ export class BlindHands<R> {
 
   clear() {
     this.hands = [];
+    this.held = new Decimal(0);
     this.seats = [];
     this.net = new Decimal(0);
   }

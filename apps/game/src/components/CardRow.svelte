@@ -104,13 +104,21 @@
     min-width: 0;
     overflow: hidden;
   }
+  /* The hand's name, in a little badge on the felt. */
   h2 {
     flex: none;
     margin: 0;
-    font: 600 12px/1 var(--font-ui);
+    padding: 4px 10px;
+    border-radius: 999px;
+    background: rgb(0 0 0 / 0.32);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--side, var(--muted)) 45%, transparent);
+    font: 700 11px/1 var(--font-ui);
     letter-spacing: 0.14em;
     text-transform: uppercase;
     color: var(--side, var(--muted));
+  }
+  h2:empty {
+    display: none;
   }
   .player {
     --side: var(--player);

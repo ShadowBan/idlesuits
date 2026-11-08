@@ -80,11 +80,37 @@
     { title: 'Dig', demo: '◆ ★ ⛏', text: 'Gems raise the cash-out, stars twice as much, and a mine cart takes a ride that multiplies it.' },
     { title: 'Cash out', demo: '$', text: 'Take the money after any dig. Hit dynamite and the bet is lost.' },
   ]}
+  glance={[
+    {
+      heading: 'Your bet',
+      items: [
+        { name: 'Bet and dynamite', tag: '1–24 sticks', text: 'Set the bet, then how many sticks are buried under the 25 squares. More dynamite: each find pays more, and stars and the mine cart turn up.' },
+        { name: 'Cash out', tag: `first gem: ${formatMoney(firstGem)}`, text: 'Take the cash-out after any dig and the round ends. Dig up dynamite and the bet is lost.' },
+      ],
+    },
+    {
+      heading: 'Under the squares',
+      items: [
+        { name: '◆ Gem', text: 'Raises the cash-out. Each one raises it a little more than the last, as the safe squares run out.' },
+        { name: '★ Star', tag: '3+ sticks', text: 'Raises the cash-out twice as much as a gem.' },
+        { name: '⛏ Mine cart', tag: `${firstCart}+ sticks · ×${CART_MEAN.toFixed(2)} on average`, text: `A ride of ${CART_BOOSTS.length} junctions. At each, pick one of ${CART_TRACKS} tunnels: one has caved in and ends the ride, the others add to its multiplier. The ride's multiplier then goes on your cash-out, and you keep digging.` },
+        { name: '✹ Dynamite', text: 'Ends the round. The bet is lost.' },
+      ],
+    },
+    {
+      heading: 'The Gem Vault',
+      note: 'A second game that fills as you play, round after round.',
+      items: [
+        { name: 'Fill it', tag: `${VAULT_FULL} finds`, text: `Every find drops ${(VAULT_SHARE * game.rtp * 100).toFixed(1)}% of your bet into the vault. It keeps what it holds whatever happens to the round, and whatever you bet next.` },
+        { name: 'The bonus board', tag: `pick ${VAULT_PICKS}`, text: `A full vault opens a free board where every square is safe. Pick ${VAULT_PICKS}; each holds a share of the vault. It pays the whole vault on average, and up to nearly three times it.` },
+      ],
+    },
+  ]}
 >
   {#snippet goal()}
     Dig up gems without hitting the dynamite, cash out before your luck runs out, and fill the Gem Vault for a bonus board.
   {/snippet}
-  <details open>
+  <details>
     <summary>Gems, stars and the mine cart</summary>
     <ul>
       <li>
@@ -130,6 +156,7 @@
 </RulesFrame>
 
 <TableShell
+  {seq}
   machine
   cabinet="mines"
   title={['Dynamite', 'Dig']}
@@ -140,7 +167,7 @@
   {onExit}
 >
   {#snippet felt()}
-    <div class="stage mines-stage" class:blast={game.ended?.how === 'boom'}>
+    <div class="istage mines-stage" class:blast={game.ended?.how === 'boom'}>
       <div class="top">
         <!-- The cash-out and what the next dig can do. -->
         <div class="readout" aria-live="polite">
@@ -312,14 +339,14 @@
   {/snippet}
 
   {#snippet action()}
-    <div class="bar">
+    <div class="ibar">
       {#if live}
         <button type="button" class="ghost" disabled={game.busy} onclick={() => game.digRandom()}>Random square <kbd>R</kbd></button>
         <button type="button" class="go primary" disabled={!game.found.length || game.busy} onclick={() => game.cashOut()}>{game.cashLabel}</button>
         <span class="note">{game.found.length ? `${game.safeLeft} safe squares left` : 'Pick a square to dig'}</span>
       {:else}
         <BetPicker {game} />
-        <div class="stepper" role="group" aria-label="Dynamite">
+        <div class="istepper" role="group" aria-label="Dynamite">
           <span class="k keep">Dynamite</span>
           <button type="button" aria-label="Less dynamite" onclick={() => game.setBombs(game.bombs - 1)} disabled={game.bombs <= 1 || game.busy}>−</button>
           <b>{game.bombs}</b>
@@ -352,7 +379,7 @@
         <section class="panel ipanel">
           <div class="row">
             <span class="muted">Auto play digs</span>
-            <div class="stepper small" role="group" aria-label="Digs each round in auto play">
+            <div class="istepper small" role="group" aria-label="Digs each round in auto play">
               <button type="button" aria-label="Fewer" onclick={() => game.setAutoDigs(game.autoDigs - 1)} disabled={game.autoDigs <= 1}>−</button>
               <b>{game.autoDigs}</b>
               <button type="button" aria-label="More" onclick={() => game.setAutoDigs(game.autoDigs + 1)} disabled={game.autoDigs >= MINES_TILES - game.bombs}>+</button>

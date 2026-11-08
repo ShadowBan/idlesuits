@@ -60,7 +60,7 @@ class Jackpots {
       Number.isFinite(saved.majorAt) && saved.majorAt! >= JACKPOT_SEEDS.major && saved.majorAt! <= MAJOR_CAP
         ? saved.majorAt!
         : pickHitPoint(this.major);
-    this.history = Array.isArray(saved.history) ? saved.history.slice(0, 10) : [];
+    this.history = repairHistory(saved.history);
     // The rest of the link plays on while the casino is open.
     if (typeof window !== 'undefined') setInterval(() => this.grow(PER_SECOND), 1000);
   }
@@ -113,6 +113,21 @@ class Jackpots {
   private persist() {
     saveSoon('jackpots', () => ({ major: this.major, grand: this.grand, majorAt: this.majorAt, history: $state.snapshot(this.history) }));
   }
+}
+
+/**
+ * A saved history, made safe to show: only well-formed hits, newest first,
+ * each with a time of its own. An older save could hold two hits from one spin
+ * with the same time (a pair of Majors), which no list keyed by time can show.
+ */
+function repairHistory(saved: unknown): JackpotHit[] {
+  if (!Array.isArray(saved)) return [];
+  const hits = saved.filter((h): h is JackpotHit => !!h && typeof h === 'object' && Number.isFinite((h as JackpotHit).at)).slice(0, 10);
+  // Newest first: walking back, each time must be earlier than the one before it.
+  for (let i = 1; i < hits.length; i++) {
+    if (hits[i]!.at >= hits[i - 1]!.at) hits[i] = { ...hits[i]!, at: hits[i - 1]!.at - 1 };
+  }
+  return hits;
 }
 
 export const jackpots = new Jackpots();

@@ -1,7 +1,7 @@
 <script lang="ts">
   import { TCP_BONUSES as BONUSES, type TcpRules } from '@idlesuits/sim';
   import RulesFrame from '../../components/RulesFrame.svelte';
-  import { formatEdge } from '../../lib/sidebets.svelte';
+  import { sideBetsGlance } from '../../lib/glance';
 
   let { rules }: { rules: TcpRules } = $props();
   let frame: RulesFrame;
@@ -17,6 +17,17 @@
     { title: 'Three cards', demo: 'Ante', text: 'You and the dealer get three cards each.' },
     { title: 'Play or fold', demo: '1×', text: 'Like your hand? Match the ante to play. Fold and lose the ante.' },
     { title: 'Showdown', demo: 'Q-high', text: 'The dealer needs a queen high or better to qualify.' },
+  ]}
+  glance={[
+    {
+      heading: 'Your bets',
+      items: [
+        { name: 'Ante', tag: '1:1', text: 'Your bet to see three cards. Pays when you beat a qualifying dealer, or whenever the dealer does not qualify.' },
+        { name: 'Play', tag: '1:1', text: 'Matches the Ante to stay in; folding gives up the Ante. Pays when you beat a qualifying dealer, and comes back if the dealer does not qualify.' },
+        { name: 'Ante bonus', tag: `up to ${rules.anteBonus.straightFlush}:1`, text: 'Automatic: play a straight or better and the Ante pays extra, win or lose.' },
+      ],
+    },
+    sideBetsGlance(BONUSES, 'Optional, off until you put a chip on one. Each pays on the cards alone, even if you fold.'),
   ]}
 >
   {#snippet goal()}
@@ -36,15 +47,6 @@
     </ul>
   </details>
 
-  <details>
-    <summary>Side bets</summary>
-    <ul>
-      {#each BONUSES as bet (bet.id)}
-        <li><b>{bet.name}</b>: {bet.blurb.charAt(0).toLowerCase() + bet.blurb.slice(1)} House edge {formatEdge(bet.edge)}.</li>
-      {/each}
-      <li>Each is optional, starts off, and pays on the cards alone, even if you fold. Pay tables are in the side panel.</li>
-    </ul>
-  </details>
 
   <details>
     <summary>Playing here</summary>

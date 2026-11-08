@@ -94,6 +94,7 @@
 <BaccaratRules bind:this={rules} rules={game.rules} />
 
 <TableShell
+  {seq}
   title={['Punto Banco', 'Baccarat']}
   bank={game.bank}
   autoPlay={game.autoPlay}

@@ -1,7 +1,7 @@
 <script lang="ts">
   import { CATEGORY_NAMES, UTH_BONUSES as BONUSES, type UthRules } from '@idlesuits/sim';
   import RulesFrame from '../../components/RulesFrame.svelte';
-  import { formatEdge } from '../../lib/sidebets.svelte';
+  import { sideBetsGlance } from '../../lib/glance';
 
   let { rules }: { rules: UthRules } = $props();
   let frame: RulesFrame;
@@ -20,22 +20,21 @@
     { title: 'Or wait', demo: `${rules.flopRaise}× → ${rules.riverRaise}×`, text: 'Check, and the price drops as more cards come out.' },
     { title: 'Showdown', demo: 'Best 5 of 7', text: 'Your two cards plus the board, against the dealer.' },
   ]}
+  glance={[
+    {
+      heading: 'Your bets',
+      items: [
+        { name: 'Ante + Blind', tag: 'required', text: 'Two equal bets to start. The Ante pays 1:1 when you win (it comes back if the dealer does not open); the Blind pays extra on a winning straight or better and pushes on smaller wins.' },
+        { name: 'Play', tag: '1:1', text: `Your one raise, made once: ${big}× or ${small}× before the flop, ${rules.flopRaise}× after it, ${rules.riverRaise}× at the end. Not raised by the end? Fold, and the Ante and Blind are lost.` },
+      ],
+    },
+    sideBetsGlance(BONUSES, 'Optional, off until you put a chip on one. Each pays on the cards alone, even if you fold.'),
+  ]}
 >
   {#snippet goal()}
     Make a better poker hand than the dealer. <b>The sooner you commit, the more you can bet.</b>
   {/snippet}
 
-  <details>
-    <summary>Your bets</summary>
-    <ul>
-      <li><b>Ante</b> and <b>Blind</b> go down together, the same size.</li>
-      <li>
-        <b>Play</b> is the one extra bet you make: {big}× before the flop, {rules.flopRaise}× after it, or
-        {rules.riverRaise}× at the end. If you have not bet by the end, you can fold and lose the Ante and Blind.
-      </li>
-      <li>Side bets are optional and pay on the cards alone, even if you fold.</li>
-    </ul>
-  </details>
 
   <details>
     <summary>How bets are paid</summary>
@@ -49,15 +48,6 @@
     </ul>
   </details>
 
-  <details>
-    <summary>Side bets</summary>
-    <ul>
-      {#each BONUSES as bet (bet.id)}
-        <li><b>{bet.name}</b>: {bet.blurb.charAt(0).toLowerCase() + bet.blurb.slice(1)} House edge {formatEdge(bet.edge)}.</li>
-      {/each}
-      <li>Each is optional, starts off, and pays on the cards alone, even if you fold. Pay tables are in the side panel.</li>
-    </ul>
-  </details>
 
   <details>
     <summary>Playing here</summary>

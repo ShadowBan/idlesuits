@@ -144,6 +144,7 @@
 <C4pRules bind:this={rules} rules={game.rules} />
 
 <TableShell
+  {seq}
   title={['Crazy 4', 'Poker']}
   bank={game.bank}
   autoPlay={game.autoPlay}

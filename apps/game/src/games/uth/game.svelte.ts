@@ -95,6 +95,8 @@ export class UthGame {
     this.side,
     () => this.bank,
     2,
+    // Enough left over for the 1× Play at the river: no hand is dealt that the player couldn't see through.
+    1,
   );
   /** Counts deals, so the table can throw each new hand in from the shoe. */
   deals = $state(0);
@@ -182,6 +184,7 @@ export class UthGame {
   }
 
   choose(choice: Choice) {
+    if (choice.move === 'raise' && !this.pending?.decision.raises.includes(choice.raise ?? 0)) return;
     if (this.seq.awaiting === 'move') this.seq.answer(choice);
   }
 
@@ -260,8 +263,11 @@ export class UthGame {
         return true;
       }
 
-      const decision = step.decision;
-      const suggestion = decideUth(STRATEGY, decision, DECK);
+      // Only the play bets the bankroll can cover are offered; with none left before the river, it's check.
+      const down = ante.mul(2 + Object.values(bonuses).reduce((a, b) => a + b, 0));
+      const decision = { ...step.decision, raises: step.decision.raises.filter((r) => this.blind.covers(this.bank, down, ante.mul(r))) };
+      let suggestion = decideUth(STRATEGY, decision, DECK);
+      if (suggestion.move === 'raise' && !decision.raises.length) suggestion = { move: decision.canCheck ? 'check' : 'fold' };
       const odds = decision.street === 'river' ? riverOdds(decision.hole, decision.board, DECK) : null;
       let choice: Choice | null = suggestion;
       if (!this.autoPlay) {

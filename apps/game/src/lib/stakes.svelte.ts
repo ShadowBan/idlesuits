@@ -24,15 +24,27 @@ export class ChipBets {
     private readonly bank: () => Decimal,
     /** How many times the main bet goes down to start: 2 with a matching Blind. */
     private readonly mainUnits = 1,
+    /**
+     * Main bets the bankroll must also hold for the cheapest way to finish the
+     * hand: the smallest play or raise still to come (1 at Three Card Poker, 3
+     * at Mississippi Stud's three streets). Bets are paid from the bankroll, so
+     * a hand is only dealt when the player could see it through.
+     */
+    readonly reserve = 0,
   ) {}
 
   get limits(): Room {
     return floor.room;
   }
 
-  /** The least the bankroll needs to deal a hand here: the Main Floor's minimum on each bet that must go down. */
+  /** The least the bankroll needs to deal a hand here: the Main Floor's minimum on each bet that must go down, and the cheapest raise to come. */
   get minimum(): Decimal {
-    return room(0).min.mul(this.mainUnits);
+    return room(0).min.mul(this.mainUnits + this.reserve);
+  }
+
+  /** The bets down to start, and the cheapest raise still to come: what the bankroll must hold to deal. */
+  private get needed(): Decimal {
+    return this.total.add(this.getMain().mul(this.reserve));
   }
 
   /** Everything the next hand puts down before any cards. */
@@ -42,7 +54,7 @@ export class ChipBets {
 
   get canDeal(): boolean {
     const main = this.getMain();
-    return main.gte(this.limits.min) && main.lte(this.limits.max) && this.total.lte(this.bank());
+    return main.gte(this.limits.min) && main.lte(this.limits.max) && this.needed.lte(this.bank());
   }
 
   /** Why a bet on the felt can't be dealt yet, if it's the table's limits that stop it. */
@@ -53,12 +65,12 @@ export class ChipBets {
   }
 
   private get spare(): Decimal {
-    return this.bank().sub(this.total).max(0);
+    return this.bank().sub(this.needed).max(0);
   }
 
   /** Adds a chip to the main bet; false if the bankroll or the table maximum won't take it. */
   addMain(amount: Decimal): boolean {
-    const add = Decimal.min(amount, Decimal.min(this.spare.div(this.mainUnits), this.limits.max.sub(this.getMain()))).floor();
+    const add = Decimal.min(amount, Decimal.min(this.spare.div(this.mainUnits + this.reserve), this.limits.max.sub(this.getMain()))).floor();
     if (add.lte(0)) return false;
     this.setMain(this.getMain().add(add));
     this.touched = true;
@@ -99,7 +111,7 @@ export class ChipBets {
     const main = Decimal.min(this.getMain().mul(2), this.limits.max);
     const sides = Object.entries(this.side.stakes).map(([id, s]) => [id, Decimal.min(s.mul(2), this.limits.sideMax)] as const);
     const total = sides.reduce((sum, [, s]) => sum.add(s), main.mul(this.mainUnits));
-    if (total.lte(this.total) || total.gt(this.bank())) return false;
+    if (total.lte(this.total) || total.add(main.mul(this.reserve)).gt(this.bank())) return false;
     this.setMain(main);
     for (const [id, s] of sides) this.side.set(id, s);
     this.touched = true;
@@ -113,16 +125,16 @@ export class ChipBets {
    * room they can cover.
    */
   fit() {
-    floor.stepDownFor(this.bank(), this.mainUnits);
+    floor.stepDownFor(this.bank(), this.mainUnits + this.reserve);
     const { min, max, sideMax } = this.limits;
     if (this.getMain().gt(0)) this.setMain(Decimal.min(Decimal.max(this.getMain(), min), max));
     for (const [id, s] of Object.entries(this.side.stakes)) if (s.gt(sideMax)) this.side.set(id, sideMax);
-    if (this.total.gt(this.bank())) {
-      const scale = this.bank().div(this.total);
+    if (this.needed.gt(this.bank())) {
+      const scale = this.bank().div(this.needed);
       this.setMain(Decimal.max(this.getMain().mul(scale).floor(), min));
       for (const [id, s] of Object.entries(this.side.stakes)) this.side.set(id, s.mul(scale).floor());
       // Even scaled, the minimum may not leave room for side bets: the main bet comes first.
-      if (this.total.gt(this.bank())) this.side.reset();
+      if (this.needed.gt(this.bank())) this.side.reset();
     }
     this.persist();
   }

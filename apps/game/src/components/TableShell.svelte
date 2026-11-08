@@ -5,6 +5,7 @@
   import type { Decimal } from '../lib/money';
   import { formatLimit } from '../lib/rooms';
   import { route } from '../lib/route.svelte';
+  import { SPEEDS, type SpeedControl } from '../lib/sequencer.svelte';
   import { ui } from '../lib/ui.svelte';
   import BankCounter from './BankCounter.svelte';
   import TokenCounter from './charms/TokenCounter.svelte';
@@ -32,6 +33,8 @@
     machine?: boolean;
     /** The slot machine's id, so its cabinet can be dressed in its own style (see `games/slots/cabinets.css`). */
     cabinet?: string;
+    /** The table's pace, for the quick controls on a phone. */
+    seq?: SpeedControl;
   }
 
   let {
@@ -48,6 +51,7 @@
     panels,
     machine = false,
     cabinet,
+    seq,
   }: Props = $props();
 
   /**
@@ -93,9 +97,11 @@
     <TokenCounter />
 
     <div class="actions">
-      <button type="button" class="auto" aria-pressed={autoPlay} onclick={() => onAuto(!autoPlay)}>
-        Auto {autoPlay ? 'on' : 'off'}
-      </button>
+      {#if !compact.current}
+        <button type="button" class="auto" aria-pressed={autoPlay} onclick={() => onAuto(!autoPlay)}>
+          Auto {autoPlay ? 'on' : 'off'}
+        </button>
+      {/if}
       {#if compact.current}
         <button type="button" onclick={onExit} aria-label="Back to the floor">←</button>
         <button type="button" onclick={() => sheet?.showModal()} aria-label="Bets and session">⋯</button>
@@ -135,6 +141,23 @@
     </div>
   </main>
 
+  {#if compact.current}
+    <!-- On a phone, auto play and the pace sit right over the action, a thumb away. -->
+    <div class="quick">
+      <button type="button" class="auto-switch" role="switch" aria-checked={autoPlay} onclick={() => onAuto(!autoPlay)}>
+        <i aria-hidden="true"></i>
+        Auto play <b>{autoPlay ? 'On' : 'Off'}</b>
+      </button>
+      {#if seq}
+        <div class="pace" role="group" aria-label="Deal speed">
+          {#each SPEEDS as s (s)}
+            <button type="button" aria-pressed={seq.speed === s} onclick={() => (seq.speed = s)}>{s === 'smart' ? 'Smart' : s}</button>
+          {/each}
+        </div>
+      {/if}
+    </div>
+  {/if}
+
   <div class="act">{@render action()}</div>
 
   {#if !compact.current}
@@ -158,9 +181,85 @@
   }
   .app.compact {
     grid-template-columns: minmax(0, 1fr);
-    grid-template-areas: 'bar' 'felt' 'act';
-    gap: 8px;
+    grid-template-rows: auto minmax(0, 1fr) auto auto;
+    grid-template-areas: 'bar' 'felt' 'quick' 'act';
+    gap: 6px;
     padding: 8px 8px 0;
+  }
+  /* The phone's quick controls: auto play's switch and the pace, just over the action. */
+  .quick {
+    grid-area: quick;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }
+  .auto-switch {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 36px;
+    padding: 4px 12px 4px 6px;
+    border-radius: 999px;
+    border: 1px solid var(--line);
+    background: var(--rail);
+    font: 600 13px/1 var(--font-ui);
+    color: var(--ink);
+  }
+  .auto-switch i {
+    position: relative;
+    width: 34px;
+    height: 20px;
+    border-radius: 999px;
+    background: rgb(255 255 255 / 0.15);
+    transition: background 150ms ease;
+  }
+  .auto-switch i::after {
+    content: '';
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: #fff;
+    transition: translate 150ms ease;
+  }
+  .auto-switch[aria-checked='true'] {
+    border-color: #6be08f;
+  }
+  .auto-switch[aria-checked='true'] i {
+    background: #3fbf6b;
+  }
+  .auto-switch[aria-checked='true'] i::after {
+    translate: 14px 0;
+  }
+  .auto-switch b {
+    color: var(--muted);
+  }
+  .auto-switch[aria-checked='true'] b {
+    color: #6be08f;
+  }
+  .pace {
+    display: inline-flex;
+    gap: 2px;
+    padding: 3px;
+    border-radius: 999px;
+    background: var(--rail);
+    box-shadow: inset 0 0 0 1px var(--line);
+  }
+  .pace button {
+    min-height: 30px;
+    padding: 4px 10px;
+    border: 0;
+    border-radius: 999px;
+    background: none;
+    font: 600 12px/1 var(--font-ui);
+    color: var(--muted);
+  }
+  .pace button[aria-pressed='true'] {
+    background: var(--gold);
+    color: #1a1206;
   }
   .bar {
     grid-area: bar;
@@ -560,10 +659,16 @@
   @media (max-height: 520px) and (orientation: landscape) {
     .app.compact {
       grid-template-columns: minmax(0, 1fr) 190px;
+      grid-template-rows: auto auto minmax(0, 1fr);
       grid-template-areas:
         'bar bar'
+        'felt quick'
         'felt act';
       padding-bottom: 8px;
+    }
+    .quick {
+      flex-direction: column;
+      align-items: stretch;
     }
     .compact .act {
       height: auto;

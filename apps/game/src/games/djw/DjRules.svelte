@@ -1,7 +1,7 @@
 <script lang="ts">
   import { DJ_BONUSES as BONUSES, type DjRules } from '@idlesuits/sim';
   import RulesFrame from '../../components/RulesFrame.svelte';
-  import { formatEdge } from '../../lib/sidebets.svelte';
+  import { sideBetsGlance } from '../../lib/glance';
 
   let { rules }: { rules: DjRules } = $props();
   let frame: RulesFrame;
@@ -18,6 +18,16 @@
     { title: 'Play or fold', demo: `${rules.play}×`, text: 'Play twice the ante, or fold the Ante and Blind.' },
     { title: 'Showdown', demo: 'Best hand', text: 'Higher hand wins. The dealer never needs to qualify.' },
   ]}
+  glance={[
+    {
+      heading: 'Your bets',
+      items: [
+        { name: 'Ante + Blind', tag: 'required', text: 'Two equal bets to start. The Ante pays 1:1 when you win; the Blind pays extra on a winning straight or better and pushes on smaller wins.' },
+        { name: 'Play', tag: '1:1', text: `${rules.play}× the Ante to play on, or fold the Ante and Blind. The dealer never needs to qualify.` },
+      ],
+    },
+    sideBetsGlance(BONUSES),
+  ]}
 >
   {#snippet goal()}
     Beat the dealer's five cards. <b>With five wild cards in the deck, big hands come often.</b>
@@ -32,16 +42,6 @@
     </ul>
   </details>
 
-  <details>
-    <summary>Side bets</summary>
-    <ul>
-      {#each BONUSES as bet (bet.id)}
-        <li><b>{bet.name}</b>: {bet.blurb.charAt(0).toLowerCase() + bet.blurb.slice(1)} House edge {formatEdge(bet.edge)}.</li>
-      {/each}
-      <li>For Trips, a deuce that plays as itself, as in A-2-3-4-5, still counts as natural.</li>
-      <li>Both are optional and start off. Trips pays even if you fold; folding forfeits the Bad Beat.</li>
-    </ul>
-  </details>
 
   <details>
     <summary>Playing here</summary>

@@ -1,8 +1,8 @@
 import { load, save } from './save';
 import { isMuted, setMuted } from './sound';
 
-export type PanelTab = 'pays' | 'stats' | 'table';
-const TABS: readonly PanelTab[] = ['pays', 'stats', 'table'];
+export type PanelTab = 'pays' | 'stats' | 'auto' | 'charms' | 'table';
+const TABS: readonly PanelTab[] = ['pays', 'stats', 'auto', 'charms', 'table'];
 
 function savedTab(): PanelTab {
   const tab = load<PanelTab>('panelTab', 'pays');

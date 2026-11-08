@@ -1,7 +1,7 @@
 <script lang="ts">
   import { LIR_BONUSES as BONUSES, type LirRules } from '@idlesuits/sim';
   import RulesFrame from '../../components/RulesFrame.svelte';
-  import { formatEdge } from '../../lib/sidebets.svelte';
+  import { sideBetsGlance } from '../../lib/glance';
 
   let { rules }: { rules: LirRules } = $props();
   let frame: RulesFrame;
@@ -18,6 +18,15 @@
     { title: 'Pull back', demo: 'or ride', text: 'Before each community card, take back a bet — or let it ride.' },
     { title: 'Get paid', demo: '10s → 1:1', text: 'Your five cards pay every bet still up.' },
   ]}
+  glance={[
+    {
+      heading: 'Your bets',
+      items: [
+        { name: 'Bets 1, 2 and $', tag: `up to ${rules.pays[9]}:1`, text: 'Three equal bets. Pull back bet 1 after your three cards and bet 2 after the first community card, or let them ride. The $ bet always rides. Every bet still up is paid by the pay table: tens or better win.' },
+      ],
+    },
+    sideBetsGlance(BONUSES),
+  ]}
 >
   {#snippet goal()}
     Make a pair of tens or better. <b>There is no dealer to beat</b> — only the pay table.
@@ -32,15 +41,6 @@
     </ul>
   </details>
 
-  <details>
-    <summary>Side bets</summary>
-    <ul>
-      {#each BONUSES as bet (bet.id)}
-        <li><b>{bet.name}</b>: {bet.blurb.charAt(0).toLowerCase() + bet.blurb.slice(1)} House edge {formatEdge(bet.edge)}.</li>
-      {/each}
-      <li>Each is optional, starts off, and stays up even when you pull your bets back.</li>
-    </ul>
-  </details>
 
   <details>
     <summary>Playing here</summary>

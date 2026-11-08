@@ -76,6 +76,8 @@ export class TcpGame {
     this.side,
     () => this.bank,
     1,
+    // Enough left over for the 1× Play: no hand is dealt that the player couldn't see through.
+    1,
   );
   /** Counts deals, so the table can throw each new hand in from the shoe. */
   deals = $state(0);

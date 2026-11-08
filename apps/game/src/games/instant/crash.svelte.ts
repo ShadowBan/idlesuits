@@ -26,14 +26,13 @@ export type LinePhase = 'idle' | 'sinking' | 'landed' | 'snapped';
  * pay exactly rtp, whatever the strategy.
  */
 export class CrashGame extends InstantGame {
-  /** Reel in by itself at this multiplier, or never (0). Saved. */
   /** Where auto play reels in. Lines played by hand are reeled in by hand. Saved. */
   marker = $state(2);
   phase = $state<LinePhase>('idle');
   /** The multiplier now, as the hook sinks. */
   m = $state(1);
-  /** Where the last line ended: reeled in, or snapped. */
-  result = $state<{ at: number; pay: Decimal } | null>(null);
+  /** Where the last line ended (reeled in, or snapped), and where it would have snapped had it stayed down. */
+  result = $state<{ at: number; pay: Decimal; snap: number } | null>(null);
   /** This line is golden: whatever it lands pays double. */
   golden = $state(false);
   /** The last lines' snap points, newest first: what the deep has been doing. */
@@ -126,7 +125,7 @@ export class CrashGame extends InstantGame {
     this.live = null;
     const pay = landed ? this.m * this.times : 0;
     this.phase = landed ? 'landed' : 'snapped';
-    this.result = { at: landed ? this.m : live.snap, pay: live.bet.mul(pay) };
+    this.result = { at: landed ? this.m : live.snap, pay: live.bet.mul(pay), snap: live.snap };
     this.recent = [live.snap, ...this.recent].slice(0, 14);
     save('deepdrop.recent', this.recent);
     if (landed) sfx.win();

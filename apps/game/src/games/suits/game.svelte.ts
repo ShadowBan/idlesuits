@@ -98,6 +98,8 @@ export class Game {
     this.side,
     () => this.bank,
     1,
+    // Enough left over for a 1× raise: no hand is dealt that the player couldn't see through.
+    1,
   );
   /** Counts deals, so the table can throw each new hand in from the shoe. */
   deals = $state(0);
@@ -352,6 +354,11 @@ export class Game {
         recordEvents: true,
       });
     let result = simulate(seatConfig.raisePolicy);
+    // Raises are paid from the bankroll: never more antes than it covers after the ante and side bets.
+    const sidesDown = Object.values(seatConfig.sideBets).reduce((a, b) => a + b, 0);
+    const afford = Math.max(0, Math.floor(this.bank.sub(ante.mul(1 + sidesDown)).div(ante).toNumber()));
+    const planned = result.events.find((e) => e.type === 'RaiseDecided' && e.seat === 0);
+    if (planned?.type === 'RaiseDecided' && planned.raise > afford) result = simulate({ kind: 'fixed', raise: afford });
     this.roundAnte = ante;
     this.flipRest = false;
     this.bets.touched = false;
@@ -362,7 +369,8 @@ export class Game {
       const { event, drama } = beat;
 
       if (event.type === 'RaiseDecided' && event.seat === 0 && !this.autoPlay) {
-        this.betChoice = { cap: maxRaise(rules.raiseCaps, this.view.player.eval!.size), suggested: event.raise };
+        const cap = Math.min(maxRaise(rules.raiseCaps, this.view.player.eval!.size), afford);
+        this.betChoice = { cap, suggested: Math.min(event.raise, cap) };
         const raise = await this.waitFor('bet');
         this.betChoice = null;
         if (raise < 0) return null;

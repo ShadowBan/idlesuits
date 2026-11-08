@@ -1,5 +1,7 @@
 <script lang="ts">
   import type { Snippet } from 'svelte';
+  import type { GlanceGroup } from '../lib/glance';
+  import Glance from './Glance.svelte';
 
   interface Step {
     title: string;
@@ -11,11 +13,17 @@
   interface Props {
     goal: Snippet;
     steps: Step[];
+    /**
+     * What a player needs to come away knowing, always shown under the steps:
+     * every bet and what it pays, the bonus and its features. The fine print
+     * goes in the collapsible sections below.
+     */
+    glance?: GlanceGroup[];
     /** Collapsible sections and anything else below the steps. */
     children: Snippet;
   }
 
-  let { goal, steps, children }: Props = $props();
+  let { goal, steps, glance = [], children }: Props = $props();
   let dialog: HTMLDialogElement;
   const id = `rules-${Math.random().toString(36).slice(2, 8)}`;
 
@@ -44,6 +52,7 @@
       {/each}
     </ol>
 
+    <Glance groups={glance} />
     {@render children()}
 
     <button type="button" class="primary" onclick={() => dialog.close()}>Got it</button>

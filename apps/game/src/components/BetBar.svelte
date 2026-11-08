@@ -47,15 +47,61 @@
     justify-items: center;
     gap: 3px;
   }
+  /* The Deal button: polished gold, breathing while a bet is down and waiting. */
   .deal {
-    min-width: 108px;
-    min-height: 44px;
-    font: 700 16px/1 var(--font-display);
-    letter-spacing: 0.06em;
+    min-width: 120px;
+    min-height: 46px;
+    border: 0;
+    border-radius: 12px;
+    background:
+      linear-gradient(rgb(255 255 255 / 0.35), rgb(255 255 255 / 0) 50%),
+      linear-gradient(#f2c64e, #b8862a);
+    color: #2a1a06;
+    font: 700 17px/1 var(--font-display);
+    letter-spacing: 0.08em;
     text-transform: uppercase;
+    box-shadow:
+      inset 0 1px 0 rgb(255 255 255 / 0.5),
+      0 4px 0 #6e4e14,
+      0 6px 14px rgb(0 0 0 / 0.45);
+    transition:
+      transform 90ms ease,
+      box-shadow 90ms ease;
+  }
+  .deal:not(:disabled) {
+    animation: ready 1.6s ease-in-out infinite alternate;
+  }
+  /* Stays gold under the pointer: the app's plain button hover would grey it out. */
+  .deal:hover:not(:disabled) {
+    background:
+      linear-gradient(rgb(255 255 255 / 0.35), rgb(255 255 255 / 0) 50%),
+      linear-gradient(#f2c64e, #b8862a);
+    filter: brightness(1.08);
+  }
+  .deal:active:not(:disabled) {
+    transform: translateY(3px);
+    box-shadow:
+      inset 0 1px 0 rgb(255 255 255 / 0.5),
+      0 1px 0 #6e4e14,
+      0 2px 6px rgb(0 0 0 / 0.45);
+  }
+  @keyframes ready {
+    to {
+      box-shadow:
+        inset 0 1px 0 rgb(255 255 255 / 0.5),
+        0 4px 0 #6e4e14,
+        0 6px 14px rgb(0 0 0 / 0.45),
+        0 0 22px rgb(242 198 78 / 0.55);
+    }
   }
   .deal:disabled {
     opacity: 0.4;
+    animation: none;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .deal:not(:disabled) {
+      animation: none;
+    }
   }
   .total {
     height: 12px;

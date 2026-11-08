@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onDestroy } from 'svelte';
+  import { onDestroy, untrack } from 'svelte';
   import { crashChance, crashLineRtp, CRASH_CAP, GOLD_CHANCE, GOLD_X } from '@idlesuits/sim';
   import RulesFrame from '../../components/RulesFrame.svelte';
   import SeatOverlay from '../../components/SeatOverlay.svelte';
@@ -31,20 +31,33 @@
 
   /** The viewport's height, to keep the hook in view as it sinks. */
   let viewH = $state(500);
-  /** After a line ends, a moment to see how, then the reel winds it back up to the boat. */
+  /**
+   * After a line ends, a moment to see how, then the reel winds it back up to
+   * the boat. A line reeled in by hand first shows where it would have
+   * snapped: the view drops to the spot, then comes back up with the reel.
+   */
   let surfaced = $state(true);
+  /** The view is down at the spot where the line would have snapped. */
+  let peek = $state(false);
   $effect(() => {
     const phase = game.phase;
+    peek = false;
     if (phase === 'sinking') {
       surfaced = false;
       return;
     }
     if (phase === 'idle') return;
-    const t = setTimeout(() => (surfaced = true), 1500);
-    return () => clearTimeout(t);
+    const timers: ReturnType<typeof setTimeout>[] = [];
+    if (phase === 'landed' && !untrack(() => game.autoPlay)) {
+      timers.push(setTimeout(() => (peek = true), 1300));
+      timers.push(setTimeout(() => ((surfaced = true), (peek = false)), 3600));
+    } else timers.push(setTimeout(() => (surfaced = true), 1500));
+    return () => timers.forEach(clearTimeout);
   });
   const hookY = $derived(surfaced ? depthOf(1) : depthOf(game.m));
-  const offset = $derived(Math.max(0, hookY - viewH * 0.55));
+  /** Where the line would have snapped, after one reeled in: shown until the next drop. */
+  const bite = $derived(game.phase === 'landed' && game.result ? game.result.snap : null);
+  const offset = $derived(Math.max(0, (peek && bite !== null ? depthOf(bite) : hookY) - viewH * 0.55));
   /** The line's own payback, golden lines aside: what the chances below come from. */
   const lineRtp = $derived(crashLineRtp(game.rtp));
   /** What bit through the line: something bigger the deeper it went. */
@@ -121,11 +134,29 @@
     { title: 'Reel in', demo: '2.40×', text: 'Reel in any time to win your bet times the multiplier. In auto play, the reel does it at the depth you mark.' },
     { title: 'Don’t wait too long', demo: '✂', text: 'Somewhere down there something bites through the line. Snap, and the bet is lost.' },
   ]}
+  glance={[
+    {
+      heading: 'Your bet',
+      items: [
+        { name: 'Drop', text: 'Stake the bet and the hook sinks. The multiplier climbs as it goes deeper.' },
+        { name: 'Reel in', tag: 'bet × multiplier', text: 'Tap Reel in any time to win your bet times the multiplier on the gauge.' },
+        { name: 'Snap', tag: 'bet lost', text: `Something bites through the line at a point set as it drops. Half of all lines reach about ${fmtX(lineRtp * 2)}×; 1 in 10 reach about ${fmtX(lineRtp * 10)}×.` },
+      ],
+    },
+    {
+      heading: 'Extras',
+      items: [
+        { name: 'Golden line', tag: `1 in ${Math.round(1 / GOLD_CHANCE)} · pays ×${GOLD_X}`, text: `Some lines drop with a gold hook, shown as they drop. Whatever a golden line lands pays ${GOLD_X} times over.` },
+        { name: 'Where it would have snapped', text: 'Reel in, and the deep shows you how much further the line would have held.' },
+        { name: 'Auto play marker', tag: 'Auto tab', text: 'In auto play, lines drop one after another and reel in at the depth you mark. Lines you drop yourself, you reel in yourself.' },
+      ],
+    },
+  ]}
 >
   {#snippet goal()}
     Reel your line in before something in the deep bites through it.
   {/snippet}
-  <details open>
+  <details>
     <summary>Where the line snaps</summary>
     <ul>
       <li>Each line's snapping point is drawn as it drops, from the round's seed, and never changes. Nobody's reel-in moves it.</li>
@@ -148,6 +179,7 @@
 </RulesFrame>
 
 <TableShell
+  {seq}
   machine
   cabinet="deepdrop"
   title={['Deep', 'Drop']}
@@ -188,6 +220,13 @@
         {#each MARKS as x (x)}
           <div class="mark" class:passed={game.m >= x} style:top="{depthOf(x)}px"><span>{fmtX(x)}×</span></div>
         {/each}
+        {#if bite !== null}
+          <!-- Reeled in: where the line would have been bitten through, had it stayed down. -->
+          <div class="bite" class:peek style:top="{depthOf(bite)}px">
+            <svg viewBox="0 0 60 20" aria-hidden="true"><ellipse cx="18" cy="10" rx="6" ry="4" /><ellipse cx="42" cy="10" rx="6" ry="4" /></svg>
+            <span>{bite >= CRASH_CAP ? `It would have held to ${fmtX(bite)}×` : `It would have snapped at ${fmtX(bite)}×`}</span>
+          </div>
+        {/if}
         {#if game.autoPlay}
           <div class="marker" style:top="{depthOf(game.marker)}px"><span>Auto play reels in {fmtX(game.marker)}×</span></div>
         {/if}
@@ -269,6 +308,7 @@
           {:else if game.phase === 'landed'}
             <small>Landed at {fmtX(game.result?.at ?? 1)}×</small>
             <b>+{formatMoney(game.result?.pay ?? game.bet)}</b>
+            {#if bite !== null}<span class="would">{bite >= CRASH_CAP ? 'Line would have held to the bottom' : `Would have snapped at ${fmtX(bite)}×`}</span>{/if}
           {:else}
             <small>{game.sinking ? (game.golden ? `Golden line · pays ×${GOLD_X}` : 'Sinking') : 'Line up'}</small>
             <b>{fmtX(game.m)}×</b>
@@ -290,7 +330,7 @@
   {/snippet}
 
   {#snippet action()}
-    <div class="bar">
+    <div class="ibar">
       {#if game.sinking}
         <button type="button" class="go primary reel" disabled={!game.reelPay || game.autoPlay} onclick={() => game.reelIn()}>
           {game.reelPay ? `Reel in ${formatMoney(game.reelPay)}` : 'Reel in'}
@@ -323,7 +363,7 @@
         <section class="panel ipanel">
           <div class="row">
             <span class="muted">Auto play reels in at</span>
-            <div class="stepper small" role="group" aria-label="Auto play reels in at">
+            <div class="istepper small" role="group" aria-label="Auto play reels in at">
               <button type="button" aria-label="Lower" onclick={() => stepMarker(-1)} disabled={game.marker <= MARKER_STEPS[0]!}>−</button>
               <label class="typed">
                 <input type="number" inputmode="decimal" min="1.01" max={CRASH_CAP} step="0.01" value={game.marker} onchange={typeMarker} aria-label="Reel in at" /><span>×</span>
@@ -588,6 +628,52 @@
   .mark.passed {
     border-top-color: rgb(95 224 196 / 0.6);
     color: #5fe0c4;
+  }
+  /* Where a reeled-in line would have snapped: a red line, and eyes in the dark. */
+  .bite {
+    position: absolute;
+    left: 0;
+    right: 0;
+    border-top: 2px dashed #ff6b5a;
+    opacity: 0.75;
+    transition: opacity 400ms;
+  }
+  .bite.peek {
+    opacity: 1;
+  }
+  .bite svg {
+    position: absolute;
+    right: 84px;
+    top: 6px;
+    width: 46px;
+    fill: #ff6b5a;
+    filter: drop-shadow(0 0 6px #ff3a2a);
+    animation: blink 2.4s infinite;
+  }
+  .bite span {
+    position: absolute;
+    left: 10px;
+    top: -22px;
+    padding: 3px 8px;
+    border-radius: 6px 6px 6px 0;
+    background: #ff6b5a;
+    color: #2a0603;
+    font: 700 11px/1 var(--font-ui);
+    letter-spacing: 0.04em;
+  }
+  @keyframes blink {
+    0%,
+    92%,
+    100% {
+      transform: scaleY(1);
+    }
+    96% {
+      transform: scaleY(0.1);
+    }
+  }
+  .would {
+    font: 600 12px/1.2 var(--font-ui);
+    color: #ffb4a6;
   }
   .marker {
     position: absolute;

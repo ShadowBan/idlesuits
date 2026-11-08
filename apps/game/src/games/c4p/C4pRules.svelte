@@ -1,7 +1,7 @@
 <script lang="ts">
   import { C4P_BONUSES as BONUSES, type C4pRules } from '@idlesuits/sim';
   import RulesFrame from '../../components/RulesFrame.svelte';
-  import { formatEdge } from '../../lib/sidebets.svelte';
+  import { sideBetsGlance } from '../../lib/glance';
 
   let { rules }: { rules: C4pRules } = $props();
   let frame: RulesFrame;
@@ -17,6 +17,17 @@
     { title: 'Five cards', demo: 'Ante + Super', text: 'Your best four cards play; the fifth is thrown away.' },
     { title: 'Play or fold', demo: `1× or ${rules.bigPlay}×`, text: `Play 1×, or up to ${rules.bigPlay}× with a pair of aces or better.` },
     { title: 'Showdown', demo: 'K-high', text: 'Best four against the dealer’s best four.' },
+  ]}
+  glance={[
+    {
+      heading: 'Your bets',
+      items: [
+        { name: 'Ante', tag: '1:1', text: 'Pays when you beat the dealer. Pushes if the dealer does not open with king high or better.' },
+        { name: 'Super Bonus', tag: `up to ${rules.superBonus.fourAces}:1`, text: 'Required, the size of the Ante. Pays by your hand on a straight or better, win or lose.' },
+        { name: 'Play', tag: '1:1', text: `1× the Ante, or up to ${rules.bigPlay}× holding a pair of aces or better. Folding gives up the Ante and Super Bonus.` },
+      ],
+    },
+    sideBetsGlance(BONUSES),
   ]}
 >
   {#snippet goal()}
@@ -40,15 +51,6 @@
     </ul>
   </details>
 
-  <details>
-    <summary>Side bets</summary>
-    <ul>
-      {#each BONUSES as bet (bet.id)}
-        <li><b>{bet.name}</b>: {bet.blurb.charAt(0).toLowerCase() + bet.blurb.slice(1)} House edge {formatEdge(bet.edge)}.</li>
-      {/each}
-      <li>It is optional, starts off, and pays even if you fold.</li>
-    </ul>
-  </details>
 
   <details>
     <summary>Playing here</summary>

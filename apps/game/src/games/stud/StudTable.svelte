@@ -46,6 +46,8 @@
           key: o.key,
           sub: o.choice.move === 'bet' ? formatMoney(game.roundAnte.mul(o.choice.size)) : undefined,
           suggested: same(o.choice, pending.suggestion),
+          // A bet the bankroll can't cover, with 1× kept back for each street to come.
+          disabled: o.choice.move === 'bet' && !pending.decision.raises.includes(o.choice.size),
           pick: () => game.choose(o.choice),
         }))
       : [],
@@ -132,6 +134,7 @@
 <StudRules bind:this={rules} />
 
 <TableShell
+  {seq}
   title={['Mississippi', 'Stud']}
   bank={game.bank}
   autoPlay={game.autoPlay}

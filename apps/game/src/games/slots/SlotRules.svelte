@@ -1,6 +1,7 @@
 <script lang="ts">
   import { JACKPOT_TIERS, type MachineDef, type PotPower, type SlotPayback } from '@idlesuits/sim';
   import RulesFrame from '../../components/RulesFrame.svelte';
+  import type { GlanceGroup, GlanceItem } from '../../lib/glance';
   import { formatMoney, type Decimal } from '../../lib/money';
   import { JACKPOT_SEEDS, MAJOR_CAP } from '../../lib/jackpot.svelte';
   import { bonusName, carrierName, SUMMARY_MS, TIER_NAME, WHEEL_NAMES } from './game.svelte';
@@ -82,6 +83,89 @@
   };
   const awards = $derived(JACKPOT_TIERS.filter((t) => t === 'major' || machine.awards.includes(t)));
 
+  const cap = (t: string) => t.charAt(0).toUpperCase() + t.slice(1);
+  const oneIn = (p: number) => `1 in ${Math.round(1 / p).toLocaleString('en-US')}`;
+
+  /** The bonus, how it plays, in a few lines: the part every player should know. */
+  const bonusItems = $derived.by((): GlanceItem[] => {
+    switch (bonus.kind) {
+      case 'holdSpin':
+        return [
+          { name: 'Lock the coins', tag: `${bonus.respins} respins`, text: `The gold coins lock in place and you get ${bonus.respins} respins. Only the empty cells spin; every new coin locks too and puts the respins back to ${bonus.respins}.` },
+          { name: 'Count them up', text: `When the respins run out, every coin pays the cash on it (${cashRange} at your bet) or the jackpot it shows.` },
+          { name: 'Fill the screen', tag: 'Grand', text: `Fill all ${cells} cells and the Grand pays on top of every coin.` },
+        ];
+      case 'upgrade':
+        return [
+          { name: 'Free spins', tag: `${bonus.spins} spins`, text: 'Reels heavy with horseshoes, which pay like any symbol: bronze at first.' },
+          { name: 'Hammers strike', tag: `every ${bonus.perLevel}`, text: `Each hammer goes on the meter. Every ${bonus.perLevel} hammers, every horseshoe moves up a tier for the rest of the bonus, and you get ${bonus.extraSpins} more spins.` },
+          { name: 'Bronze → silver → gold → crown', tag: payback.levelRates[3] ? `crowns ${oneIn(payback.levelRates[3])}` : undefined, text: 'Each tier pays more. Three strikes and every horseshoe is a crown, the top symbol.' },
+          { name: 'A screen of crowns', tag: 'Grand', text: 'Nothing but crowns and wilds on the screen pays the Grand on top.' },
+        ];
+      case 'collect':
+        return [
+          { name: 'Doubloons and the captain', text: `Doubloons carry cash (${cashRange} at your bet) or a jackpot, but pay only when a captain takes them. Even on ordinary spins, a captain on reel 5 takes every doubloon on screen.` },
+          { name: 'Free spins', tag: `${bonus.spins} spins`, text: 'Captains now sail reels 2 to 5, and every captain takes every doubloon: two captains take them twice.' },
+          { name: 'The meter', tag: `up to ${bonus.multipliers.at(-1)}×`, text: `Every ${bonus.perLevel} captains add ${bonus.extraSpins} spins and raise the captains' cash to ${bonus.multipliers.slice(1).join('×, then ')}×. Jackpots are never multiplied.` },
+        ];
+      case 'wheel':
+        return [
+          { name: cap(WHEEL_NAMES[0]!), text: 'Spins first. Cash or a jackpot pays and ends the bonus; Up moves you to the next wheel in.' },
+          { name: cap(WHEEL_NAMES[1]!), tag: oneIn(payback.levelRates[1]!), text: `Bigger cash, and the Minor. Up again moves on to the ${WHEEL_NAMES[2]}.` },
+          { name: cap(WHEEL_NAMES[2]!), tag: oneIn(payback.levelRates[2]!), text: `The middle: the Major, the Grand and cash up to ${money(500)}.` },
+        ];
+      case 'pick': {
+        const total = Object.values(bonus.weights).reduce((a, b) => a + b, 0);
+        return [
+          { name: 'Twelve lanterns', text: 'They hide three of each jackpot. Tap them open one at a time, or press Pick for me.' },
+          { name: 'Match three', tag: 'a jackpot every time', text: 'The first jackpot to show three times pays. Every pick wins one.' },
+          { name: 'The odds', text: JACKPOT_TIERS.map((t) => `${TIER_NAME[t]} ${((bonus.weights[t] / total) * 100).toFixed(1)}%`).join(' · ') + '. Settled when the bonus starts, so which lanterns you open doesn’t change it.' },
+        ];
+      }
+    }
+  });
+
+  const glance = $derived.by((): GlanceGroup[] => {
+    const groups: GlanceGroup[] = [
+      {
+        heading: 'Your bet',
+        items: [
+          { name: '243 ways', tag: 'Pays tab: every symbol', text: 'One bet covers every way. A symbol pays when it lands on reel 1 and each reel after it, three or more, in any row. Wins on different symbols add up.' },
+          { name: 'Wild', tag: 'reels 2–4', text: 'Stands in for any pay symbol. Pays nothing on its own.' },
+        ],
+      },
+      {
+        heading: `The bonus: ${name}`,
+        note: `Land ${bonus.kind === 'wheel' ? 'a ticket on each of reels 2, 3 and 4' : `${bonus.trigger} ${scatterName} anywhere`} to start it: about ${oneIn(payback.triggerRate)} spins. It pays ${money(payback.featurePay)} on average at your bet, and waits for you at every step.`,
+        items: bonusItems,
+      },
+    ];
+    if (machine.pots?.length)
+      groups.push({
+        heading: 'The pots',
+        note: `On ordinary spins ${carrierName(machine)} can carry a gem that fills a pot a step. Pots keep their gems between spins, whatever you bet. Each full pot powers up the next bonus, then empties.`,
+        items: [
+          ...machine.pots.map((p, i) => ({ name: p.name, tag: `${p.size} gems · ${Math.round(payback.potRates[i]! * 100)}% of bonuses`, text: cap(powerLong(p.power)) })),
+          { name: `Super ${name.toLowerCase()}`, tag: oneIn(payback.superRate), text: 'All three pots full at once: every power joins the same bonus.' },
+        ],
+      });
+    groups.push({
+      heading: 'Jackpots',
+      note: 'Shown at your bet. The Major and Grand grow with play across the whole casino.',
+      items: awards.map((t) => ({
+        name: TIER_NAME[t],
+        tag: t === 'mini' || t === 'minor' ? money(machine.jackpots[t]) : t === 'major' ? `must hit by ${money(MAJOR_CAP)}` : `from ${money(JACKPOT_SEEDS.grand)}`,
+        text:
+          t === 'mini' || t === 'minor'
+            ? 'Fixed, in the bonus.'
+            : t === 'major'
+              ? `Progressive. ${machine.awards.includes('major') ? `Won ${MAJOR_WAY[bonus.kind]}, or` : 'Won here'} by the must-hit draw: it always pays before the meter passes ${MAJOR_CAP}×.`
+              : `Progressive. ${{ holdSpin: 'Fill the whole screen in the bonus.', upgrade: 'A screen of crowns and wilds in free spins.', collect: 'On a rare doubloon, when a captain takes it.', wheel: `On one wedge of the ${WHEEL_NAMES[2]}.`, pick: 'Match three Grands in the pick.' }[bonus.kind]}`,
+      })),
+    });
+    return groups;
+  });
+
   const steps = $derived.by(() => {
     const first = { title: 'Set a bet', demo: formatMoney(bet), text: 'Use − and + under the reels, or tap the amount for every level. Everything pays in multiples of it.' };
     const match = { title: 'Match from the left', demo: 'A A A', text: 'The same symbol on 3, 4 or 5 reels side by side, starting at the left reel, in any row, pays.' };
@@ -100,12 +184,12 @@
   });
 </script>
 
-<RulesFrame bind:this={frame} {steps}>
+<RulesFrame bind:this={frame} {steps} {glance}>
   {#snippet goal()}
     Match symbols across the reels from the left, and land <b>{bonus.trigger} {scatterName}</b> for the {name.toLowerCase()}.
   {/snippet}
 
-  <details open>
+  <details>
     <summary>How a win is counted</summary>
     <ul>
       <li>

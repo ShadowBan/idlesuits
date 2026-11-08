@@ -1,5 +1,8 @@
 <script lang="ts">
   import { maxRaise, rankLabel, SUIT_SYMBOL, type Suit, type TableRules } from '@idlesuits/sim';
+  import Glance from '../../components/Glance.svelte';
+  import type { GlanceGroup } from '../../lib/glance';
+  import { formatEdge } from '../../lib/sidebets.svelte';
 
   let { rules }: { rules: TableRules } = $props();
 
@@ -12,6 +15,30 @@
   // Built from the live rules so the text stays true when cards or dealers change them.
   const q = $derived(rules.qualifier);
   const raiseCaps = $derived([3, 4, 5, 6].map((size) => ({ size, cap: maxRaise(rules.raiseCaps, size) })));
+
+  const topRaise = $derived(Math.max(...raiseCaps.map((r) => r.cap)));
+  const glance = $derived<GlanceGroup[]>([
+    {
+      heading: 'Your bets',
+      items: [
+        { name: 'Ante', tag: '1:1', text: 'Your bet to see the cards. Pays when you beat the dealer, or whenever the dealer does not qualify.' },
+        {
+          name: 'Raise',
+          tag: `1× to ${topRaise}×`,
+          text: `Made after you see your hand, or fold and lose the Ante. The bigger your flush, the more you may raise: ${raiseCaps.map((r) => `${r.cap}× on ${r.size}${r.size === 6 ? '+' : ''}`).join(', ')}. Pays 1:1; comes back if the dealer does not qualify.`,
+        },
+      ],
+    },
+    {
+      heading: 'Side bets',
+      note: 'Optional, off until you put a chip on one. Each pays on your hand alone, even if you fold.',
+      items: rules.sideBets.map((bet) => ({
+        name: bet.name,
+        tag: `up to ${Math.max(...Object.values(bet.pays.values)).toLocaleString('en-US')}:1 · edge ${formatEdge(bet.edge)}`,
+        text: bet.metric === 'flushSize' ? 'Pays on how many cards of one suit you hold.' : 'Pays on your longest suited run: cards of one suit in a row, like 5♥ 6♥ 7♥.',
+      })),
+    },
+  ]);
 
   const mini = (spec: string) =>
     spec.split(' ').map((c) => ({ rank: c.slice(0, -1), suit: c.slice(-1) as Suit }));
@@ -64,6 +91,8 @@
       {@render cards(exampleDealer, true)}
       <span class="why">Highest card in the flush decides: {rankLabel(14)} beats {rankLabel(13)}.</span>
     </div>
+
+    <Glance groups={glance} />
 
     <details>
       <summary>Dealer must qualify</summary>

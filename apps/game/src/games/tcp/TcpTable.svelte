@@ -140,6 +140,7 @@
 <TcpRules bind:this={rules} rules={game.rules} />
 
 <TableShell
+  {seq}
   title={['Three Card', 'Poker']}
   bank={game.bank}
   autoPlay={game.autoPlay}

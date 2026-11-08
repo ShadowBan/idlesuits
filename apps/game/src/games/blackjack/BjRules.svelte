@@ -1,6 +1,7 @@
 <script lang="ts">
   import { BJ_BONUSES, type BjRules } from '@idlesuits/sim';
-  import { formatEdge } from '../../lib/sidebets.svelte';
+  import Glance from '../../components/Glance.svelte';
+  import { sideBetsGlance } from '../../lib/glance';
 
   let { rules }: { rules: BjRules } = $props();
 
@@ -11,6 +12,20 @@
   }
 
   const totals = $derived(rules.freeDoubleTotals.join(', ').replace(/, (\d+)$/, ' or $1'));
+  const bj = $derived(rules.blackjackPays === 1.5 ? '3:2' : `${rules.blackjackPays}:1`);
+  const glance = $derived([
+    {
+      heading: 'Your bets',
+      items: [
+        { name: 'Main bet', tag: `1:1 · blackjack ${bj}`, text: 'Beat the dealer’s total without going over 21. A tie pushes, and so does a dealer 22.' },
+        { name: 'Free double', tag: 'house money', text: `On a hard ${totals}, the house adds a bet the size of yours for one more card. A win pays on it too; a loss costs you nothing.` },
+        { name: 'Free split', tag: 'house money', text: `Any pair but ${rules.noSplitValue === 10 ? 'tens' : `${rules.noSplitValue}s`}: the house stakes the second hand. Same deal, a win pays and a loss is free.` },
+        ...(rules.paidDoubles ? [{ name: 'Paid double', tag: 'your money', text: 'Any other two-card hand can still be doubled the usual way, with your own chips.' }] : []),
+        ...(rules.insurance ? [{ name: 'Insurance', tag: '2:1', text: 'Offered against a dealer ace: half your bet, paid if the dealer has blackjack. Rarely worth it.' }] : []),
+      ],
+    },
+    sideBetsGlance(BJ_BONUSES, 'Optional, off until you put a chip on one. With Push 22 up, the dealer always draws out, even if you bust.'),
+  ]);
 </script>
 
 <dialog bind:this={dialog} aria-labelledby="bj-rules-title" onclick={(e) => e.target === dialog && dialog.close()}>
@@ -43,13 +58,8 @@
       </li>
     </ol>
 
-    <div class="free">
-      <h3>What "free" means</h3>
-      <p>
-        On a hard {totals} the house puts up a second bet beside yours. On any pair but tens, it stakes your split hand
-        for you. <b>Win and you are paid on that money too. Lose and it costs you nothing.</b>
-      </p>
-    </div>
+
+    <Glance groups={glance} />
 
     <details>
       <summary>The trade: dealer 22</summary>
@@ -75,15 +85,6 @@
       </ul>
     </details>
 
-    <details>
-      <summary>Side bets</summary>
-      <ul>
-        {#each BJ_BONUSES as bet (bet.id)}
-          <li><b>{bet.name}</b>: {bet.blurb.charAt(0).toLowerCase() + bet.blurb.slice(1)} House edge {formatEdge(bet.edge)}.</li>
-        {/each}
-        <li>Both are optional and start off. With Push 22 up, the dealer always draws out, even if you bust.</li>
-      </ul>
-    </details>
 
     <details>
       <summary>Playing here</summary>
@@ -191,22 +192,6 @@
     border-radius: 999px;
     font-size: 12px;
     letter-spacing: 0.1em;
-  }
-  .free {
-    padding: 12px;
-    border-radius: 10px;
-    border: 1px dashed var(--gold);
-  }
-  .free h3 {
-    margin: 0 0 6px;
-    font: 600 12px/1 var(--font-ui);
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-    color: var(--gold);
-  }
-  .free p {
-    margin: 0;
-    font: 13px/1.5 var(--font-ui);
   }
   details {
     border-top: 1px solid var(--line);

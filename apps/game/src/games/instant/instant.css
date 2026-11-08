@@ -58,7 +58,7 @@
 }
 
 /* The stage: the game's board, centred on the felt. */
-.stage {
+.istage {
   position: relative;
   display: grid;
   justify-items: center;
@@ -69,7 +69,7 @@
 }
 
 /* The control bar under the table. */
-.bar {
+.ibar {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -77,23 +77,23 @@
   gap: 10px 14px;
   padding: 6px 0;
 }
-.bar .go {
+.ibar .go {
   min-width: 170px;
   padding: 14px 26px;
   font: 700 18px/1 var(--font-display);
   letter-spacing: 0.06em;
   text-transform: uppercase;
 }
-.bar .ghost {
+.ibar .ghost {
   padding: 10px 14px;
 }
-.bar .note {
+.ibar .note {
   flex-basis: 100%;
   text-align: center;
   font: 12px/1.3 var(--font-ui);
   color: var(--muted);
 }
-.bar kbd {
+.ibar kbd {
   margin-left: 6px;
   padding: 1px 5px;
   border: 1px solid var(--line);
@@ -101,7 +101,7 @@
   font: 600 10px/1.2 var(--font-ui);
   color: var(--muted);
 }
-.stepper {
+.istepper {
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -110,21 +110,21 @@
   background: rgb(0 0 0 / 0.35);
   box-shadow: inset 0 0 0 1px var(--line);
 }
-.stepper .k {
+.istepper .k {
   margin-right: 2px;
   font: 700 10px/1 var(--font-ui);
   letter-spacing: 0.14em;
   text-transform: uppercase;
   color: var(--muted);
 }
-.stepper b {
+.istepper b {
   min-width: 52px;
   text-align: center;
   font: 700 18px/1 var(--font-display);
   color: var(--gold);
   font-variant-numeric: tabular-nums;
 }
-.stepper button {
+.istepper button {
   width: 32px;
   height: 32px;
   min-height: 0;
@@ -132,15 +132,15 @@
   border-radius: 8px;
   font: 700 18px/1 var(--font-ui);
 }
-.stepper.small b {
+.istepper.small b {
   min-width: 28px;
   font-size: 15px;
 }
-.stepper.small button {
+.istepper.small button {
   width: 26px;
   height: 26px;
 }
-.segmented {
+.isegmented {
   display: inline-flex;
   gap: 2px;
   padding: 3px;
@@ -148,7 +148,7 @@
   background: rgb(0 0 0 / 0.35);
   box-shadow: inset 0 0 0 1px var(--line);
 }
-.segmented .k {
+.isegmented .k {
   align-self: center;
   margin: 0 6px 0 4px;
   font: 700 10px/1 var(--font-ui);
@@ -156,7 +156,7 @@
   text-transform: uppercase;
   color: var(--muted);
 }
-.segmented button {
+.isegmented button {
   min-height: 0;
   padding: 7px 11px;
   border: 0;
@@ -164,7 +164,7 @@
   background: none;
   font: 600 13px/1 var(--font-ui);
 }
-.segmented button[aria-pressed='true'] {
+.isegmented button[aria-pressed='true'] {
   background: var(--gold);
   color: #1a1206;
 }
@@ -212,28 +212,28 @@
 }
 
 /* On a phone the bar has two rows at most: the settings, then the button. */
-.app.compact .bar {
+.app.compact .ibar {
   gap: 6px 8px;
   padding: 8px 8px calc(8px + env(safe-area-inset-bottom));
 }
-.app.compact .bar .note,
-.app.compact .stepper .k:not(.keep) {
+.app.compact .ibar .note,
+.app.compact .istepper .k:not(.keep) {
   display: none;
 }
-.app.compact .bar .go {
+.app.compact .ibar .go {
   flex-basis: 100%;
   max-width: 320px;
   padding: 12px 18px;
   font-size: 17px;
 }
-.app.compact .stepper {
+.app.compact .istepper {
   padding: 3px 6px;
 }
-.app.compact .stepper b {
+.app.compact .istepper b {
   min-width: 44px;
   font-size: 16px;
 }
-.app.compact .stepper button {
+.app.compact .istepper button {
   width: 30px;
   height: 30px;
 }

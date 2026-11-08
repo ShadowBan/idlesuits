@@ -1,7 +1,7 @@
 <script lang="ts">
   import { CSP_BONUSES as BONUSES, type CspRules } from '@idlesuits/sim';
   import RulesFrame from '../../components/RulesFrame.svelte';
-  import { formatEdge } from '../../lib/sidebets.svelte';
+  import { sideBetsGlance } from '../../lib/glance';
 
   let { rules }: { rules: CspRules } = $props();
   let frame: RulesFrame;
@@ -18,6 +18,16 @@
     { title: 'Raise or fold', demo: `${rules.raise}×`, text: 'Raise twice the ante to play on, or fold the ante.' },
     { title: 'Showdown', demo: 'A-K', text: 'The dealer needs ace-king or better to qualify.' },
   ]}
+  glance={[
+    {
+      heading: 'Your bets',
+      items: [
+        { name: 'Ante', tag: '1:1', text: 'Your bet to see five cards. Pays when you beat a qualifying dealer, or whenever the dealer does not qualify.' },
+        { name: 'Raise', tag: 'up to 100:1', text: `${rules.raise}× the Ante to play on, or fold the Ante. Beat a qualifying dealer and it is paid by your hand; if the dealer does not qualify it comes back.` },
+      ],
+    },
+    sideBetsGlance(BONUSES),
+  ]}
 >
   {#snippet goal()}
     Beat the dealer's five cards. <b>The bigger your hand, the more the raise pays.</b>
@@ -32,15 +42,6 @@
     </ul>
   </details>
 
-  <details>
-    <summary>Side bets</summary>
-    <ul>
-      {#each BONUSES as bet (bet.id)}
-        <li><b>{bet.name}</b>: {bet.blurb.charAt(0).toLowerCase() + bet.blurb.slice(1)} House edge {formatEdge(bet.edge)}.</li>
-      {/each}
-      <li>It is optional, starts off, and pays even if you fold.</li>
-    </ul>
-  </details>
 
   <details>
     <summary>Playing here</summary>

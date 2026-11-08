@@ -122,6 +122,7 @@
 <LirRules bind:this={rules} rules={game.rules} />
 
 <TableShell
+  {seq}
   title={['Let It', 'Ride']}
   bank={game.bank}
   autoPlay={game.autoPlay}

@@ -5,6 +5,7 @@
   import { formatMoney, type Decimal } from '../lib/money';
   import { formatLimit } from '../lib/rooms';
   import { SPEEDS, type SpeedControl } from '../lib/sequencer.svelte';
+  import { meta } from '../lib/meta.svelte';
   import { ui, type PanelTab } from '../lib/ui.svelte';
   import BlindBetsPanel from './BlindBetsPanel.svelte';
   import Breakdown from './Breakdown.svelte';
@@ -56,37 +57,19 @@
   const TABS: { id: PanelTab; label: string }[] = [
     { id: 'pays', label: 'Pays' },
     { id: 'stats', label: 'Stats' },
+    { id: 'auto', label: 'Auto' },
+    { id: 'charms', label: 'Charms' },
     { id: 'table', label: 'Table' },
   ];
+  /** Charms on, for the Charms tab's count. */
+  const charmsOn = $derived(meta.equipped.length);
 </script>
 
 <!--
-  A table's sidebar: the charms on, then how the table runs itself, then one
-  of three views. Settings for the whole casino live in the Settings panel.
+  A table's sidebar, one view at a time: the pays, the session, how the table
+  runs itself, the charms on, and the table's own details. Settings for the
+  whole casino live in the Settings panel.
 -->
-<CharmsPanel />
-
-<section class="panel">
-  <h2>Automation</h2>
-  <label class="switch">
-    <input type="checkbox" checked={autoPlay} onchange={(e) => onAuto(e.currentTarget.checked)} />
-    Auto play
-    <small>stops if you bust</small>
-  </label>
-  <div class="row">
-    <span class="muted">Deal speed</span>
-    <div class="speed" role="group" aria-label="Deal speed">
-      {#each SPEEDS as s (s)}
-        <button type="button" aria-pressed={seq.speed === s} onclick={() => (seq.speed = s)}>{s}</button>
-      {/each}
-    </div>
-  </div>
-</section>
-
-{@render automation?.()}
-
-{#if blind}<BlindBetsPanel {...blind} />{/if}
-
 <div class="tabs" role="tablist" aria-label="Table information">
   {#each TABS as tab (tab.id)}
     <button
@@ -98,13 +81,36 @@
       onclick={() => (ui.tab = tab.id)}
     >
       {tab.label}
+      {#if tab.id === 'auto' && autoPlay}<i class="on" aria-label="(on)"></i>{/if}
+      {#if tab.id === 'charms' && charmsOn}<small>{charmsOn}</small>{/if}
     </button>
   {/each}
 </div>
 
 <div class="view" role="tabpanel" id="view-{ui.tab}" aria-labelledby="tab-{ui.tab}">
   {#if ui.tab === 'pays'}
+    {#if blind}<BlindBetsPanel {...blind} />{/if}
     {@render children?.()}
+  {:else if ui.tab === 'auto'}
+    <section class="panel">
+      <h2>Automation</h2>
+      <label class="switch">
+        <input type="checkbox" checked={autoPlay} onchange={(e) => onAuto(e.currentTarget.checked)} />
+        Auto play
+        <small>stops if you bust</small>
+      </label>
+      <div class="row">
+        <span class="muted">Deal speed</span>
+        <div class="speed" role="group" aria-label="Deal speed">
+          {#each SPEEDS as s (s)}
+            <button type="button" aria-pressed={seq.speed === s} onclick={() => (seq.speed = s)}>{s}</button>
+          {/each}
+        </div>
+      </div>
+    </section>
+    {@render automation?.()}
+  {:else if ui.tab === 'charms'}
+    <CharmsPanel />
   {:else if ui.tab === 'stats'}
     {@render record?.()}
     <section class="panel">
@@ -215,21 +221,43 @@
     top: 0;
     z-index: 1;
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 4px;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 3px;
     padding: 4px;
     border-radius: 12px;
     background: var(--rail);
   }
   .tabs button {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
     min-height: 34px;
+    min-width: 0;
+    padding: 0 2px;
     border: 0;
     border-radius: 8px;
     background: none;
-    font: 600 12px/1 var(--font-ui);
-    letter-spacing: 0.08em;
+    font: 600 11px/1 var(--font-ui);
+    letter-spacing: 0.05em;
     text-transform: uppercase;
     color: var(--muted);
+  }
+  /* Auto play on: a green light on its tab, wherever the sidebar is open. */
+  .tabs .on {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: #6be08f;
+    box-shadow: 0 0 6px #6be08f;
+  }
+  .tabs small {
+    padding: 1px 5px;
+    border-radius: 999px;
+    background: rgb(255 255 255 / 0.1);
+    font: 600 10px/1.2 var(--font-ui);
+    letter-spacing: 0;
   }
   .tabs button[aria-selected='true'] {
     background: var(--gold);

@@ -76,6 +76,8 @@ export class C4pGame {
     this.side,
     () => this.bank,
     2,
+    // Enough left over for a 1× Play: no hand is dealt that the player couldn't see through.
+    1,
   );
   /** Counts deals, so the table can throw each new hand in from the shoe. */
   deals = $state(0);
@@ -156,6 +158,7 @@ export class C4pGame {
   }
 
   choose(choice: C4pChoice) {
+    if (choice.move === 'play' && !this.sizes.includes(choice.size)) return;
     if (this.seq.awaiting === 'move') this.seq.answer(choice);
   }
 
@@ -232,11 +235,15 @@ export class C4pGame {
         return true;
       }
 
-      const suggestion = decideC4p(step.decision.cards, this.rules.bigPlay);
+      // Only Play sizes the bankroll can cover are offered: the big Play drops out when it can't.
+      const down = ante.mul(2 + Object.values(bonuses).reduce((a, b) => a + b, 0));
+      const sizes = step.decision.sizes.filter((size) => this.blind.covers(this.bank, down, ante.mul(size)));
+      let suggestion = decideC4p(step.decision.cards, this.rules.bigPlay);
+      if (suggestion.move === 'play' && !sizes.includes(suggestion.size)) suggestion = sizes.length ? { move: 'play', size: Math.max(...sizes) } : { move: 'fold' };
       let choice: C4pChoice | null = suggestion;
       if (!this.autoPlay) {
         this.suggestion = suggestion;
-        this.sizes = step.decision.sizes;
+        this.sizes = sizes;
         choice = await this.seq.ask('move');
         this.suggestion = null;
       }

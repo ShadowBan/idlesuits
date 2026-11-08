@@ -95,6 +95,7 @@
 <PaiGowRules bind:this={rules} />
 
 <TableShell
+  {seq}
   title={['Pai Gow', 'Poker']}
   bank={game.bank}
   autoPlay={game.autoPlay}

@@ -241,6 +241,7 @@
 <SlotRules bind:this={rules} {machine} {payback} bet={game.bet} waysScale={game.waysScale} />
 
 <TableShell
+  {seq}
   machine
   cabinet={machine.id}
   title={[machine.name.split(' ')[0]!, machine.name.split(' ').slice(1).join(' ')]}
@@ -729,7 +730,7 @@
         <h2>Recent jackpots <span>across the floor</span></h2>
         {#if jackpots.history.length}
           <ul class="hits">
-            {#each jackpots.history as h (h.at)}
+            {#each jackpots.history as h, i (`${i}:${h.at}`)}
               <li>
                 <b class={h.tier}>{h.mystery ? 'Must-hit Major' : h.tier === 'grand' ? 'Grand' : 'Major'}</b>
                 <span>{formatMoney(new Decimal(h.paid))}</span>

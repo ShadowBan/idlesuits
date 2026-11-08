@@ -141,6 +141,7 @@
 <RulesDialog bind:this={rulesDialog} rules={game.rules} />
 
 <TableShell
+  seq={game}
   title={['Idle', 'Suits']}
   bank={game.bank}
   autoPlay={game.autoPlay}

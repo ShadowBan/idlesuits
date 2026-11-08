@@ -138,6 +138,7 @@
 <BjRules bind:this={rules} rules={game.rules} />
 
 <TableShell
+  {seq}
   title={['Free Bet', 'Blackjack']}
   bank={game.bank}
   autoPlay={game.autoPlay}

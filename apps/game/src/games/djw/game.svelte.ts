@@ -76,6 +76,8 @@ export class DjGame {
     this.side,
     () => this.bank,
     2,
+    // Enough left over for the 2× Play: no hand is dealt that the player couldn't see through.
+    2,
   );
   /** Counts deals, so the table can throw each new hand in from the shoe. */
   deals = $state(0);

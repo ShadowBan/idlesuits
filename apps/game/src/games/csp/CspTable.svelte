@@ -121,6 +121,7 @@
 <CspRules bind:this={rules} rules={game.rules} />
 
 <TableShell
+  {seq}
   title={['Caribbean', 'Stud']}
   bank={game.bank}
   autoPlay={game.autoPlay}

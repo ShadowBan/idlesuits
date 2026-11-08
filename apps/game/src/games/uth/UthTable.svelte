@@ -119,6 +119,7 @@
 <UthRules bind:this={rules} rules={game.rules} />
 
 <TableShell
+  {seq}
   title={['Ultimate', "Texas Hold'em"]}
   bank={game.bank}
   autoPlay={game.autoPlay}

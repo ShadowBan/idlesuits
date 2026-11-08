@@ -1,7 +1,7 @@
 <script lang="ts">
   import { PG_BONUSES as BONUSES } from '@idlesuits/sim';
   import RulesFrame from '../../components/RulesFrame.svelte';
-  import { formatEdge } from '../../lib/sidebets.svelte';
+  import { sideBetsGlance } from '../../lib/glance';
 
   let frame: RulesFrame;
 
@@ -16,6 +16,15 @@
     { title: 'Seven cards', demo: '5 + 2', text: 'Split them into a five-card high hand and a two-card low hand.' },
     { title: 'High beats low', demo: 'High > low', text: 'Your high hand must outrank your low hand.' },
     { title: 'Two showdowns', demo: 'Win both', text: 'High against high, low against low. Win both to get paid.' },
+  ]}
+  glance={[
+    {
+      heading: 'Your bet',
+      items: [
+        { name: 'Main bet', tag: '1:1 less 5%', text: 'Win both hands and it pays, less a 5% commission. Win one and it comes back. Lose both, or tie a hand exactly, and the dealer takes it.' },
+      ],
+    },
+    sideBetsGlance(BONUSES),
   ]}
 >
   {#snippet goal()}
@@ -41,15 +50,6 @@
     </ul>
   </details>
 
-  <details>
-    <summary>Side bets</summary>
-    <ul>
-      {#each BONUSES as bet (bet.id)}
-        <li><b>{bet.name}</b>: {bet.blurb.charAt(0).toLowerCase() + bet.blurb.slice(1)} House edge {formatEdge(bet.edge)}.</li>
-      {/each}
-      <li>Each is optional and starts off. They pay on your seven cards, however you set them.</li>
-    </ul>
-  </details>
 
   <details>
     <summary>Playing here</summary>

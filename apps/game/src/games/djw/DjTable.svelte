@@ -125,6 +125,7 @@
 <DjRules bind:this={rules} rules={game.rules} />
 
 <TableShell
+  {seq}
   title={['DJ', 'Wild']}
   bank={game.bank}
   autoPlay={game.autoPlay}

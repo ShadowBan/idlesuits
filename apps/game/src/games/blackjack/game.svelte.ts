@@ -1,6 +1,7 @@
 import {
   BJ_BONUSES,
   cutCardOut,
+  decideMove,
   FREE_BET_RULES,
   handTotal,
   shuffleShoe,
@@ -161,6 +162,24 @@ export class BjGame {
     return [Math.max(0.1, at - 0.05), Math.min(0.97, at + 0.05)];
   }
 
+  /**
+   * A paid double puts a second bet down from the bankroll, so it's only
+   * offered when the bankroll covers it on top of the bet, the side bets and
+   * any insurance. Without it, the chart's next-best move is suggested. Free
+   * doubles and splits are the house's money and always stay.
+   */
+  private affordable(decision: Decision): Decision {
+    const { hand, allowed } = decision;
+    if (decision.kind !== 'move' || !allowed.double || hand.bet <= 0) return decision;
+    const total = handTotal(hand.cards);
+    if (hand.cards.length === 2 && !total.soft && this.rules.freeDoubleTotals.includes(total.total)) return decision;
+    const sides = Object.values(this.roundSide).reduce((a, b) => a + b, 0);
+    const down = 1 + sides + (this.view.insured ? 0.5 : 0);
+    if (this.bank.gte(this.roundBet.mul(down + hand.bet))) return decision;
+    const without = { ...allowed, double: false };
+    return { ...decision, allowed: without, suggestion: decideMove(this.tables, decision.regime, hand.cards, decision.upcard, without) };
+  }
+
   /** Insurance costs half the bet on top of everything else down; the bankroll must cover it. */
   canInsure(): boolean {
     return this.bank.gte(this.roundBet.mul(1.5).add(this.side.total));
@@ -204,6 +223,8 @@ export class BjGame {
 
   /** The player's own choice; must be one the rules allow. */
   choose(move: BjChoice) {
+    const allowed = this.decision?.allowed;
+    if ((move === 'double' && !allowed?.double) || (move === 'split' && !allowed?.split)) return;
     if (this.seq.awaiting === 'move') this.seq.answer(move);
   }
 
@@ -292,11 +313,12 @@ export class BjGame {
         return true;
       }
 
-      let move: BjChoice | null = step.decision.suggestion;
+      const decision = this.affordable(step.decision);
+      let move: BjChoice | null = decision.suggestion;
       // Insurance the bankroll can't cover is never offered as a choice.
       if (step.decision.kind === 'insurance' && !this.canInsure()) move = 'noInsurance';
       else if (!this.autoPlay) {
-        this.decision = step.decision;
+        this.decision = decision;
         move = await this.seq.ask('move');
         this.decision = null;
       }

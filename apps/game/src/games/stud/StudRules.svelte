@@ -1,7 +1,7 @@
 <script lang="ts">
   import { STUD_BONUSES as BONUSES } from '@idlesuits/sim';
   import RulesFrame from '../../components/RulesFrame.svelte';
-  import { formatEdge } from '../../lib/sidebets.svelte';
+  import { sideBetsGlance } from '../../lib/glance';
 
   let frame: RulesFrame;
 
@@ -16,6 +16,16 @@
     { title: 'Two cards', demo: 'Ante + 2', text: 'Look at your two cards, then bet 1× or 3×, or fold.' },
     { title: 'Raise as it builds', demo: '1× or 3×', text: 'Each community card brings another bet, or a fold.' },
     { title: 'Get paid', demo: 'Jacks → 1:1', text: 'Your five cards against the pay table, on every bet.' },
+  ]}
+  glance={[
+    {
+      heading: 'Your bets',
+      items: [
+        { name: 'Ante', tag: 'up to 500:1', text: 'Your bet to start. Paid by the pay table on your final five cards: jacks or better win, sixes to tens push.' },
+        { name: 'Street bets', tag: '1× or 3×', text: 'Three more bets: after your two cards, then after each of the first two community cards. Each is 1× or 3× the Ante, or fold. All are paid at the same odds as the Ante.' },
+      ],
+    },
+    sideBetsGlance(BONUSES),
   ]}
 >
   {#snippet goal()}
@@ -35,15 +45,6 @@
     </ul>
   </details>
 
-  <details>
-    <summary>Side bets</summary>
-    <ul>
-      {#each BONUSES as bet (bet.id)}
-        <li><b>{bet.name}</b>: {bet.blurb.charAt(0).toLowerCase() + bet.blurb.slice(1)} House edge {formatEdge(bet.edge)}.</li>
-      {/each}
-      <li>Each is optional, starts off, and pays on the cards alone, even if you fold. Pay tables are in the side panel.</li>
-    </ul>
-  </details>
 
   <details>
     <summary>Playing here</summary>

@@ -78,6 +78,8 @@ export class StudGame {
     this.side,
     () => this.bank,
     1,
+    // Enough left over for a 1× bet on each of the three streets: no hand is dealt that the player couldn't see through.
+    3,
   );
   /** Counts deals, so the table can throw each new hand in from the shoe. */
   deals = $state(0);
@@ -162,6 +164,7 @@ export class StudGame {
   }
 
   choose(choice: StudChoice) {
+    if (choice.move === 'bet' && !this.pending?.decision.raises.includes(choice.size)) return;
     if (this.seq.awaiting === 'move') this.seq.answer(choice);
   }
 
@@ -239,10 +242,20 @@ export class StudGame {
         return true;
       }
 
-      const suggestion = decideStud(step.decision);
+      // Only bets the bankroll can cover are offered, keeping 1× back for every street still to come.
+      const d = step.decision;
+      const down = ante.mul(1 + d.bets.reduce((a, b) => a + b, 0) + Object.values(bonuses).reduce((a, b) => a + b, 0));
+      const later = 5 - d.street;
+      const decision = { ...d, raises: d.raises.filter((r) => this.blind.covers(this.bank, down, ante.mul(r + later))) };
+      let suggestion = decideStud(decision);
+      if (suggestion.move === 'bet' && !decision.raises.includes(suggestion.size)) {
+        const wanted = suggestion.size;
+        const fits = decision.raises.filter((r) => r <= wanted);
+        suggestion = fits.length ? { move: 'bet', size: Math.max(...fits) } : { move: 'fold' };
+      }
       let choice: StudChoice | null = suggestion;
       if (!this.autoPlay) {
-        this.pending = { decision: step.decision, suggestion };
+        this.pending = { decision, suggestion };
         choice = await this.seq.ask('move');
         this.pending = null;
       }

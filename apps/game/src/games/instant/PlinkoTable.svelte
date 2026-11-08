@@ -104,11 +104,30 @@
     { title: 'Drop', demo: '●', text: 'Each ball is a bet of its own. It bounces left or right at every peg, as likely one way as the other.' },
     { title: 'Land', demo: '×', text: 'The slot it lands in pays your bet times its multiplier. The middle can pay less than the ball.' },
   ]}
+  glance={[
+    {
+      heading: 'Your bet',
+      items: [
+        { name: 'Each ball', tag: 'one bet', text: 'Every ball is a bet of its own; drop as many as you like at once. The slot it lands in pays the bet times its multiplier.' },
+        { name: 'Rows', tag: PLINKO_ROWS.join(' · '), text: 'More rows: the edges are rarer and pay more.' },
+        { name: 'Risk', tag: PLINKO_RISKS.join(' · '), text: 'Higher risk: bigger edges, and a middle that pays back less than the ball.' },
+      ],
+    },
+    {
+      heading: 'Fever',
+      note: `About 1 ball in ${Math.round(1 / FEVER_CHANCE)} drops golden.`,
+      items: [
+        { name: 'Golden ball', text: 'Lands and pays like any ball, then sets off Fever.' },
+        { name: 'The ladder', tag: FEVER_LADDER.map((x) => `×${x}`).join(' '), text: `${FEVER_BALLS} free balls on the same board, one at a time. Each pays its slot times the next step of the ladder, so the last ball counts most.` },
+        { name: 'What it pays', tag: `≈ ${feverAvg.toFixed(0)} bets`, text: 'On average, on this board. A late ball on a big edge can pay thousands.' },
+      ],
+    },
+  ]}
 >
   {#snippet goal()}
     Drop balls through the pegs and hope they stray to the edges.
   {/snippet}
-  <details open>
+  <details>
     <summary>The odds on this board</summary>
     <ul>
       <li>
@@ -132,6 +151,7 @@
 </RulesFrame>
 
 <TableShell
+  {seq}
   machine
   cabinet="plinko"
   title={['Lucky', 'Drop']}
@@ -143,16 +163,16 @@
   onTapFelt={onTap}
 >
   {#snippet felt()}
-    <div class="stage plinko-stage" class:fever={!!game.fever}>
+    <div class="istage plinko-stage" class:fever={!!game.fever}>
       <!-- The board's settings, on the cabinet over it: they lock while balls are falling. -->
       <div class="options">
-        <div class="segmented" role="group" aria-label="Rows">
+        <div class="isegmented" role="group" aria-label="Rows">
           <span class="k">Rows</span>
           {#each PLINKO_ROWS as r (r)}
             <button type="button" aria-pressed={game.rows === r} disabled={game.locked} onclick={() => game.setRows(r)}>{r}</button>
           {/each}
         </div>
-        <div class="segmented" role="group" aria-label="Risk">
+        <div class="isegmented" role="group" aria-label="Risk">
           <span class="k">Risk</span>
           {#each PLINKO_RISKS as r (r)}
             <button type="button" aria-pressed={game.risk === r} disabled={game.locked} onclick={() => game.setRisk(r)}>{r}</button>
@@ -247,7 +267,7 @@
   {/snippet}
 
   {#snippet action()}
-    <div class="bar">
+    <div class="ibar">
       <BetPicker {game} />
       <button type="button" class="go primary" disabled={!game.canBet || game.autoPlay || !!game.fever} onclick={() => game.drop()}>
         {game.fever ? 'Fever!' : 'Drop ball'}
