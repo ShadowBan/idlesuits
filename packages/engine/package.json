@@ -1,0 +1,10 @@
+{
+  "name": "@idlesuits/engine",
+  "private": true,
+  "type": "module",
+  "exports": "./src/index.ts",
+  "dependencies": {
+    "@idlesuits/sim": "*",
+    "break_eternity.js": "^2.1.3"
+  }
+}

@@ -1,40 +1,69 @@
+import { moveBank, MIN_BET as ENGINE_MIN_BET } from '@idlesuits/engine';
 import { floor } from './floor.svelte';
 import { Decimal } from './money';
-import { room } from './rooms';
+import { player } from './player.svelte';
+import { route } from './route.svelte';
 import { load, saveSoon } from './save';
 import { tuning } from './tuning.svelte';
 
-const STARTING_BANK = 500;
 /** The Main Floor's minimum: below this a player can't sit at any table. */
-export const MIN_BET = room(0).min;
+export const MIN_BET = ENGINE_MIN_BET;
 
-function saved(): Decimal {
-  try {
-    const value = new Decimal(load('bank', String(STARTING_BANK)));
-    // A save too small to bet with would sit every table at "Busted": start that player afresh.
-    return value.gte(MIN_BET) && value.isFinite() ? value : new Decimal(STARTING_BANK);
-  } catch {
-    return new Decimal(STARTING_BANK);
+/**
+ * A member's practice bankroll: their own money for the games the server
+ * doesn't decide yet. It never touches their real bank, Tokens, charms,
+ * stats or wins, and stays in this browser.
+ */
+class Practice {
+  balance = $state(this.saved());
+
+  private saved(): Decimal {
+    try {
+      const d = new Decimal(load<string>('practice', String(tuning.values.buyIn)));
+      return d.isFinite() && d.gte(0) ? d : new Decimal(tuning.values.buyIn);
+    } catch {
+      return new Decimal(tuning.values.buyIn);
+    }
+  }
+
+  set(amount: Decimal) {
+    this.balance = amount.max(0);
+    saveSoon('practice', () => this.balance.toString());
   }
 }
 
+const practice = new Practice();
+
 /**
- * One wallet for the whole casino. Every game draws from and pays into this,
- * so switching tables carries your money with you. Saved in the browser.
+ * The wallet the table in front of the player plays from. Their bank, as the
+ * engine keeps it (on the server for a member), except for a member at a
+ * table the server doesn't decide yet: that plays from the practice bankroll.
  */
 export class Bankroll {
-  balance = $state(saved());
+  /** The table here plays from the practice bankroll. */
+  get practice(): boolean {
+    return player.practicing(route.current);
+  }
+
+  get balance(): Decimal {
+    return this.practice ? practice.balance : player.bank;
+  }
+
   /**
    * Too little left for the cheapest table's minimum, and the player has to
    * buy back in. Not just zero: Pai Gow's commission and charm payouts leave cents.
    */
-  broke = $derived(this.balance.lt(MIN_BET));
+  get broke(): boolean {
+    return this.balance.lt(MIN_BET);
+  }
 
-  /** Applies a round's result. Returns the new balance. */
+  /**
+   * Applies a round's money, for a game settled in the browser. Returns the
+   * new balance. A member's real bank only moves on the server.
+   */
   settle(amount: Decimal): Decimal {
-    this.balance = this.balance.add(amount);
-    floor.reach(this.balance);
-    this.persist();
+    if (this.practice) practice.set(practice.balance.add(amount));
+    else player.local((state) => moveBank(state, amount, tuning.engine));
     return this.balance;
   }
 
@@ -42,25 +71,22 @@ export class Bankroll {
     return this.balance.gte(amount);
   }
 
-  buyIn(amount: Decimal = new Decimal(tuning.values.buyIn)): void {
-    this.balance = amount;
-    // A fresh stake starts back on the Main Floor; rooms already opened stay open.
-    floor.enter(0);
-    this.persist();
+  /** A fresh stake, back on the Main Floor; rooms already opened stay open. */
+  buyIn(): void {
+    if (this.practice) {
+      practice.set(new Decimal(tuning.values.buyIn));
+      floor.enter(0);
+      return;
+    }
+    void player.act({ type: 'buyIn' });
   }
 
-  /** Sets the bank outright, for the admin panel. */
+  /** Sets the bank outright, for the pit boss. */
   set(amount: Decimal) {
-    this.balance = amount.max(0);
-    floor.reach(this.balance);
-    this.persist();
-  }
-
-  private persist() {
-    saveSoon('bank', () => this.balance.toString());
+    if (this.practice) practice.set(amount);
+    else void player.act({ type: 'admin.bank', set: amount.max(0).toString() });
   }
 }
 
 /** The wallet every table in this session shares. */
 export const bankroll = new Bankroll();
-floor.reach(bankroll.balance);

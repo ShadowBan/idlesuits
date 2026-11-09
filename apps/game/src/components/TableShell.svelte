@@ -1,6 +1,7 @@
 <script lang="ts">
   import { untrack, type Snippet } from 'svelte';
   import { MediaQuery } from 'svelte/reactivity';
+  import { bankroll } from '../lib/casino.svelte';
   import { floor } from '../lib/floor.svelte';
   import type { Decimal } from '../lib/money';
   import { formatLimit } from '../lib/rooms';
@@ -127,7 +128,12 @@
   <header class="bar">
     <h1>{title[0]} <span>{title[1]}</span></h1>
 
-    <div class="bank"><BankCounter {bank} /></div>
+    <div class="bank">
+      <BankCounter {bank} />
+      {#if bankroll.practice}
+        <span class="practice" title="This game isn’t played on the Players Club server yet: you play it on a practice bankroll that never touches your real bank, Tokens, charms or stats.">Practice</span>
+      {/if}
+    </div>
     <TokenCounter />
 
     <div class="actions">
@@ -415,6 +421,21 @@
   }
   .compact .bank {
     min-width: 64px;
+  }
+  .bank {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .practice {
+    padding: 3px 7px;
+    border-radius: 999px;
+    background: rgb(120 170 255 / 0.16);
+    color: #a9c8ff;
+    font: 600 10px/1 var(--font-ui);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    cursor: help;
   }
   .compact :global(.tokens) {
     margin-right: auto;

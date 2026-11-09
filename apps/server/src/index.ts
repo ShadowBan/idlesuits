@@ -17,7 +17,8 @@ import {
   verifyPassword,
   type SessionUser,
 } from './auth';
-import type { PlayerDO } from './player';
+import { cleanTuning, ENGINE_GAMES, type EngineTuning, type PlayerState } from '@idlesuits/engine';
+import type { ActReply, PlayerDO } from './player';
 
 export { PlayerDO } from './player';
 
@@ -162,6 +163,37 @@ async function signOut(req: Request, env: Env): Promise<Response> {
   return json({ ok: true }, 200, { 'set-cookie': clearCookie(secure(req)) });
 }
 
+/** The pit boss's tuning, read from the database at most this often per Worker. */
+const TUNING_TTL_MS = 10_000;
+let tuningCache: { at: number; tuning: EngineTuning } | null = null;
+
+async function readTuning(env: Env): Promise<EngineTuning> {
+  if (tuningCache && Date.now() - tuningCache.at < TUNING_TTL_MS) return tuningCache.tuning;
+  const row = await env.DB.prepare('SELECT data FROM tuning WHERE id = 1').first<{ data: string }>();
+  let raw: unknown = {};
+  try {
+    raw = row ? JSON.parse(row.data) : {};
+  } catch {
+    // A bad row reads as the defaults.
+  }
+  const tuning = cleanTuning(raw);
+  tuningCache = { at: Date.now(), tuning };
+  return tuning;
+}
+
+/** What a player's game needs from the server: their state, the tuning it's decided under, and which games the server plays. */
+async function stateReply(env: Env, userId: string) {
+  return { state: (await player(env, userId).getState()) as unknown as PlayerState, tuning: await readTuning(env), games: ENGINE_GAMES };
+}
+
+async function actReply(req: Request, env: Env, userId: string, opts: { admin: boolean; limited?: boolean }): Promise<Response> {
+  const input = await body<{ action?: unknown }>(req, env);
+  // The RPC stub's types can't follow `unknown` (a win's replay data) through, so the reply is typed here.
+  const out = (await player(env, userId).act(input.action, await readTuning(env), opts)) as unknown as ActReply;
+  if (!out.ok) throw new HttpError(out.status, out.error);
+  return json({ state: out.state, result: out.result });
+}
+
 async function route(req: Request, env: Env): Promise<Response> {
   const url = new URL(req.url);
   const path = url.pathname;
@@ -194,17 +226,43 @@ async function route(req: Request, env: Env): Promise<Response> {
     }
   }
 
-  // The pit boss: accounts and their saves, for admins only.
+  // The player's state, which only the server changes: one action at a time, through the engine.
+  if (path === '/api/state' && method === 'GET') {
+    const me = await requireUser(req, env);
+    return json(await stateReply(env, me.user.id));
+  }
+  if (path === '/api/act' && method === 'POST') {
+    const me = await requireUser(req, env);
+    // The pit boss's tools send a burst of actions at once (every charm to its top level): not limited.
+    return actReply(req, env, me.user.id, { admin: me.user.role === 'admin', limited: me.user.role !== 'admin' });
+  }
+
+  // The pit boss's tuning, which the server decides rounds under.
+  if (path === '/api/admin/tuning') {
+    await requireAdmin(req, env);
+    if (method === 'GET') return json({ tuning: await readTuning(env) });
+    if (method === 'PUT') {
+      const input = await body<{ tuning?: unknown }>(req, env);
+      const tuning = cleanTuning(input.tuning);
+      await env.DB.prepare('INSERT OR REPLACE INTO tuning (id, data, updated_at) VALUES (1, ?, ?)').bind(JSON.stringify(tuning), Date.now()).run();
+      tuningCache = { at: Date.now(), tuning };
+      return json({ tuning });
+    }
+  }
+
+  // The pit boss: accounts, their saves and their state, for admins only.
   if (path === '/api/admin/users' && method === 'GET') {
     await requireAdmin(req, env);
     const { results } = await env.DB.prepare('SELECT id, email, name, role, created_at FROM users ORDER BY created_at DESC LIMIT 200').all();
     return json({ users: results });
   }
-  const adminUser = path.match(/^\/api\/admin\/users\/([0-9a-f-]{36})\/(save|role)$/);
+  const adminUser = path.match(/^\/api\/admin\/users\/([0-9a-f-]{36})\/(save|role|state|act)$/);
   if (adminUser) {
     await requireAdmin(req, env);
     const [, id, what] = adminUser as unknown as [string, string, string];
     if (what === 'save' && method === 'GET') return json({ save: await player(env, id).getSave() });
+    if (what === 'state' && method === 'GET') return json(await stateReply(env, id));
+    if (what === 'act' && method === 'POST') return actReply(req, env, id, { admin: true, limited: false });
     if (what === 'role' && method === 'PUT') {
       const input = await body<{ role?: string }>(req, env);
       if (input.role !== 'admin' && input.role !== 'player') throw new HttpError(400, 'Role is admin or player.');

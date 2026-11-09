@@ -112,6 +112,9 @@
   font: 12px/1.3 var(--font-ui);
   color: var(--muted);
 }
+.ibar .note.err {
+  color: #ff9b8f;
+}
 .ibar kbd {
   margin-left: 6px;
   padding: 1px 5px;

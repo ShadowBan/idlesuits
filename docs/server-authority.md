@@ -1,6 +1,7 @@
 # Step 2: results the server decides
 
-Status: planned (2026-11-08). Step 1 (Players Club accounts and cloud saves) is live at
+Status: the first milestone (the engine, with Keno) is built and tested locally, not yet
+deployed (2026-11-08). Step 1 (Players Club accounts and cloud saves) is live at
 idlesuits.crowbro.dev.
 
 ## Goal
@@ -8,6 +9,35 @@ idlesuits.crowbro.dev.
 A member's results can be trusted: the server holds the seed, runs the round,
 and changes the bankroll; the browser only animates what the server returns.
 Guests keep playing entirely in the browser, as now.
+
+## Decided (2026-11-08)
+
+- **Everything moves.** A member's game is decided entirely on the server; the client
+  is only a view of it. Nothing a member's browser says is trusted: no reported
+  results, no client-side bank, Tokens, charms or progress.
+- **Games move live, one at a time.** Until a game has moved, members play it on a
+  separate **practice bankroll** in the browser that never touches their real bank,
+  Tokens, charms, stats or wins. Guests are unaffected.
+
+## The engine: one copy of the rules, two hosts
+
+All game rules and state changes live in `packages/engine`: pure TypeScript that takes
+a player's state and an action and returns the new state and what happened:
+
+```
+act(state, action, ctx: { now, tuning, seed(game, round) }) → { state, result }
+```
+
+Two hosts run the same engine:
+
+- **The server** (members): the player's Durable Object holds their state and the
+  secret seed key; seeds are HMACs of the key, the game and the round, so the browser
+  can't predict them.
+- **The browser** (guests): the engine runs locally on the browser's save, as the game
+  does today.
+
+The game screens talk to a `GameHost` (remote or local) and animate what comes back,
+so a game moved for members has also moved for guests, with one copy of its rules.
 
 ## What moves to the server, and why together
 
@@ -42,11 +72,9 @@ POST /api/play/keno  { ticket, bet, auto?: n }
 - Step 5 (provably fair) later commits a hash of each seed before the round and
   reveals the seed after.
 
-## Games not moved yet (during the move)
+## Order
 
-Option (a), recommended: they keep running in the browser and report each round's
-result (`POST /api/report`). Those reports are trusted only as far as the browser,
-so leaderboards wait until every game has moved. Games move one at a time:
+Games move one at a time; each launches when it's done:
 
 1. Keno (self-contained, already fully seeded): proves the protocol.
 2. The other instant games: Dynamite Dig, Deep Drop, Lucky Drop.
@@ -60,9 +88,41 @@ table the pit boss edits through `/api/admin/*`; the server reads it when it dec
 rounds. Bank and Token grants for testing become admin endpoints on a player's
 Durable Object.
 
+## First milestone: the foundation, with Keno
+
+- `packages/engine`: the player state (wallet, charms, stats, wins, rooms), the charm
+  machine (pull, equip, buy a slot), applying charms to a settled round, and Keno.
+- `PlayerDO`: holds the state, the seed key, and answers `GET /api/state` and
+  `POST /api/act`. A member's first visit moves their cloud save's bank, Tokens,
+  charms and Keno progress in, once.
+- The client: a `GameHost`; the bankroll, Tokens and charms read from it; Keno plays
+  through it; the other games run on the practice bankroll for members.
+- Pit boss tuning that Keno uses (instant payback, Token rate) stored on the server.
+
+### As built
+
+- `packages/engine`: `PlayerState` (one object: bank, floor, charms, stats, wins, Keno's
+  progress), `act(state, action, ctx)` for every change, `playKeno` (one draw or an auto
+  batch of up to 10), `settleRound` (charms, Tokens, bank, stats), the Charm Machine, and
+  `playerFromSave` (reads a save from before the engine).
+- `PlayerDO`: the state and a secret seed key in SQLite. A round's seed is
+  HMAC-SHA256(key, `game:round`), worked out before the action runs; each action runs
+  with other requests held off (`blockConcurrencyWhile`). The cloud save is stripped
+  to its cosmetic keys. Each request counts against an allowance of 30, refilled at 4 a
+  second; the pit boss is exempt.
+- API: `GET /api/state` (state, tuning, the games the server plays), `POST /api/act`
+  `{ action }`, `GET/PUT /api/admin/tuning`, `GET /api/admin/users/:id/state`,
+  `POST /api/admin/users/:id/act`. Tuning is one D1 row (migration 0002), cached 10 s
+  per Worker.
+- Client: `lib/player.svelte.ts` holds the state (the server's for a member, the
+  browser's under the `player` key for a guest) and a `hold` that keeps a decided
+  draw's results off the screen until its animation reaches them. The bank, floor,
+  charms, stats and wins stores read from it. Keno asks for 1 draw, or 5 under auto play.
+- A new member starts fresh on the server: a guest's progress in the browser isn't
+  moved into a new account, since it was never checked. Accounts that already had a
+  cloud save are moved in once, on their first request.
+
 ## Open questions
 
-- During the move, should unmoved games keep touching the real bankroll (option a),
-  run as "practice" off it (b), or should all instant games move before the bankroll
-  switches (c)?
-- Traffic: what batch size (`auto: n`) and minimum time between requests per player.
+- Traffic: auto play asks for 5 draws at a time (about 20 seconds of play per request).
+  Revisit with real numbers.

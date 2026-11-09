@@ -1,3 +1,5 @@
+import { isOldStateKey } from '@idlesuits/engine';
+
 /**
  * The browser save. Every piece of state that should outlive a reload goes
  * through here, under one prefix and one version, so a backend can later take
@@ -36,7 +38,17 @@ export function save(key: string, data: unknown) {
  * Settings that belong to this device, not the account: they never go to the
  * cloud, and a cloud save never overwrites them.
  */
-const LOCAL_ONLY = new Set(['admin', 'muted', 'panelTab', 'lobby.tab', 'tuning', 'tuning.games']);
+const LOCAL_ONLY = new Set([
+  'admin',
+  'muted',
+  'panelTab',
+  'lobby.tab',
+  'tuning',
+  'tuning.games',
+  // A guest's own state, and a member's practice bankroll: a member's real state is on the server.
+  'player',
+  'practice',
+]);
 /**
  * Saved on a timer, not by anything the player does (the progressive meters
  * creep up every second): they go up with the rest of the save, but never send
@@ -65,7 +77,7 @@ export function snapshot(): Record<string, string> {
       const full = localStorage.key(i);
       if (!full?.startsWith(PREFIX)) continue;
       const key = full.slice(PREFIX.length);
-      if (LOCAL_ONLY.has(key)) continue;
+      if (LOCAL_ONLY.has(key) || isOldStateKey(key)) continue;
       const value = localStorage.getItem(full);
       if (value !== null) out[key] = value;
     }
@@ -73,6 +85,31 @@ export function snapshot(): Record<string, string> {
     // Storage blocked: nothing to send.
   }
   return out;
+}
+
+/** Everything saved in this browser, key (without the prefix) → stored JSON. */
+export function storedEntries(): Record<string, string> {
+  const out: Record<string, string> = {};
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const full = localStorage.key(i);
+      if (!full?.startsWith(PREFIX)) continue;
+      const value = localStorage.getItem(full);
+      if (value !== null) out[full.slice(PREFIX.length)] = value;
+    }
+  } catch {
+    // Storage blocked: nothing saved.
+  }
+  return out;
+}
+
+/** Forgets a saved key. */
+export function unstore(key: string) {
+  try {
+    localStorage.removeItem(PREFIX + key);
+  } catch {
+    // Blocked: nothing to forget.
+  }
 }
 
 /** Replaces the account's part of this browser's save with `data` (from the cloud). The page reloads after, to read it. */

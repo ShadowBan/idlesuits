@@ -1,3 +1,4 @@
+import { BET_STEPS } from '@idlesuits/engine';
 import type { RoundReport } from '@idlesuits/sim';
 import type { BreakdownLine } from '../../lib/breakdown';
 import { bankroll } from '../../lib/casino.svelte';
@@ -10,7 +11,7 @@ import { Sequencer } from '../../lib/sequencer.svelte';
 import { tuning } from '../../lib/tuning.svelte';
 
 /** The bets an instant game takes, in the room's minimums, as the slots do. */
-export const BET_STEPS = [1, 2, 3, 5, 10, 20, 50, 100] as const;
+export { BET_STEPS };
 
 export interface HistoryEntry {
   round: number;
@@ -148,18 +149,26 @@ export class InstantGame {
       outcome: net > 0 ? 'win' : net === 0 ? 'push' : 'lose',
     };
     const charms = meta.settleRound(report, bet, net);
-    const units = net + charms.extra;
-    this.last = { lines: [...(onHouse ? [] : [{ label: 'Bet', amount: -1 }]), ...lines, ...charms.lines], net: units };
-    const money = bet.mul(units);
-    this.lastBet = bet;
-    this.rounds++;
-    if (!onHouse) this.wagered = this.wagered.add(bet);
-    this.returned = this.returned.add(bet.mul(pay));
-    this.sessionNet = this.sessionNet.add(money);
-    if (bet.mul(pay).gt(this.biggestWin)) this.biggestWin = bet.mul(pay);
-    this.history = [{ round: this.rounds, text, sub, net: money }, ...this.history].slice(0, 12);
-    this.checkBroke();
+    this.record({ bet, pay, units: net + charms.extra, lines: [...(onHouse ? [] : [{ label: 'Bet', amount: -1 }]), ...lines, ...charms.lines], text, sub, onHouse });
     if (!this.gameOver) this.fit();
+  }
+
+  /**
+   * Counts a settled round in the session: its stats, the history and the
+   * breakdown. `units` is what the round came to in bets, stake and charms
+   * included; `pay` what it paid, in bets.
+   */
+  protected record(r: { bet: Decimal; pay: number; units: number; lines: BreakdownLine[]; text: string; sub: string; onHouse: boolean }) {
+    this.last = { lines: r.lines, net: r.units };
+    const money = r.bet.mul(r.units);
+    this.lastBet = r.bet;
+    this.rounds++;
+    if (!r.onHouse) this.wagered = this.wagered.add(r.bet);
+    this.returned = this.returned.add(r.bet.mul(r.pay));
+    this.sessionNet = this.sessionNet.add(money);
+    if (r.bet.mul(r.pay).gt(this.biggestWin)) this.biggestWin = r.bet.mul(r.pay);
+    this.history = [{ round: this.rounds, text: r.text, sub: r.sub, net: money }, ...this.history].slice(0, 12);
+    this.checkBroke();
   }
 
   /** Busted: nothing left for even the smallest bet, and nothing still in play. */

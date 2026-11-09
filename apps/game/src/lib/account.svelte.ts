@@ -1,3 +1,5 @@
+import { api, ApiError } from './api';
+import { player } from './player.svelte';
 import { onSaved, playerChange, restore, snapshot } from './save';
 
 export interface AccountUser {
@@ -48,36 +50,6 @@ function writeMeta(meta: SyncMeta | null) {
   }
 }
 
-class ApiError extends Error {
-  constructor(
-    readonly status: number,
-    message: string,
-    readonly body: unknown = null,
-  ) {
-    super(message);
-  }
-}
-
-async function api<T>(path: string, init: { method?: string; body?: unknown; keepalive?: boolean } = {}): Promise<T> {
-  const res = await fetch(`/api${path}`, {
-    method: init.method ?? 'GET',
-    credentials: 'same-origin',
-    keepalive: init.keepalive,
-    headers: init.body !== undefined ? { 'content-type': 'application/json' } : undefined,
-    body: init.body !== undefined ? JSON.stringify(init.body) : undefined,
-  });
-  const text = await res.text();
-  let data: unknown = null;
-  try {
-    data = text ? JSON.parse(text) : null;
-  } catch {
-    // Not JSON: a static host with no API.
-    throw new ApiError(res.status || 404, 'No server here.');
-  }
-  if (!res.ok) throw new ApiError(res.status, (data as { error?: string } | null)?.error ?? 'Something went wrong.', data);
-  return data as T;
-}
-
 interface CloudSave {
   version: number;
   data: Record<string, string>;
@@ -95,8 +67,8 @@ interface CloudSave {
  *    when the page is hidden, each on top of the version it came from, so a
  *    newer save from another device is adopted rather than overwritten.
  *
- * This is the first step online: the game still decides results in the
- * browser. Next, the server takes the results over, game by game.
+ * A member's bank, Tokens, charms, stats and wins aren't in the cloud save:
+ * the server keeps them, and decides their rounds (see `player`).
  */
 class Account {
   user = $state<AccountUser | null>(null);
@@ -139,24 +111,28 @@ class Account {
       const { user } = await api<{ user: AccountUser | null }>('/me');
       this.online = true;
       this.user = user;
-      if (user) await this.adopt(user);
-      else this.status = 'local';
+      if (user) await this.welcome(user);
+      else {
+        this.status = 'local';
+        player.guest();
+      }
     } catch {
       this.online = false;
       this.status = 'local';
+      player.guest();
     }
   }
 
   async signUp(email: string, password: string, name: string) {
     const { user } = await api<{ user: AccountUser }>('/auth/signup', { method: 'POST', body: { email, password, name } });
     this.user = user;
-    await this.adopt(user);
+    await this.welcome(user);
   }
 
   async signIn(email: string, password: string) {
     const { user } = await api<{ user: AccountUser }>('/auth/signin', { method: 'POST', body: { email, password } });
     this.user = user;
-    await this.adopt(user);
+    await this.welcome(user);
   }
 
   /** Signs out after sending the last changes. This browser keeps its save, to play on as a guest. */
@@ -167,6 +143,17 @@ class Account {
     this.user = null;
     this.status = 'local';
     this.lastSync = null;
+    player.leave();
+  }
+
+  /**
+   * A member is known: their state comes from the server (made there the
+   * first time, from their cloud save if they had one), then their cloud
+   * save, which now holds only preferences and the bets left on the felt.
+   */
+  private async welcome(user: AccountUser) {
+    await player.join();
+    await this.adopt(user);
   }
 
   /** Brings this browser and the account's cloud save together, once a user is known. */
@@ -289,6 +276,7 @@ class Account {
       if (e instanceof ApiError && e.status === 401) {
         this.user = null;
         this.status = 'local';
+        player.leave();
         return;
       }
       this.dirty = true;

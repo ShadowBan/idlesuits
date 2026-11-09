@@ -108,8 +108,8 @@
           <button type="button" onclick={setBank}>Set</button>
         </div>
         <div class="row">
-          <button type="button" onclick={() => bankroll.settle(new Decimal(1000))}>+$1K</button>
-          <button type="button" onclick={() => bankroll.settle(new Decimal(100_000))}>+$100K</button>
+          <button type="button" onclick={() => bankroll.set(bankroll.balance.add(1000))}>+$1K</button>
+          <button type="button" onclick={() => bankroll.set(bankroll.balance.add(100_000))}>+$100K</button>
           <button type="button" onclick={() => bankroll.set(bankroll.balance.mul(10))}>×10</button>
           <button type="button" onclick={() => bankroll.set(new Decimal(3))}>Bust</button>
         </div>

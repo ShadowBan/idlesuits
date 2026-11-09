@@ -34,14 +34,20 @@
   async function pull(count: 1 | 10) {
     if (phase === 'crank') return;
     unlockAudio();
-    const result = meta.pull(count);
-    if (!result) return;
+    const was = phase;
+    // The crank turns while the machine (on the server, for a member) decides what's inside.
+    phase = 'crank';
+    const started = performance.now();
+    const result = await meta.pull(count);
+    if (!result) {
+      phase = was;
+      return;
+    }
     capsules = result;
     opened = 0;
     turns++;
-    phase = 'crank';
     sfx.chip();
-    await wait(reduced ? 0 : 750);
+    await wait(reduced ? 0 : Math.max(0, 750 - (performance.now() - started)));
     phase = 'reveal';
     for (let i = 0; i < result.length; i++) {
       await wait(reduced ? 0 : count === 10 ? 180 : 250);

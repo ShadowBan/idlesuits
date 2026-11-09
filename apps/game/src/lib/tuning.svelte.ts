@@ -1,4 +1,6 @@
+import { cleanTuning, ENGINE_TUNING_KEYS, type EngineTuning } from '@idlesuits/engine';
 import { PULL_COST, TEN_PULL_COST } from '@idlesuits/sim';
+import { api } from './api';
 import { withOverrides } from './gameRules';
 import { roomTuning } from './rooms';
 import { load, save } from './save';
@@ -71,8 +73,13 @@ export const KNOBS: readonly Knob[] = [
 
 type Overrides = Record<string, number | boolean>;
 
+const isEngineKey = (key: string): key is keyof EngineTuning => (ENGINE_TUNING_KEYS as string[]).includes(key);
+
 class Tuning {
-  values = $state<TuningValues>({ ...TUNING_DEFAULTS, ...load<Partial<TuningValues>>('tuning', {}) });
+  /** This browser's own numbers: all of them for a guest, the ones the server doesn't keep for a member. */
+  private local = $state<TuningValues>({ ...TUNING_DEFAULTS, ...load<Partial<TuningValues>>('tuning', {}) });
+  /** A member's: the server's numbers that decide rounds and prices, which the pit boss sets for everyone. */
+  server = $state.raw<EngineTuning | null>(null);
   /** Each game's rule overrides, by game id and path in its rules object. */
   games = $state<Record<string, Overrides>>(load('tuning.games', {}));
   private tuned = new Map<string, { key: string; base: object; rules: object }>();
@@ -81,15 +88,48 @@ class Tuning {
     this.sync();
   }
 
+  /** The numbers in force: the server's where it keeps them, this browser's for the rest. */
+  get values(): TuningValues {
+    return this.server ? { ...this.local, ...this.server } : this.local;
+  }
+
+  /** The numbers the engine reads, as in force here. */
+  get engine(): EngineTuning {
+    return cleanTuning(this.values);
+  }
+
+  /** Signed in: the server's numbers take over the ones it keeps. Null when signed out. */
+  useServer(server: EngineTuning | null) {
+    this.server = server;
+    this.sync();
+  }
+
   set<K extends keyof TuningValues>(key: K, value: TuningValues[K]) {
     if (!Number.isFinite(value)) return;
-    this.values[key] = value;
+    if (this.server && isEngineKey(key)) return this.setServer({ ...this.server, [key]: value });
+    this.local[key] = value;
     this.persist();
   }
 
   reset() {
-    this.values = { ...TUNING_DEFAULTS };
+    this.local = { ...TUNING_DEFAULTS };
     this.persist();
+    if (this.server) void this.setServer(cleanTuning({}));
+  }
+
+  /** The pit boss changes the server's numbers: for every member, at once. */
+  private async setServer(next: EngineTuning) {
+    const before = this.server;
+    this.server = cleanTuning(next);
+    this.sync();
+    try {
+      const { tuning } = await api<{ tuning: EngineTuning }>('/admin/tuning', { method: 'PUT', body: { tuning: this.server } });
+      this.server = tuning;
+    } catch {
+      // Not the pit boss, or offline: the numbers go back.
+      this.server = before;
+    }
+    this.sync();
   }
 
   /** A game's rules with any overrides set: the same object until they change, so strategy can be cached on it. */
@@ -130,7 +170,7 @@ class Tuning {
 
   private persist() {
     this.sync();
-    save('tuning', $state.snapshot(this.values));
+    save('tuning', $state.snapshot(this.local));
   }
 
   /** The room ladder is pure; it reads its two numbers from here. */

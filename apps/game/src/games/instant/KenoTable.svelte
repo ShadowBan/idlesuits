@@ -370,8 +370,8 @@
       <button type="button" class="go primary" disabled={!game.canPlay || game.autoPlay} onclick={() => game.play()}>
         {game.drawing ? 'Drawing…' : game.replaying && !game.replayDone ? 'Replaying…' : game.freeDraw ? `Free draw · ${game.nextBuff?.left} left` : 'Draw'}
       </button>
-      <span class="note">
-        {spots ? `${spots} ${spots === 1 ? 'spot' : 'spots'} · tops out at ${fmtX(top)}×, ×${GOLD_BALL_X} on the gold ball` : 'Mark 1 to 10 numbers, or Quick pick'}
+      <span class="note" class:err={!!game.error}>
+        {game.error ? game.error : spots ? `${spots} ${spots === 1 ? 'spot' : 'spots'} · tops out at ${fmtX(top)}×, ×${GOLD_BALL_X} on the gold ball` : 'Mark 1 to 10 numbers, or Quick pick'}
       </span>
     </div>
   {/snippet}
@@ -381,8 +381,8 @@
       {seq}
       autoPlay={game.autoPlay}
       onAuto={(on) => game.setAutoPlay(on)}
-      seed={game.runSeed}
-      round={game.round}
+      seed={game.lastReplay ? game.lastReplay.run.slice(0, 12) : '—'}
+      round={game.lastReplay?.round ?? 0}
       last={game.last}
       lastUnit={game.lastBet}
       stats={game.stats('Draws')}

@@ -1,4 +1,7 @@
+import { chipValue } from '@idlesuits/engine';
 import { Decimal } from './money';
+
+export { chipValue };
 
 /**
  * Casino chips for any amount. Denominations follow the real ladder — 1, 5,
@@ -8,11 +11,6 @@ import { Decimal } from './money';
  */
 
 const BASE = [1, 5, 25, 100, 500];
-
-export function chipValue(index: number): Decimal {
-  const tier = Math.floor(index / BASE.length);
-  return new Decimal(BASE[index % BASE.length]!).mul(Decimal.pow(1000, tier));
-}
 
 /** The largest chip index whose value is at most `amount`, or -1. */
 export function chipIndexAtMost(amount: Decimal): number {

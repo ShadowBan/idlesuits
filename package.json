@@ -8,7 +8,7 @@
   ],
   "scripts": {
     "test": "vitest run",
-    "typecheck": "tsc -p packages/sim && tsc -p packages/balance && tsc -p apps/server && npm run check -w @idlesuits/game",
+    "typecheck": "tsc -p packages/sim && tsc -p packages/engine && tsc -p packages/balance && tsc -p apps/server && npm run check -w @idlesuits/game",
     "balance": "tsx packages/balance/src/cli.ts",
     "audit": "tsx packages/balance/src/audit.ts",
     "derive:uth-chart": "tsx packages/balance/src/derive-uth-chart.ts",
