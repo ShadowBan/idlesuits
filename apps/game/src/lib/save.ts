@@ -29,6 +29,67 @@ export function save(key: string, data: unknown) {
   } catch {
     // Not remembered this time; nothing else depends on it.
   }
+  if (!LOCAL_ONLY.has(key)) for (const listener of listeners) listener(key);
+}
+
+/**
+ * Settings that belong to this device, not the account: they never go to the
+ * cloud, and a cloud save never overwrites them.
+ */
+const LOCAL_ONLY = new Set(['admin', 'muted', 'panelTab', 'lobby.tab', 'tuning', 'tuning.games']);
+/**
+ * Saved on a timer, not by anything the player does (the progressive meters
+ * creep up every second): they go up with the rest of the save, but never send
+ * it on their own, so an idle tab stays quiet.
+ */
+const AMBIENT = new Set(['jackpots']);
+
+/** A write the player made happen: one that should send the save up. */
+export function playerChange(key: string): boolean {
+  return !AMBIENT.has(key);
+}
+const listeners = new Set<(key: string) => void>();
+
+/** Calls `listener` after each saved write that belongs to the account. Returns the unsubscribe. */
+export function onSaved(listener: (key: string) => void): () => void {
+  listeners.add(listener);
+  return () => listeners.delete(listener);
+}
+
+/** Everything this browser has saved for the account, as stored: key (without the prefix) → JSON. */
+export function snapshot(): Record<string, string> {
+  flush();
+  const out: Record<string, string> = {};
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const full = localStorage.key(i);
+      if (!full?.startsWith(PREFIX)) continue;
+      const key = full.slice(PREFIX.length);
+      if (LOCAL_ONLY.has(key)) continue;
+      const value = localStorage.getItem(full);
+      if (value !== null) out[key] = value;
+    }
+  } catch {
+    // Storage blocked: nothing to send.
+  }
+  return out;
+}
+
+/** Replaces the account's part of this browser's save with `data` (from the cloud). The page reloads after, to read it. */
+export function restore(data: Record<string, string>) {
+  pending.clear();
+  clearTimeout(timer);
+  try {
+    const drop: string[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const full = localStorage.key(i);
+      if (full?.startsWith(PREFIX) && !LOCAL_ONLY.has(full.slice(PREFIX.length))) drop.push(full);
+    }
+    for (const full of drop) localStorage.removeItem(full);
+    for (const [key, value] of Object.entries(data)) if (!LOCAL_ONLY.has(key)) localStorage.setItem(PREFIX + key, value);
+  } catch {
+    // Storage blocked: the cloud save can't land here.
+  }
 }
 
 const pending = new Map<string, () => unknown>();

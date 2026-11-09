@@ -1,8 +1,9 @@
+import { account } from './account.svelte';
 import { load, save } from './save';
 import { isMuted, setMuted } from './sound';
 
-export type PanelTab = 'pays' | 'stats' | 'charms' | 'table';
-const TABS: readonly PanelTab[] = ['pays', 'stats', 'charms', 'table'];
+export type PanelTab = 'pays' | 'stats' | 'table';
+const TABS: readonly PanelTab[] = ['pays', 'stats', 'table'];
 
 function savedTab(): PanelTab {
   const tab = load<PanelTab>('panelTab', 'pays');
@@ -24,10 +25,16 @@ class Ui {
   /** The table's auto play settings window is open. */
   autoOpen = $state(false);
 
+  /**
+   * The pit boss is on. Signed in, it's for pit boss accounts only (the
+   * server checks the same on everything the pit boss asks of it); a guest's
+   * game is all in their browser, so a guest can still switch it on there.
+   */
   get admin(): boolean {
-    return this.#admin;
+    return this.#admin && (!account.user || account.admin);
   }
   set admin(value: boolean) {
+    if (value && account.user && !account.admin) return;
     this.#admin = value;
     if (!value) this.adminOpen = false;
     save('admin', value);

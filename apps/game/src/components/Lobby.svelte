@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { account } from '../lib/account.svelte';
   import { bankroll } from '../lib/casino.svelte';
   import { floor } from '../lib/floor.svelte';
   import { formatLimit, room } from '../lib/rooms';
@@ -54,6 +55,9 @@
       <p class="sub">Pick a table. Your money follows you from game to game.</p>
     </div>
     <div class="corner">
+      <a class="club" href="#/club" title="Your Players Club profile">
+        <span class="mark" aria-hidden="true">♠</span>{account.user ? account.user.name : 'Players Club'}
+      </a>
       <button type="button" class="faces" onclick={() => (ui.settingsOpen = true)}>Settings</button>
       <div class="bank">
         <span class="k">Bank</span>
@@ -603,5 +607,25 @@
     width: 100%;
     font-size: 16px;
     padding: 12px 18px;
+  }
+  /* The way to the Players Club: the member's name once they've joined. */
+  .club {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 8px 14px;
+    border-radius: 999px;
+    background: linear-gradient(135deg, #2a2016, #15100b);
+    box-shadow: inset 0 0 0 1px rgb(242 198 78 / 0.55);
+    font: 600 14px/1 var(--font-ui);
+    color: #f6ecd6;
+    text-decoration: none;
+    white-space: nowrap;
+  }
+  .club:hover {
+    box-shadow: inset 0 0 0 1px rgb(242 198 78 / 0.9);
+  }
+  .club .mark {
+    color: var(--gold);
   }
 </style>

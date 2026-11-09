@@ -1,9 +1,11 @@
 <script lang="ts">
   import type { Component } from 'svelte';
   import CharmsPage from './components/charms/CharmsPage.svelte';
+  import ClubPage from './components/ClubPage.svelte';
   import Lobby from './components/Lobby.svelte';
   import AdminPanel from './components/AdminPanel.svelte';
   import SettingsDialog from './components/SettingsDialog.svelte';
+  import SyncConflict from './components/SyncConflict.svelte';
   import { ui } from './lib/ui.svelte';
   import { findGame, type GameProps } from './lib/games';
   import { route } from './lib/route.svelte';
@@ -59,10 +61,13 @@
 
 <svelte:window onkeydown={onKey} />
 <SettingsDialog />
+<SyncConflict />
 {#if ui.admin}<AdminPanel />{/if}
 
 {#if route.current === 'charms'}
   <CharmsPage onExit={exit} />
+{:else if route.current === 'club'}
+  <ClubPage onExit={exit} />
 {:else if !openGame}
   <Lobby onPlay={play} />
 {:else if loaded?.id === openGame.id}

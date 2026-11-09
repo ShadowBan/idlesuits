@@ -12,7 +12,7 @@
   import AutoDialog from './AutoDialog.svelte';
   import BlindBetsPanel from './BlindBetsPanel.svelte';
   import Breakdown from './Breakdown.svelte';
-  import CharmsPanel from './charms/CharmsPanel.svelte';
+  import CharmStrip from './charms/CharmStrip.svelte';
 
   interface Props {
     seq: SpeedControl;
@@ -98,11 +98,13 @@
   const TABS: { id: PanelTab; label: string }[] = [
     { id: 'pays', label: 'Pays' },
     { id: 'stats', label: 'Stats' },
-    { id: 'charms', label: 'Charms' },
     { id: 'table', label: 'Table' },
   ];
-  /** Charms on, for the Charms tab's count. */
-  const charmsOn = $derived(meta.equipped.length);
+  /** Tokens earned since sitting down here: the lifetime count when the table opened, and now. */
+  const tokensAtSit = untrack(() => meta.lifetimeTokens);
+  const tokensHere = $derived(meta.lifetimeTokens - tokensAtSit);
+  /** The last round's result in money, from its breakdown. */
+  const lastMoney = $derived(last ? lastUnit.mul(last.net) : null);
 </script>
 
 <!--
@@ -112,6 +114,25 @@
 -->
 <!-- Opened from the auto controls by the table's buttons; it lives here, with the game's own auto settings. -->
 <AutoDialog {seq} {autoPlay} {onAuto} {automation} />
+
+<!-- Always in view: the charms on, and how this visit is going. -->
+<section class="panel live">
+  <CharmStrip />
+  <dl class="now">
+    <div>
+      <dt>Session</dt>
+      <dd class:win={sessionNet.gt(0)} class:loss={sessionNet.lt(0)}>{formatMoney(sessionNet, true)}</dd>
+    </div>
+    <div>
+      <dt>Last</dt>
+      <dd class:win={!!lastMoney?.gt(0)} class:loss={!!lastMoney?.lt(0)}>{lastMoney ? formatMoney(lastMoney, true) : '—'}</dd>
+    </div>
+    <div>
+      <dt>Tokens</dt>
+      <dd class="tok">+{tokensHere < 10 ? tokensHere.toFixed(1) : Math.round(tokensHere).toLocaleString('en-US')}</dd>
+    </div>
+  </dl>
+</section>
 
 <div class="tabs" role="tablist" aria-label="Table information">
   {#each TABS as tab (tab.id)}
@@ -124,7 +145,6 @@
       onclick={() => (ui.tab = tab.id)}
     >
       {tab.label}
-      {#if tab.id === 'charms' && charmsOn}<small>{charmsOn}</small>{/if}
     </button>
   {/each}
 </div>
@@ -133,8 +153,6 @@
   {#if ui.tab === 'pays'}
     {#if blind}<BlindBetsPanel {...blind} />{/if}
     {@render children?.()}
-  {:else if ui.tab === 'charms'}
-    <CharmsPanel />
   {:else if ui.tab === 'stats'}
     {@render record?.()}
     <section class="panel">
@@ -234,7 +252,7 @@
     top: 0;
     z-index: 1;
     display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 3px;
     padding: 4px;
     border-radius: 12px;
@@ -256,13 +274,6 @@
     letter-spacing: 0.05em;
     text-transform: uppercase;
     color: var(--muted);
-  }
-  .tabs small {
-    padding: 1px 5px;
-    border-radius: 999px;
-    background: rgb(255 255 255 / 0.1);
-    font: 600 10px/1.2 var(--font-ui);
-    letter-spacing: 0;
   }
   .tabs button[aria-selected='true'] {
     background: var(--gold);
@@ -371,5 +382,37 @@
   .wins .play {
     color: var(--muted);
     font-size: 10px;
+  }
+  /* The always-on strip: charms, then the visit's numbers in three cells. */
+  .live {
+    gap: 10px;
+  }
+  .now {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 6px;
+  }
+  .now div {
+    display: grid;
+    gap: 3px;
+    padding: 6px 8px;
+    border-radius: 8px;
+    background: rgb(0 0 0 / 0.22);
+  }
+  .now dt {
+    font: 600 10px/1 var(--font-ui);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .now dd {
+    text-align: left;
+    font: 700 15px/1.1 var(--font-display);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .now .tok {
+    color: #f2d27a;
   }
 </style>

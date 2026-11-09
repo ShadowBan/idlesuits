@@ -1,3 +1,7 @@
 node_modules/
 dist/
 *.log
+
+# Cloudflare: local state and local secrets
+.wrangler/
+.dev.vars

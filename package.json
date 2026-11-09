@@ -8,12 +8,14 @@
   ],
   "scripts": {
     "test": "vitest run",
-    "typecheck": "tsc -p packages/sim && tsc -p packages/balance && npm run check -w @idlesuits/game",
+    "typecheck": "tsc -p packages/sim && tsc -p packages/balance && tsc -p apps/server && npm run check -w @idlesuits/game",
     "balance": "tsx packages/balance/src/cli.ts",
     "audit": "tsx packages/balance/src/audit.ts",
     "derive:uth-chart": "tsx packages/balance/src/derive-uth-chart.ts",
     "dev": "npm run dev -w @idlesuits/game",
-    "build": "npm run build -w @idlesuits/game"
+    "build": "npm run build -w @idlesuits/game",
+    "dev:server": "npm run dev -w @idlesuits/server",
+    "deploy": "npm run build && npm run deploy -w @idlesuits/server"
   },
   "devDependencies": {
     "@types/node": "^26.6.2",

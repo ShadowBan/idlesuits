@@ -1,0 +1,24 @@
+{
+  // Idle Suits: the game's server. The Worker answers /api; everything else is
+  // the built game (apps/game/dist), served as a single-page app.
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "idlesuits",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-10-01",
+  "compatibility_flags": ["nodejs_compat"],
+  // Served at idlesuits.crowbro.dev only: one address, so one set of logins.
+  "routes": [{ "pattern": "idlesuits.crowbro.dev", "custom_domain": true }],
+  "workers_dev": false,
+  "preview_urls": false,
+  "assets": {
+    "directory": "../game/dist",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*"]
+  },
+  // Accounts, sessions and (later) leaderboards.
+  "d1_databases": [{ "binding": "DB", "database_name": "idlesuits", "database_id": "36d3374c-3662-4064-8027-543efe312839", "migrations_dir": "migrations" }],
+  // One per player: their save now, their wallet and rounds later.
+  "durable_objects": { "bindings": [{ "name": "PLAYER", "class_name": "PlayerDO" }] },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["PlayerDO"] }]
+  // Pit bosses (admins) are made by hand: `npm run admin -w @idlesuits/server -- grant you@example.com`.
+}

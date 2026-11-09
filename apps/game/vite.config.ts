@@ -7,4 +7,6 @@ export default defineConfig({
   base: process.env.BASE_PATH ?? '/',
   plugins: [svelte()],
   build: { target: 'es2022' },
+  // In development the API is the Worker in apps/server (`npm run dev:server`), on 8787.
+  server: { proxy: { '/api': 'http://localhost:8787' } },
 });
