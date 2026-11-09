@@ -124,6 +124,8 @@ export interface PlayerState {
   /** Each game's last wins, newest first. */
   wins: Record<string, WinRecord[]>;
   keno: KenoProgress;
+  /** Every other engine game's progress between rounds, by game: each game reads its own. */
+  games: Record<string, unknown>;
 }
 
 export const STARTING_BANK = 500;
@@ -142,6 +144,7 @@ export function freshPlayer(seed: string): PlayerState {
     stats: { since: 0, peakBank: '0', games: {} },
     wins: {},
     keno: freshKeno(),
+    games: {},
   };
 }
 
@@ -265,6 +268,7 @@ export function readPlayer(raw: unknown, seed: string): PlayerState {
     stats: readStats(p.stats),
     wins,
     keno: readKeno(p.keno),
+    games: Object.fromEntries(Object.entries(obj(p.games)).filter(([, g]) => g && typeof g === 'object' && !Array.isArray(g))),
   };
 }
 

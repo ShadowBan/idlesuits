@@ -11,33 +11,18 @@ import {
   kenoSettle,
   kenoStamp,
   kenoTicketRtp,
-  type CharmTrigger,
   type KenoBuffKind,
   type KenoDrawBuff,
   type KenoPattern,
   type KenoResult,
-  type RoundReport,
 } from '@idlesuits/sim';
+import { badBet, batchSize, autoStops, fitBet, settleInstant, type AutoStop, type InstantSettled } from './instant';
 import { amount, Decimal } from './money';
-import { affordable, room } from './rooms';
-import { bankOf, recordWin, settleRound, type BreakdownLine, type EngineContext } from './settle';
-import type { KenoProgress, KenoWin, PlayerState, WinRecord } from './state';
-import { roomTuningOf } from './tuning';
-
-/** The bets an instant game takes, in the room's minimums. */
-export const BET_STEPS = [1, 2, 3, 5, 10, 20, 50, 100] as const;
+import { bankOf, type BreakdownLine, type EngineContext } from './settle';
+import type { KenoProgress, KenoWin, PlayerState } from './state';
 
 /** Most draws one request may play: auto play asks for a batch and animates it. */
 export const KENO_BATCH_MAX = 10;
-
-/** Rules that end an auto batch early, the same ones the table's auto play stops on. */
-export interface AutoStop {
-  /** Stop after a round that won this many bets or more. */
-  winX?: number;
-  /** Stop once the bank falls below this, or reaches this, in dollars. */
-  below?: string;
-  above?: string;
-}
 
 export interface KenoPlay {
   ticket: number[];
@@ -49,29 +34,9 @@ export interface KenoPlay {
   stop?: AutoStop;
 }
 
-/** What a draw left behind, for the table to show once the draw is on screen. */
-export interface KenoAfter {
-  bank: string;
-  tokens: number;
-  lifetimeTokens: number;
-  best: number;
-  current: number;
-  keno: KenoProgress;
-  /** The win it added to the list, if it won. */
-  win?: WinRecord;
-}
-
 /** One draw, decided: everything the table needs to animate it and explain it. */
-export interface KenoRound {
-  round: number;
-  /** The round's seed, kept in its replay. */
-  run: string;
+export interface KenoRound extends InstantSettled {
   ticket: number[];
-  room: number;
-  step: number;
-  bet: string;
-  /** A Free Draw: nothing staked. */
-  onHouse: boolean;
   /** The buff the draw played under, and what it did. */
   buff?: KenoBuffKind;
   drawBuff: KenoDrawBuff;
@@ -88,17 +53,9 @@ export interface KenoRound {
   cardPaid: string;
   patterns: Partial<Record<KenoPattern, number[]>>;
   granted: KenoBuffKind[];
-  /** In bets: the ticket and the pots together. */
-  x: number;
-  /** In bets: what the round came to, stake and charms included. */
-  net: number;
-  lines: BreakdownLine[];
-  text: string;
-  sub: string;
-  tokens: number;
-  triggers: CharmTrigger[];
   replay: KenoWin;
-  after: KenoAfter;
+  /** Keno's progress as of this draw: the card, pots and meters, for the table to show once it's in. */
+  keno: KenoProgress;
 }
 
 export type KenoOutcome = { ok: true; state: PlayerState; rounds: KenoRound[] } | { ok: false; error: string };
@@ -111,34 +68,18 @@ export function cleanTicket(raw: unknown): number[] | null {
   return ticket.length === raw.length ? ticket : null;
 }
 
-/** An auto batch's stop rules, checked after a round that came to `net` bets, with the bank after it. */
-export function autoStops(stop: AutoStop | undefined, net: number, bank: Decimal): boolean {
-  if (!stop) return false;
-  if (typeof stop.winX === 'number' && stop.winX > 0 && net >= stop.winX) return true;
-  if (stop.below !== undefined && bank.lt(amount(stop.below))) return true;
-  if (stop.above !== undefined && amount(stop.above).gt(0) && bank.gte(amount(stop.above))) return true;
-  return false;
-}
-
 /** One draw. Null if the bank can't cover it. */
 function drawOnce(state: PlayerState, ticket: number[], wantRoom: number, wantStep: number, ctx: EngineContext): { state: PlayerState; round: KenoRound } | null {
   const t = ctx.tuning;
-  const rt = roomTuningOf(t);
   const keno = state.keno;
   const head = keno.buffs.queue[0];
   const onHouse = head?.kind === 'freeDraws';
-  const bank = bankOf(state);
 
   // While a buff waits, the bet stays the one that earned it; either way it steps down to what the bank covers.
   const asked = keno.locked ?? { room: wantRoom, step: wantStep };
-  let roomIndex = Math.min(Math.max(0, asked.room), state.floor.best);
-  let step = Math.min(Math.max(0, asked.step), BET_STEPS.length - 1);
-  if (!onHouse) {
-    roomIndex = affordable(bank, 1, roomIndex, rt);
-    while (step > 0 && room(roomIndex, rt).min.mul(BET_STEPS[step]!).gt(bank)) step--;
-  }
-  const bet = room(roomIndex, rt).min.mul(BET_STEPS[step]!);
-  if (!onHouse && bet.gt(bank)) return null;
+  const fit = fitBet(state, asked.room, asked.step, ctx, onHouse);
+  if (!fit) return null;
+  const { room: roomIndex, step, bet } = fit;
 
   const round = keno.round;
   const run = ctx.seed('keno', round);
@@ -179,7 +120,7 @@ function drawOnce(state: PlayerState, ticket: number[], wantRoom: number, wantSt
   const times = buff.times ?? 1;
   const goldX = buff.goldX ?? GOLD_BALL_X;
   const base = result.pay / times / (result.gold && result.pay > 0 ? goldX : 1);
-  const lines: BreakdownLine[] = onHouse ? [] : [{ label: 'Bet', amount: -1 }];
+  const lines: BreakdownLine[] = [];
   if (result.pay > 0) {
     lines.push({ label: `${result.hits.length} of ${ticket.length}${buff.free !== undefined ? ' with the free spot' : ''} · ${base.toFixed(2)}×`, amount: base });
     if (result.gold) lines.push({ label: `Gold ball · ×${goldX}${head?.kind === 'goldRush' ? ' (Gold Rush)' : ''}`, amount: base * (goldX - 1) });
@@ -188,26 +129,7 @@ function drawOnce(state: PlayerState, ticket: number[], wantRoom: number, wantSt
   if (rowPaid.gt(0)) lines.push({ label: `Gold Card · ${stamp.rows.length === 1 ? 'row' : `${stamp.rows.length} rows`} done · Row pot`, amount: rowPaid.div(bet).toNumber() });
   if (cardPaid.gt(0)) lines.push({ label: 'Gold Card full · Card pot', amount: cardPaid.div(bet).toNumber() });
 
-  let next: PlayerState = {
-    ...state,
-    floor: { ...state.floor, current: roomIndex },
-    keno: { round: round + 1, draws: draw, card, rowPot: rowPot.toString(), cardPot: cardPot.toString(), buffs: after.state, locked },
-  };
-
-  // The round settles through the charms like any other: on the house, all it pays is won.
-  const net = onHouse ? x : x - 1;
-  const report: RoundReport = {
-    game: 'keno',
-    seed,
-    // Stake 1 even on the house, as before: charms count a free draw's win like any other.
-    bets: [{ kind: 'main', stake: 1, net }],
-    outcome: net > 0 ? 'win' : net === 0 ? 'push' : 'lose',
-  };
-  const settled = settleRound(next, report, bet, net, ctx);
-  next = settled.state;
-  lines.push(...settled.lines);
-  const units = net + settled.extra;
-
+  const progress: KenoProgress = { round: round + 1, draws: draw, card, rowPot: rowPot.toString(), cardPot: cardPot.toString(), buffs: after.state, locked };
   const tag = head ? ` · ${kenoBuffDef(head.kind).name}` : '';
   const card$ = stamp.full ? ' · card full!' : stamp.rows.length ? ' · row!' : '';
   const text = `${result.hits.length} of ${ticket.length}${result.gold ? ' · gold' : ''}${tag}${card$}`;
@@ -226,23 +148,12 @@ function drawOnce(state: PlayerState, ticket: number[], wantRoom: number, wantSt
     buff: head?.kind,
     drawBuff: buff.free !== undefined || buff.goldX || buff.times ? drawBuff : undefined,
   };
-  const money = bet.mul(units);
-  let win: WinRecord | undefined;
-  if (money.gt(0)) {
-    win = { round: draw, text, sub, net: money.toString(), unit: bet.toString(), at: ctx.now, replay };
-    next = recordWin(next, 'keno', win);
-  }
-
+  const done = settleInstant({ ...state, keno: progress }, { game: 'keno', round, run, room: roomIndex, step, bet, x, onHouse, lines, text, sub, replay, listRound: draw }, ctx);
   return {
-    state: next,
+    state: done.state,
     round: {
-      round,
-      run,
+      ...done.settled,
       ticket,
-      room: roomIndex,
-      step,
-      bet: bet.toString(),
-      onHouse,
       buff: head?.kind,
       drawBuff,
       balls,
@@ -255,23 +166,8 @@ function drawOnce(state: PlayerState, ticket: number[], wantRoom: number, wantSt
       cardPaid: cardPaid.toString(),
       patterns: after.patterns,
       granted: after.granted,
-      x,
-      net: units,
-      lines,
-      text,
-      sub,
-      tokens: settled.tokens,
-      triggers: settled.triggers,
       replay,
-      after: {
-        bank: next.bank,
-        tokens: next.meta.tokens,
-        lifetimeTokens: next.meta.lifetimeTokens,
-        best: next.floor.best,
-        current: next.floor.current,
-        keno: next.keno,
-        win,
-      },
+      keno: progress,
     },
   };
 }
@@ -285,9 +181,9 @@ function drawOnce(state: PlayerState, ticket: number[], wantRoom: number, wantSt
 export function playKeno(state: PlayerState, play: KenoPlay, ctx: EngineContext): KenoOutcome {
   const ticket = cleanTicket(play.ticket);
   if (!ticket) return { ok: false, error: 'Mark one to ten numbers.' };
-  if (!Number.isInteger(play.step) || play.step < 0 || play.step >= BET_STEPS.length) return { ok: false, error: 'That bet isn’t offered.' };
-  if (!Number.isInteger(play.room) || play.room < 0) return { ok: false, error: 'That room isn’t open.' };
-  const want = Math.min(KENO_BATCH_MAX, Math.max(1, Math.floor(play.rounds ?? 1)));
+  const bad = badBet(play);
+  if (bad) return { ok: false, error: bad };
+  const want = batchSize(play.rounds, KENO_BATCH_MAX);
   const rounds: KenoRound[] = [];
   let current = state;
   for (let i = 0; i < want; i++) {

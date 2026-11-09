@@ -53,7 +53,7 @@ export class InstantGame {
   last = $state<{ lines: BreakdownLine[]; net: number } | null>(null);
   lastBet = $state(new Decimal(0));
   /** Stakes out on rounds still being played, so the bet can't outrun the bank. */
-  private out = 0;
+  protected out = 0;
 
   constructor(readonly id: string) {
     this.seq.remember(id);

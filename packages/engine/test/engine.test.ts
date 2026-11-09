@@ -1,4 +1,4 @@
-import { kenoDraw, KENO_BUFFS, STARTER_TOKENS } from '@idlesuits/sim';
+import { dropBall, kenoDraw, KENO_BUFFS, plinkoPays, STARTER_TOKENS } from '@idlesuits/sim';
 import { describe, expect, it } from 'vitest';
 import {
   act,
@@ -9,6 +9,8 @@ import {
   KENO_BATCH_MAX,
   playerFromSave,
   playKeno,
+  playPlinko,
+  plinkoRound,
   readPlayer,
   room,
   type EngineContext,
@@ -210,5 +212,46 @@ describe('reading saves', () => {
     expect(s.floor).toEqual({ current: 0, best: 0 });
     expect(s.meta.tokens).toBe(STARTER_TOKENS);
     expect(s.keno.card).toEqual([]);
+  });
+});
+
+describe('lucky drop on the engine', () => {
+  it('drops from the seed it reports, paying the slot', () => {
+    const out = playPlinko({ ...freshPlayer('s'), bank: '1e9' }, { rows: 12, risk: 'medium', step: 0, room: 0, rounds: 5 }, ctx());
+    expect(out.ok).toBe(true);
+    if (!out.ok) return;
+    expect(out.rounds).toHaveLength(5);
+    for (const r of out.rounds) {
+      expect(dropBall(12, { run: r.replay.run, round: r.replay.round })).toEqual({ path: r.ball.path, slot: r.ball.slot });
+      expect(r.ball.x).toBeCloseTo(plinkoPays(12, 'medium', 0.97)[r.ball.slot]!, 9);
+    }
+    expect(plinkoRound(out.state)).toBe(5);
+  });
+
+  it('pays back near the tuned payback, Fever included', () => {
+    let state: PlayerState = { ...freshPlayer('s'), bank: '1e15' };
+    let paid = 0;
+    let n = 0;
+    let fevers = 0;
+    for (let i = 0; i < 4000; i++) {
+      const out = playPlinko(state, { rows: 8, risk: 'low', step: 0, room: 0, rounds: 12 }, ctx());
+      if (!out.ok) throw new Error(out.error);
+      state = out.state;
+      for (const r of out.rounds) {
+        n++;
+        paid += r.x;
+        if (r.golden) {
+          fevers++;
+          expect(r.fever).toHaveLength(5);
+        }
+      }
+    }
+    expect(fevers).toBeGreaterThan(0);
+    expect(paid / n).toBeGreaterThan(0.94);
+    expect(paid / n).toBeLessThan(1.0);
+  });
+
+  it('refuses a board that does not exist', () => {
+    expect(playPlinko(freshPlayer('s'), { rows: 9 as 8, risk: 'medium', step: 0, room: 0 }, ctx()).ok).toBe(false);
   });
 });

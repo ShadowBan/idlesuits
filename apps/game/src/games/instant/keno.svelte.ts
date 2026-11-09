@@ -1,4 +1,4 @@
-import { BET_STEPS, type KenoProgress, type KenoRound, type KenoWin } from '@idlesuits/engine';
+import { BET_STEPS, type KenoRound, type KenoWin } from '@idlesuits/engine';
 import {
   GOLD_BALL_X,
   KENO_CARD_SHARE,
@@ -24,7 +24,7 @@ import { floor } from '../../lib/floor.svelte';
 import { jackpots } from '../../lib/jackpot.svelte';
 import { meta } from '../../lib/meta.svelte';
 import { Decimal } from '../../lib/money';
-import { player, type Hold } from '../../lib/player.svelte';
+import { player } from '../../lib/player.svelte';
 import { room } from '../../lib/rooms';
 import { load, save } from '../../lib/save';
 import { sfx } from '../../lib/sound';
@@ -55,28 +55,6 @@ export interface CardNews {
 
 /** Draws auto play asks for at once: the server decides them together, and the table shows them one by one. */
 const AUTO_BATCH = 5;
-
-/**
- * What the screen holds back while draw `i` of a batch is shown: every later
- * draw entirely, and draw `i`'s winnings (its stake is down once it starts:
- * `started`). Null once the last draw is shown.
- */
-function holdFor(rounds: readonly KenoRound[], i: number, started: boolean, before: { keno: KenoProgress; best: number }): Hold | null {
-  if (i >= rounds.length) return null;
-  let money = new Decimal(0);
-  let tokens = 0;
-  let wins = 0;
-  for (let j = i; j < rounds.length; j++) {
-    const r = rounds[j]!;
-    const bet = new Decimal(r.bet);
-    money = money.add(bet.mul(r.net));
-    if (j === i && started && !r.onHouse) money = money.add(bet);
-    tokens += r.tokens;
-    if (r.after.win) wins++;
-  }
-  const prev = rounds[i - 1]?.after;
-  return { money, tokens, best: prev?.best ?? before.best, keno: prev?.keno ?? before.keno, hiddenWins: wins ? { game: 'keno', count: wins } : null };
-}
 
 /**
  * Golden Keno: mark 1 to 10 numbers of 80, then 20 balls are drawn. The
@@ -313,12 +291,14 @@ export class KenoGame extends InstantGame {
       ? { winX: s.stopOnWin ? s.stopWinX : undefined, below: s.stopBelow ? s.stopBelowAmount : undefined, above: s.stopAbove ? s.stopAboveAmount : undefined }
       : undefined;
     let rounds: KenoRound[] = [];
+    let ids: number[] = [];
     this.batching = true;
     this.error = null;
     const out = await player.act({ type: 'keno.play', ticket: [...this.picks], step: this.step, room: floor.current, rounds: count, stop }, (landed) => {
-      rounds = landed.result && 'rounds' in landed.result ? landed.result.rounds : [];
+      rounds = landed.result && 'rounds' in landed.result ? (landed.result.rounds as KenoRound[]) : [];
       // The decided draws stay off the screen until they're shown.
-      player.hold = holdFor(rounds, 0, false, before);
+      ids = player.holdBack(rounds, before.best);
+      player.view('keno', before.keno);
     });
     if (!out.ok || !rounds.length) {
       this.batching = false;
@@ -329,11 +309,12 @@ export class KenoGame extends InstantGame {
     try {
       for (let i = 0; i < rounds.length; i++) {
         const r = rounds[i]!;
-        player.hold = holdFor(rounds, i, true, before);
+        player.start(ids[i]!, r);
         // A draw past the first is shown only while auto play runs; stopped, the rest land at once.
         const show = i === 0 || this.autoPlay;
         if (!(await this.showDraw(r, show))) return false;
-        player.hold = holdFor(rounds, i + 1, false, before);
+        player.reveal(ids[i]!);
+        player.view('keno', r.keno);
         this.landDraw(r);
         if (i < rounds.length - 1 && show && this.autoPlay) {
           // A buff just earned gets a moment on screen before the next draw.
@@ -342,7 +323,8 @@ export class KenoGame extends InstantGame {
       }
       return true;
     } finally {
-      player.hold = null;
+      player.reveal(...ids);
+      player.view('keno', null);
       this.drawing = false;
       this.batching = false;
     }

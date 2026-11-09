@@ -1,5 +1,6 @@
 import { findCharm, MAX_SLOTS } from '@idlesuits/sim';
-import { playKeno, type KenoPlay, type KenoRound } from './keno';
+import { KENO_BATCH_MAX, playKeno, type KenoPlay, type KenoRound } from './keno';
+import { playPlinko, plinkoRound, PLINKO_BATCH_MAX, type PlinkoPlay, type PlinkoRound } from './plinko';
 import { amount } from './money';
 import { opened } from './rooms';
 import { buyIn, buySlot, enterRoom, equipCharm, pullCharms, unequipCharm, type Capsule, type EngineContext } from './settle';
@@ -9,6 +10,7 @@ import { roomTuningOf } from './tuning';
 /** What a player can ask for. Each is checked here, whoever sends it. */
 export type PlayerAction =
   | ({ type: 'keno.play' } & KenoPlay)
+  | ({ type: 'plinko.play' } & PlinkoPlay)
   | { type: 'buyIn' }
   | { type: 'room'; index: number }
   | { type: 'charms.pull'; count: 1 | 10 }
@@ -27,7 +29,7 @@ export type AdminAction =
 export type Action = PlayerAction | AdminAction;
 
 /** What an action returned besides the new state: Keno's draws, or the capsules a pull opened. */
-export type ActResult = { rounds: KenoRound[] } | { capsules: Capsule[] } | null;
+export type ActResult = { rounds: KenoRound[] | PlinkoRound[] } | { capsules: Capsule[] } | null;
 
 export type ActOutcome = { ok: true; state: PlayerState; result: ActResult } | { ok: false; error: string };
 
@@ -49,6 +51,10 @@ export function act(state: PlayerState, raw: unknown, ctx: EngineContext, opts: 
   switch (a.type) {
     case 'keno.play': {
       const out = playKeno(state, a, ctx);
+      return out.ok ? { ok: true, state: out.state, result: { rounds: out.rounds } } : fail(out.error);
+    }
+    case 'plinko.play': {
+      const out = playPlinko(state, a, ctx);
       return out.ok ? { ok: true, state: out.state, result: { rounds: out.rounds } } : fail(out.error);
     }
     case 'buyIn':
@@ -101,4 +107,29 @@ export function act(state: PlayerState, raw: unknown, ctx: EngineContext, opts: 
  * Every other game is still decided in the browser, and members play it on a
  * practice bankroll until it moves here.
  */
-export const ENGINE_GAMES: readonly string[] = ['keno'];
+export const ENGINE_GAMES: readonly string[] = ['keno', 'plinko'];
+
+/** A run of seeds an action may need: `count` rounds of `game` from `from`. */
+export interface SeedRun {
+  game: string;
+  from: number;
+  count: number;
+}
+
+/**
+ * The seeds an action could need, so a host that works seeds out ahead (the
+ * server's are HMACs, which Web Crypto only does asynchronously) has them all.
+ */
+export function seedsWanted(state: PlayerState, action: unknown): SeedRun[] {
+  const type = action && typeof action === 'object' ? (action as { type?: unknown }).type : undefined;
+  switch (type) {
+    case 'keno.play':
+      return [{ game: 'keno', from: state.keno.round, count: KENO_BATCH_MAX }];
+    case 'plinko.play':
+      return [{ game: 'plinko', from: plinkoRound(state), count: PLINKO_BATCH_MAX }];
+    case 'charms.pull':
+      return [{ game: 'charms', from: 0, count: 1 }];
+    default:
+      return [];
+  }
+}

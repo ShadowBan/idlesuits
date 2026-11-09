@@ -2,9 +2,9 @@ import {
   act,
   freshPlayer,
   isOldStateKey,
-  KENO_BATCH_MAX,
   playerFromSave,
   readPlayer,
+  seedsWanted,
   type ActResult,
   type EngineTuning,
   type PlayerState,
@@ -146,10 +146,7 @@ export class PlayerDO extends DurableObject<Env> {
     return this.ctx.blockConcurrencyWhile(async (): Promise<ActReply> => {
       const { state, key } = this.load();
       // Every seed this action could need, worked out before it runs.
-      const seed = await seedsFor(key, [
-        { game: 'keno', from: state.keno.round, count: KENO_BATCH_MAX },
-        { game: 'charms', from: 0, count: 1 },
-      ]);
+      const seed = await seedsFor(key, seedsWanted(state, action));
       const out = act(state, action, { now: Date.now(), tuning, seed }, { admin: opts.admin });
       if (!out.ok) return { ok: false, error: out.error, status: 400 };
       this.store(out.state, key);

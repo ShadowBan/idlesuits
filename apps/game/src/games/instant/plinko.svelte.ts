@@ -1,8 +1,7 @@
+import type { PlinkoReplay, PlinkoRound } from '@idlesuits/engine';
 import {
   dropBall,
   FEVER_BALLS,
-  FEVER_LADDER,
-  isGolden,
   plinkoPayback,
   plinkoPays,
   PLINKO_RISKS,
@@ -10,7 +9,12 @@ import {
   type PlinkoRisk,
   type PlinkoRows,
 } from '@idlesuits/sim';
+import { autoplay } from '../../lib/autoplay.svelte';
+import { floor } from '../../lib/floor.svelte';
+import { jackpots } from '../../lib/jackpot.svelte';
+import { meta } from '../../lib/meta.svelte';
 import { Decimal } from '../../lib/money';
+import { player } from '../../lib/player.svelte';
 import { load, save } from '../../lib/save';
 import { sfx } from '../../lib/sound';
 import { InstantGame } from './instant.svelte';
@@ -19,6 +23,8 @@ import { InstantGame } from './instant.svelte';
 const MAX_BALLS = 24;
 /** Auto play's pace between balls, at 1×. */
 const AUTO_MS = 650;
+/** Balls auto play asks for at once: decided together, dropped on auto play's beat. */
+const AUTO_BATCH = 8;
 /** Fever: a breath after the golden ball lands, a beat between free balls, and the total held up at the end. */
 const FEVER_START_MS = 1400;
 const FEVER_GAP_MS = 700;
@@ -41,24 +47,17 @@ export interface Ball {
   boost: number;
   /** A kept ball dropped again: it lands and lights its slot, and pays nothing. */
   replay?: boolean;
+  /** The decided round this ball shows, and the id its result is held back under until it lands. */
+  decided?: { r: PlinkoRound; hold: number };
 }
 
-/** A ball kept with its win: enough to drop it again exactly. */
-export interface PlinkoReplay {
-  run: string;
-  round: number;
-  rows: PlinkoRows;
-  risk: PlinkoRisk;
-  bet: string;
-  /** What it paid, in bets: the slot's multiplier, or the whole Fever. */
-  x: number;
-  golden: boolean;
-}
-
+export type { PlinkoReplay };
 
 /** Fever under way: the golden ball's round, what it has paid so far, and where it is on the ladder. */
 export interface Fever {
   round: number;
+  /** The decided round it belongs to, and its held result. */
+  decided: { r: PlinkoRound; hold: number };
   bet: Decimal;
   /** In bets: the golden ball's own slot, then each free ball's, ladder and all. */
   pays: number[];
@@ -74,6 +73,10 @@ export interface Fever {
  * lands. A golden ball sets off Fever: free balls on the same board, every
  * slot paying double, and its round settles once they've all landed. The
  * board can't change while anything is falling.
+ *
+ * Every ball is decided by the engine (on the server, for a member) as it's
+ * dropped, Fever and all: the table lets it fall, and shows what it paid when
+ * it lands.
  */
 export class PlinkoGame extends InstantGame {
   rows = $state<PlinkoRows>(12);
@@ -91,6 +94,12 @@ export class PlinkoGame extends InstantGame {
   replayDone = $state(false);
   private before: { rows: PlinkoRows; risk: PlinkoRisk } | null = null;
   private timers: ReturnType<typeof setTimeout>[] = [];
+  /** Decided balls waiting their turn to drop (auto play's batch), with their held results. */
+  private queue: { r: PlinkoRound; hold: number }[] = [];
+  /** A request for balls is on its way. */
+  private asking = $state(false);
+  /** Why the last drop couldn't be played, for a moment on screen. */
+  error = $state<string | null>(null);
 
   constructor() {
     super('plinko');
@@ -111,7 +120,11 @@ export class PlinkoGame extends InstantGame {
   }
 
   get locked(): boolean {
-    return this.balls.length > 0 || this.fever !== null || (this.replaying !== null && !this.replayDone);
+    return this.balls.length > 0 || this.fever !== null || this.asking || this.queue.length > 0 || (this.replaying !== null && !this.replayDone);
+  }
+
+  get canBet(): boolean {
+    return player.ready && super.canBet;
   }
 
   setRows(rows: PlinkoRows) {
@@ -130,59 +143,111 @@ export class PlinkoGame extends InstantGame {
     save('plinko.risk', risk);
   }
 
-  /** Drops a ball: stakes its bet and draws its path. Not during Fever. */
+  /** Drops a ball: the engine decides it, then it falls. Not during Fever. */
   drop(): boolean {
-    if (this.fever || (this.replaying && !this.replayDone) || this.balls.length >= MAX_BALLS) return false;
+    if (this.fever || (this.replaying && !this.replayDone) || this.balls.length >= MAX_BALLS || !this.canBet) return false;
     this.leaveReplay();
-    const s = this.stake();
-    if (!s) return false;
-    const seed = { run: this.runSeed, round: s.round };
-    const { path, slot } = dropBall(this.rows, seed);
-    const golden = isGolden(seed);
-    this.balls = [...this.balls, { id: ++this.ids, round: s.round, bet: s.bet, path, slot, rows: this.rows, golden, fever: false, boost: 1 }];
-    if (golden) sfx.bigWin();
+    void this.ask(1);
+    return true;
+  }
+
+  /**
+   * Asks the engine for `count` balls on this board and bet, holds their
+   * results back, and drops the first (the rest wait their turn in the queue).
+   * False if none came back.
+   */
+  private async ask(count: number): Promise<boolean> {
+    const before = player.shown.floor.best;
+    const s = autoplay.settings;
+    const stop = this.autoPlay
+      ? { winX: s.stopOnWin ? s.stopWinX : undefined, below: s.stopBelow ? s.stopBelowAmount : undefined, above: s.stopAbove ? s.stopAboveAmount : undefined }
+      : undefined;
+    let decided: { r: PlinkoRound; hold: number }[] = [];
+    this.asking = true;
+    this.out += count;
+    const out = await player.act({ type: 'plinko.play', rows: this.rows, risk: this.risk, step: this.step, room: floor.current, rounds: count, stop }, (landed) => {
+      const rounds = landed.result && 'rounds' in landed.result ? (landed.result.rounds as PlinkoRound[]) : [];
+      const ids = player.holdBack(rounds, before);
+      decided = rounds.map((r, i) => ({ r, hold: ids[i]! }));
+    });
+    this.asking = false;
+    this.out = Math.max(0, this.out - count);
+    if (!out.ok || !decided.length) {
+      this.error = out.ok ? 'No ball came back.' : out.error;
+      this.autoPlay = false;
+      return false;
+    }
+    this.error = null;
+    this.queue.push(...decided);
+    this.dropNext();
+    return true;
+  }
+
+  /** The next decided ball falls: its stake goes down as it drops. */
+  private dropNext(): boolean {
+    const d = this.queue.shift();
+    if (!d) return false;
+    const r = d.r;
+    player.start(d.hold, r);
+    this.out++;
+    const bet = new Decimal(r.bet);
+    this.balls = [...this.balls, { id: ++this.ids, round: r.round, bet, path: r.ball.path, slot: r.ball.slot, rows: r.rows, golden: r.golden, fever: false, boost: 1, decided: d }];
+    if (r.golden) sfx.bigWin();
     else sfx.chip();
     return true;
   }
 
-  /** A ball has reached its slot: it pays, and leaves the board. */
+  /** A ball has reached its slot: it lights its slot, and its result is shown. */
   land(ball: Ball) {
     if (!this.balls.some((b) => b.id === ball.id)) return;
     this.balls = this.balls.filter((b) => b.id !== ball.id);
     if (ball.replay) return this.landReplay(ball);
-    const x = this.pays[ball.slot]! * ball.boost;
+    const d = ball.decided;
+    if (!d) return;
+    const x = ball.fever ? d.r.fever[this.fever?.step ?? 0]!.x : d.r.ball.x;
     const pay = ball.bet.mul(x);
     this.hits = { ...this.hits, [ball.slot]: { key: ball.id, pay, x, fever: ball.fever } };
     if (x >= 10 || ball.fever) sfx.bigWin();
     else if (x >= 1) sfx.win();
     else sfx.tick();
-    if (ball.golden) return this.startFever(ball, x);
+    if (ball.golden) return this.startFever(d, x);
     if (ball.fever && this.fever) {
       this.fever.pays = [...this.fever.pays, x];
       const next = this.fever.step + 1;
       if (next < FEVER_BALLS) {
         this.fever.step = next;
-        this.later(() => this.dropFever(ball.rows), FEVER_GAP_MS);
+        this.later(() => this.dropFever(), FEVER_GAP_MS);
       } else this.endFever();
       return;
     }
-    const text = `${x >= 10 ? x.toFixed(0) : x.toFixed(2)}× slot`;
-    this.lastReplay = { run: this.runSeed, round: ball.round, rows: ball.rows, risk: this.risk, bet: ball.bet.toString(), x, golden: false };
-    this.settle(ball.round, ball.bet, x, text, `${ball.rows} rows · ${this.risk} risk`, [{ label: `Slot ${ball.slot + 1} · ${x.toFixed(2)}×`, amount: x }]);
+    this.finish(d);
+  }
+
+  /** A decided round is all on screen: its result is shown, and counted in the session. */
+  private finish(d: { r: PlinkoRound; hold: number }) {
+    const r = d.r;
+    const bet = new Decimal(r.bet);
+    this.out = Math.max(0, this.out - 1);
+    player.reveal(d.hold);
+    this.lastReplay = r.replay;
+    jackpots.contribute();
+    meta.showFlash(r.triggers, r.tokens, bet);
+    this.record({ bet, pay: r.x, units: r.net, lines: r.lines, text: r.text, sub: r.sub, onHouse: r.onHouse });
+    autoplay.round(r.net, this.bank);
   }
 
   /** The golden ball has landed: Fever starts, and its first free ball follows it down. */
-  private startFever(golden: Ball, x: number) {
-    this.fever = { round: golden.round, bet: golden.bet, pays: [x], step: 0, done: false };
-    this.later(() => this.dropFever(golden.rows), FEVER_START_MS);
+  private startFever(d: { r: PlinkoRound; hold: number }, x: number) {
+    this.fever = { round: d.r.round, decided: d, bet: new Decimal(d.r.bet), pays: [x], step: 0, done: false };
+    this.later(() => this.dropFever(), FEVER_START_MS);
   }
 
-  /** Fever's next free ball: its own path from the golden ball's seed, and its step on the ladder. */
-  private dropFever(rows: PlinkoRows) {
+  /** Fever's next free ball, as the engine decided it, and its step on the ladder. */
+  private dropFever() {
     const f = this.fever;
     if (!f) return;
-    const { path, slot } = dropBall(rows, { run: this.runSeed, round: f.round }, f.step + 1);
-    this.balls = [...this.balls, { id: ++this.ids, round: f.round, bet: f.bet, path, slot, rows, golden: false, fever: true, boost: FEVER_LADDER[f.step]! }];
+    const fall = f.decided.r.fever[f.step]!;
+    this.balls = [...this.balls, { id: ++this.ids, round: f.round, bet: f.bet, path: fall.path, slot: fall.slot, rows: f.decided.r.rows, golden: false, fever: true, boost: fall.boost, decided: f.decided }];
     sfx.chip();
   }
 
@@ -191,17 +256,11 @@ export class PlinkoGame extends InstantGame {
     return this.fever ? this.fever.pays.reduce((a, b) => a + b, 0) : 0;
   }
 
-  /** Fever's last ball is in: the total holds up a moment, and the golden ball's round settles with everything it set off. */
+  /** Fever's last ball is in: the total holds up a moment, and the golden ball's round is shown with everything it set off. */
   private endFever() {
     const f = this.fever!;
     f.done = true;
-    const total = this.feverTotal;
-    const lines = [
-      { label: `Golden ball · ${f.pays[0]!.toFixed(2)}×`, amount: f.pays[0]! },
-      ...f.pays.slice(1).map((x, i) => ({ label: `Fever ball ${i + 1} · ×${FEVER_LADDER[i]}`, amount: x })),
-    ];
-    this.lastReplay = { run: this.runSeed, round: f.round, rows: this.rows, risk: this.risk, bet: f.bet.toString(), x: total, golden: true };
-    this.settle(f.round, f.bet, total, `Fever · ${total.toFixed(2)}×`, `golden ball + ${FEVER_BALLS} free · ${this.rows} rows`, lines);
+    this.finish(f.decided);
     this.later(() => (this.fever = null), FEVER_END_MS);
   }
 
@@ -263,11 +322,39 @@ export class PlinkoGame extends InstantGame {
     if (this.balls.length <= 3) sfx.tick();
   }
 
+  /** Auto play: a ball on every beat, asked for a batch at a time; balls already decided still drop once it stops. */
+  private looping = false;
+
   private async runAuto() {
-    while (this.autoPlay && !this.seq.disposed) {
-      if (!this.fever && !this.drop() && !this.balls.length) {
-        this.autoPlay = false;
-        return;
+    if (this.looping) return;
+    this.looping = true;
+    try {
+      await this.autoLoop();
+    } finally {
+      this.looping = false;
+    }
+  }
+
+  private async autoLoop() {
+    while (!this.seq.disposed) {
+      if (!this.autoPlay) {
+        // Stopped with balls decided: they drop anyway, quickly, since they're already paid.
+        if (!this.queue.length) return;
+        if (!this.fever) this.dropNext();
+        if (!(await this.seq.wait(AUTO_MS / 3))) return;
+        continue;
+      }
+      if (!this.fever && this.balls.length < MAX_BALLS) {
+        if (this.queue.length) this.dropNext();
+        else if (!this.asking) {
+          if (!this.canBet) {
+            if (!this.balls.length) this.autoPlay = false;
+          } else {
+            const s = autoplay.settings;
+            const left = s.stopAfter ? Math.max(1, s.stopRounds - autoplay.rounds - this.out) : AUTO_BATCH;
+            if (!(await this.ask(Math.min(AUTO_BATCH, left)))) return;
+          }
+        }
       }
       if (!(await this.seq.wait(AUTO_MS))) return;
     }
@@ -278,6 +365,7 @@ export class PlinkoGame extends InstantGame {
     const was = this.autoPlay;
     this.autoPlay = on && this.started && !this.gameOver;
     if (this.autoPlay && !was) void this.runAuto();
+    else if (!this.autoPlay && this.queue.length) void this.runAuto();
   }
 
   /** How fast a ball falls, at the deal speed: milliseconds per row. */

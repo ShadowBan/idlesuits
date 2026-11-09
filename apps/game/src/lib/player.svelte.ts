@@ -18,20 +18,31 @@ import { load, saveSoon, storedEntries, unstore } from './save';
 import { tuning } from './tuning.svelte';
 
 /**
- * What's on screen while a decided round is still being shown: the parts of
- * the state the round changed, held back until its animation gets there.
+ * A decided round the screen hasn't shown yet: what it changed, held back
+ * until its animation gets there.
  */
-export interface Hold {
-  /** Taken off the bank: winnings not yet shown, or stakes not yet down. */
+interface Pending {
+  /** Taken off the bank: its winnings, or its whole result before its stake is down. */
   money: Decimal;
-  /** Tokens not yet shown. */
+  /** Its Tokens. */
   tokens: number;
-  /** Rooms opened, and Keno's card, pots and meters, as of the round on screen. */
+  /** The game whose wins list it added to, if it won. */
+  win: string | null;
+  /** The highest room open before it. */
   best: number;
-  keno: KenoProgress;
-  /** Wins at the top of a game's list that haven't been shown yet. */
-  hiddenWins: { game: string; count: number } | null;
 }
+
+/** The parts of a settled round the screen holds back. */
+export interface HeldRound {
+  game: string;
+  bet: string;
+  net: number;
+  onHouse: boolean;
+  tokens: number;
+  after: { best: number; win?: unknown };
+}
+
+let pendingIds = 0;
 
 function newSeed(): string {
   return Math.random().toString(36).slice(2, 10);
@@ -58,8 +69,10 @@ function guestState(): PlayerState {
 class Player {
   /** The latest state: the server's for a member, this browser's for a guest. */
   truth = $state.raw<PlayerState>(guestState());
-  /** A decided round still being shown. */
-  hold = $state.raw<Hold | null>(null);
+  /** Decided rounds not yet shown, by id. */
+  private pending = $state.raw<ReadonlyMap<number, Pending>>(new Map());
+  /** A game's progress as of the round on screen, while later rounds are held back. */
+  private views = $state.raw<Readonly<Record<string, unknown>>>({});
   /** Signed in: the server decides. */
   member = $state(false);
   /** Who's playing is known: until then nothing can be played. */
@@ -69,21 +82,75 @@ class Player {
   /** The member's state couldn't be loaded or an action failed: what to tell them. */
   error = $state<string | null>(null);
 
-  /** The state as the screen shows it: the truth, less whatever a round being shown hasn't reached yet. */
+  /** The state as the screen shows it: the truth, less whatever rounds not yet shown changed. */
   shown = $derived.by((): PlayerState => {
     const t = this.truth;
-    const h = this.hold;
-    if (!h) return t;
-    const wins = h.hiddenWins ? { ...t.wins, [h.hiddenWins.game]: (t.wins[h.hiddenWins.game] ?? []).slice(h.hiddenWins.count) } : t.wins;
+    const views = this.views;
+    if (!this.pending.size && !Object.keys(views).length) return t;
+    let money = amount(0);
+    let tokens = 0;
+    let best = t.floor.best;
+    const hiddenWins: Record<string, number> = {};
+    for (const p of this.pending.values()) {
+      money = money.add(p.money);
+      tokens += p.tokens;
+      best = Math.min(best, p.best);
+      if (p.win) hiddenWins[p.win] = (hiddenWins[p.win] ?? 0) + 1;
+    }
+    const wins = { ...t.wins };
+    for (const [game, n] of Object.entries(hiddenWins)) wins[game] = (wins[game] ?? []).slice(n);
+    const { keno, ...games } = views;
     return {
       ...t,
-      bank: amount(t.bank).sub(h.money).max(0).toString(),
-      meta: { ...t.meta, tokens: Math.max(0, t.meta.tokens - h.tokens), lifetimeTokens: Math.max(0, t.meta.lifetimeTokens - h.tokens) },
-      floor: { ...t.floor, best: Math.min(t.floor.best, h.best) },
-      keno: h.keno,
+      bank: amount(t.bank).sub(money).max(0).toString(),
+      meta: { ...t.meta, tokens: Math.max(0, t.meta.tokens - tokens), lifetimeTokens: Math.max(0, t.meta.lifetimeTokens - tokens) },
+      floor: { ...t.floor, best },
+      keno: (keno as PlayerState['keno'] | undefined) ?? t.keno,
+      games: { ...t.games, ...games },
       wins,
     };
   });
+
+  /**
+   * Holds decided rounds off the screen until they're shown. `before` is the
+   * highest room open before the first. Returns the ids, in order: `start`
+   * puts a round's stake down, `reveal` shows all it did.
+   */
+  holdBack(rounds: readonly HeldRound[], before: number): number[] {
+    const next = new Map(this.pending);
+    const ids = rounds.map((r, i) => {
+      const id = ++pendingIds;
+      const bet = amount(r.bet);
+      next.set(id, { money: bet.mul(r.net), tokens: r.tokens, win: r.after.win ? r.game : null, best: i ? rounds[i - 1]!.after.best : before });
+      return id;
+    });
+    this.pending = next;
+    return ids;
+  }
+
+  /** A held round has started on screen: its stake is down, its winnings still held. */
+  start(id: number, r: HeldRound) {
+    const p = this.pending.get(id);
+    if (!p) return;
+    const bet = amount(r.bet);
+    const next = new Map(this.pending);
+    next.set(id, { ...p, money: bet.mul(r.net).add(r.onHouse ? 0 : bet) });
+    this.pending = next;
+  }
+
+  /** A held round is on screen in full. */
+  reveal(...ids: number[]) {
+    if (!ids.some((id) => this.pending.has(id))) return;
+    const next = new Map(this.pending);
+    for (const id of ids) next.delete(id);
+    this.pending = next;
+  }
+
+  /** Shows a game's progress as of the round on screen (null: as it truly is). */
+  view(game: string, progress: unknown) {
+    const { [game]: _, ...rest } = this.views;
+    this.views = progress === null ? rest : { ...rest, [game]: progress };
+  }
 
   bank = $derived(amount(this.shown.bank));
 
@@ -153,11 +220,16 @@ class Player {
     this.setTruth(change(this.truth, this.context()));
   }
 
+  private clearHolds() {
+    this.pending = new Map();
+    this.views = {};
+  }
+
   /** Signed in: from now on the server's state is the one shown and played. */
   async join() {
     this.member = true;
     this.ready = false;
-    this.hold = null;
+    this.clearHolds();
     await this.refresh();
     this.ready = true;
   }
@@ -165,7 +237,7 @@ class Player {
   /** Signed out: back to this browser's own state, as a guest. */
   leave() {
     this.member = false;
-    this.hold = null;
+    this.clearHolds();
     this.error = null;
     tuning.useServer(null);
     this.games = ENGINE_GAMES;
