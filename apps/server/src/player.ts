@@ -1,5 +1,6 @@
 import {
   act,
+  deepdropSnapsAt,
   freshPlayer,
   isOldStateKey,
   playerFromSave,
@@ -132,6 +133,26 @@ export class PlayerDO extends DurableObject<Env> {
     if (this.allowance < 1) return false;
     this.allowance--;
     return true;
+  }
+
+  /**
+   * Waits for a line played by hand to snap, then calls it snapped: the
+   * player's browser can't know when, since the snap point is secret. Ends
+   * at once if the line was reeled in first (or there's none). Holding the
+   * request open costs nothing while it waits; other requests carry on.
+   */
+  async watch(tuning: EngineTuning): Promise<ActReply> {
+    for (let tries = 0; tries < 3; tries++) {
+      const { state, key } = this.load();
+      const seed = await seedsFor(key, seedsWanted(state, { type: 'deepdrop.expire' }));
+      const at = deepdropSnapsAt(state, { now: Date.now(), tuning, seed });
+      if (at === null) return { ok: true, state, result: { live: null, rounds: [] } };
+      const wait = Math.min(at - Date.now(), 120_000);
+      if (wait > 0) await new Promise((r) => setTimeout(r, wait + 20));
+      const out = await this.act({ type: 'deepdrop.expire' }, tuning, { admin: false, limited: false });
+      if (out.ok) return out;
+    }
+    return { ok: false, error: 'The line is still holding.', status: 409 };
   }
 
   /**

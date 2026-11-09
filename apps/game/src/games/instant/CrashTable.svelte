@@ -365,8 +365,8 @@
       {seq}
       autoPlay={game.autoPlay}
       onAuto={(on) => game.setAutoPlay(on)}
-      seed={game.runSeed}
-      round={game.round}
+      seed={game.lastReplay ? game.lastReplay.run.slice(0, 12) : '—'}
+      round={game.lastReplay?.round ?? 0}
       last={game.last}
       lastUnit={game.lastBet}
       stats={game.stats('Lines')}

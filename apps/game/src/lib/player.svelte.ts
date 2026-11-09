@@ -1,6 +1,7 @@
 import {
   act,
   amount,
+  deepdropSnapsAt,
   ENGINE_GAMES,
   isOldStateKey,
   playerFromSave,
@@ -208,6 +209,27 @@ class Player {
       if (PREDICTED.has(action.type)) void this.refresh();
       if (e instanceof ApiError && e.status === 401) this.error = 'Your session ended. Sign in again to keep playing.';
       return { ok: false, error };
+    }
+  }
+
+  /**
+   * Waits for a line played by hand to snap (the screen can't know when: the
+   * snap point is the engine's secret), and returns it settled. Returns at
+   * once, with no rounds, if the line was reeled in first.
+   */
+  async watch(): Promise<ActOutcome> {
+    if (!this.member) {
+      const at = deepdropSnapsAt(this.truth, this.context());
+      if (at !== null) await new Promise((r) => setTimeout(r, Math.max(0, at - Date.now()) + 20));
+      return this.act({ type: 'deepdrop.expire' });
+    }
+    try {
+      const { state, result } = await api<{ state: unknown; result: unknown }>('/watch', { method: 'POST', body: {} });
+      const out = { ok: true as const, state: readPlayer(state, 'server'), result } as Extract<ActOutcome, { ok: true }>;
+      if (out.state.rev >= this.truth.rev) this.truth = out.state;
+      return out;
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : 'Something went wrong.' };
     }
   }
 

@@ -237,6 +237,15 @@ async function route(req: Request, env: Env): Promise<Response> {
     return actReply(req, env, me.user.id, { admin: me.user.role === 'admin', limited: me.user.role !== 'admin' });
   }
 
+  // A line played by hand: answered when it snaps (or at once if it's already been reeled in).
+  if (path === '/api/watch' && method === 'POST') {
+    const me = await requireUser(req, env);
+    await body<unknown>(req, env);
+    const out = (await player(env, me.user.id).watch(await readTuning(env))) as unknown as ActReply;
+    if (!out.ok) throw new HttpError(out.status, out.error);
+    return json({ state: out.state, result: out.result });
+  }
+
   // The pit boss's tuning, which the server decides rounds under.
   if (path === '/api/admin/tuning') {
     await requireAdmin(req, env);

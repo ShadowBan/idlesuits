@@ -1,9 +1,12 @@
-import { dropBall, kenoDraw, KENO_BUFFS, minesBoard, plinkoPays, STARTER_TOKENS } from '@idlesuits/sim';
+import { crashLineRtp, crashPoint, dropBall, kenoDraw, KENO_BUFFS, minesBoard, plinkoPays, STARTER_TOKENS } from '@idlesuits/sim';
 import { describe, expect, it } from 'vitest';
 import {
   act,
   bankOf,
   Decimal,
+  deepdropDrop,
+  deepdropExpire,
+  deepdropReel,
   ENGINE_TUNING,
   freshPlayer,
   KENO_BATCH_MAX,
@@ -325,5 +328,63 @@ describe('dynamite dig on the engine', () => {
     expect(vaults).toBeGreaterThan(0);
     expect(paid / n).toBeGreaterThan(0.94);
     expect(paid / n).toBeLessThan(1.0);
+  });
+});
+
+describe('deep drop on the engine', () => {
+  const at = (now: number, key = 'test'): EngineContext => ({ ...ctx(key), now });
+  /** A key whose first line holds past 3×, and one whose first line snaps under 2×. */
+  function keyWhere(test: (snap: number) => boolean): string {
+    for (let i = 0; i < 500; i++) {
+      const key = `k${i}`;
+      const snap = crashPoint(crashLineRtp(0.97), { run: `${key}:deepdrop:0`, round: 0 });
+      if (test(snap)) return key;
+    }
+    throw new Error('no key');
+  }
+
+  it('reels in a line by hand, no further than the line could have reached', () => {
+    const key = keyWhere((s) => s >= 3);
+    const dropped = deepdropDrop(freshPlayer('s'), { step: 0, room: 0, pace: 1 }, at(0, key));
+    expect(dropped.ok && dropped.live).toBeTruthy();
+    if (!dropped.ok) return;
+    expect(dropped.state.bank).toBe('495');
+    // Asks for 2.9× after 2.5 seconds: the line has only reached about 1.41×.
+    const reeled = deepdropReel(dropped.state, 2.9, at(2500, key));
+    expect(reeled.ok).toBe(true);
+    if (!reeled.ok) return;
+    const r = reeled.rounds[0]!;
+    expect(r.landed).toBe(true);
+    expect(r.at).toBeCloseTo(1.41, 2);
+    expect(bankOf(reeled.state).toNumber()).toBeCloseTo(500 + 5 * r.net, 6);
+  });
+
+  it('loses a line reeled in past its snap, and calls it snapped only once the snap has passed', () => {
+    const key = keyWhere((s) => s > 1.1 && s < 2);
+    const dropped = deepdropDrop(freshPlayer('s'), { step: 0, room: 0, pace: 1 }, at(0, key));
+    if (!dropped.ok) throw new Error();
+    expect(deepdropExpire(dropped.state, at(100, key)).ok).toBe(false);
+    const late = deepdropReel(dropped.state, 2, at(5100, key));
+    expect(late.ok && late.rounds[0]!.landed).toBe(false);
+    const expired = deepdropExpire(dropped.state, at(60_000, key));
+    expect(expired.ok && expired.rounds[0]!.landed).toBe(false);
+    expect(expired.ok && expired.state.bank).toBe('495');
+  });
+
+  it('pays back near the tuned payback on auto play, golden lines included', () => {
+    let state: PlayerState = { ...freshPlayer('s'), bank: '1e15' };
+    let paid = 0;
+    let n = 0;
+    for (let i = 0; i < 6000; i++) {
+      const out = deepdropDrop(state, { step: 0, room: 0, pace: 1, target: 1.5, rounds: 8 }, ctx());
+      if (!out.ok) throw new Error(out.error);
+      state = out.state;
+      for (const r of out.rounds) {
+        n++;
+        paid += r.x;
+      }
+    }
+    expect(paid / n).toBeGreaterThan(0.95);
+    expect(paid / n).toBeLessThan(0.99);
   });
 });

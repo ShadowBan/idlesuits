@@ -1,29 +1,25 @@
-import { crashAt, crashLineRtp, crashPoint, CRASH_CAP, GOLD_X, isGoldenLine } from '@idlesuits/sim';
+import { deepdropProgress, MIN_REEL, type CrashReplay, type DeepDropLive, type DeepDropRound } from '@idlesuits/engine';
+import { crashAt, CRASH_CAP, GOLD_X } from '@idlesuits/sim';
+import { autoplay } from '../../lib/autoplay.svelte';
+import { floor } from '../../lib/floor.svelte';
+import { jackpots } from '../../lib/jackpot.svelte';
+import { meta } from '../../lib/meta.svelte';
 import { Decimal } from '../../lib/money';
+import { player } from '../../lib/player.svelte';
 import { load, save } from '../../lib/save';
 import { sfx } from '../../lib/sound';
 import { InstantGame } from './instant.svelte';
+
+export { MIN_REEL, type CrashReplay };
 
 /** The deal speed's pace on the line, so auto play at 5× isn't a slow watch. */
 const PACE: Record<string, number> = { smart: 1, '1x': 1, '2x': 2, '5x': 5 };
 /** After a round: how long its result holds before auto play drops again, at 1×. */
 const AUTO_NEXT_MS = 1600;
-/** The lowest multiplier a line can be reeled in at: an instant snap is 1.00×. */
-export const MIN_REEL = 1.01;
+/** Lines auto play asks for at once. */
+const AUTO_BATCH = 5;
 
 export type LinePhase = 'idle' | 'sinking' | 'landed' | 'snapped';
-
-/** A line that was reeled in, kept with its win: enough to sink it again exactly. */
-export interface CrashReplay {
-  run: string;
-  round: number;
-  /** Where it was reeled in, and where it would have snapped. */
-  at: number;
-  snap: number;
-  golden: boolean;
-  bet: string;
-}
-
 
 /**
  * Deep Drop: Crash on a fishing line. The bet is staked as the line drops;
@@ -36,6 +32,12 @@ export interface CrashReplay {
  * payback ÷ m. Golden lines (shown as they drop) pay GOLD_X times whatever
  * they land; their worth comes out of every line's payback, so together they
  * pay exactly rtp, whatever the strategy.
+ *
+ * The snap point is the engine's secret (the server's, for a member). A line
+ * by hand sinks here while the engine watches it: reeling in asks the engine,
+ * which pays it if the line held that far by its own clock, and the engine
+ * says when the line snaps. Auto play's lines are reeled in at the marker,
+ * set before they drop, so they're decided at once, a batch at a time.
  */
 export class CrashGame extends InstantGame {
   /** Where auto play reels in. Lines played by hand are reeled in by hand. Saved. */
@@ -49,7 +51,12 @@ export class CrashGame extends InstantGame {
   golden = $state(false);
   /** The last lines' snap points, newest first: what the deep has been doing. */
   recent = $state<number[]>(load<number[]>('deepdrop.recent', []).filter((x) => typeof x === 'number').slice(0, 14));
-  private live: { round: number; bet: Decimal; snap: number } | null = null;
+  /** The line down: its stake, and the line the engine dropped (by hand), or the line it decided (auto play). */
+  private live: { bet: Decimal; hand: DeepDropLive | null; decided: DeepDropRound | null; hold: number | null } | null = null;
+  /** A reel-in is on its way to the engine: the line stops on screen while it goes. */
+  reeling = $state(false);
+  /** Why the last line couldn't drop, for a moment on screen. */
+  error = $state<string | null>(null);
   /** The line that just settled, as the wins list keeps it to replay. */
   lastReplay = $state<CrashReplay | null>(null);
   /** A kept line being sunk again: nothing staked, nothing paid. */
@@ -60,6 +67,13 @@ export class CrashGame extends InstantGame {
     super('deepdrop');
     const marker = load<number>('deepdrop.marker', 2);
     this.marker = typeof marker === 'number' && marker >= MIN_REEL && marker <= CRASH_CAP ? marker : 2;
+    // A line left down (the page closed mid-drop): it sinks on, for the engine to call.
+    const hand = deepdropProgress(player.truth).live;
+    if (hand) this.sinkHand(hand, Math.max(0, Date.now() - hand.startedAt));
+  }
+
+  get canBet(): boolean {
+    return player.ready && super.canBet;
   }
 
   get sinking(): boolean {
@@ -82,78 +96,138 @@ export class CrashGame extends InstantGame {
     save('deepdrop.marker', this.marker);
   }
 
-  /** Stakes the bet and drops the line. */
+  /** Drops a line by hand: the engine stakes it and keeps its snap point. */
   drop(): boolean {
-    if (this.live || this.phase === 'sinking') return false;
+    if (this.live || this.phase === 'sinking' || !this.canBet) return false;
     // A replay holding its catch steps aside for a real line.
     this.replaying = null;
-    const s = this.stake();
-    if (!s) return false;
-    const seed = { run: this.runSeed, round: s.round };
-    const snap = crashPoint(crashLineRtp(this.rtp), seed);
-    this.golden = isGoldenLine(seed);
-    this.live = { ...s, snap };
-    this.m = 1;
+    void this.dropHand();
+    return true;
+  }
+
+  private async dropHand() {
+    const pace = PACE[this.seq.speed] ?? 1;
+    this.live = { bet: this.bet, hand: null, decided: null, hold: null };
+    const out = await player.act({ type: 'deepdrop.drop', step: this.step, room: floor.current, pace });
+    if (!out.ok || !out.result || !('live' in out.result)) {
+      this.live = null;
+      this.error = out.ok ? 'The line didn’t drop.' : out.error;
+      return;
+    }
+    this.error = null;
+    const r = out.result;
+    // An instant snap comes back settled.
+    if (r.rounds[0]) {
+      this.golden = r.rounds[0].golden;
+      this.m = 1;
+      this.phase = 'sinking';
+      this.live = { bet: new Decimal(r.rounds[0].bet), hand: null, decided: r.rounds[0], hold: null };
+      this.frame = requestAnimationFrame(() => this.end(r.rounds[0]!));
+      return;
+    }
+    if (r.live) this.sinkHand(r.live, 0);
+  }
+
+  /** A line by hand sinks until it's reeled in, or the engine says it snapped. */
+  private sinkHand(hand: DeepDropLive, elapsed: number) {
+    this.live = { bet: new Decimal(hand.bet), hand, decided: null, hold: null };
+    this.golden = hand.golden;
     this.result = null;
     this.phase = 'sinking';
     if (this.golden) sfx.bigWin();
     else sfx.spin();
-    // An instant snap: the line parts at the surface.
-    if (snap <= 1) {
-      this.frame = requestAnimationFrame(() => this.end(false));
-      return true;
-    }
-    const start = performance.now();
-    const pace = PACE[this.seq.speed] ?? 1;
+    const start = performance.now() - elapsed;
     let ticked = 1;
     const step = (now: number) => {
-      if (!this.live) return;
-      const m = crashAt((now - start) * pace);
-      // It snaps only once past its point; at the point itself it can still be reeled in.
-      if (m > this.live.snap) {
-        this.m = this.live.snap;
-        return this.end(false);
-      }
-      this.m = m;
-      // Auto play reels in at its marker; a line played by hand waits for the player.
-      if (this.autoPlay && m >= this.marker) {
-        this.m = this.marker;
-        return this.end(true);
-      }
-      if (Math.floor(m) > ticked) {
-        ticked = Math.floor(m);
-        sfx.tick();
+      if (this.live?.hand !== hand) return;
+      if (!this.reeling) {
+        const m = crashAt((now - start) * hand.pace);
+        if (Math.floor(m) > ticked) {
+          ticked = Math.floor(m);
+          sfx.tick();
+        }
+        this.m = Math.min(m, CRASH_CAP);
       }
       this.frame = requestAnimationFrame(step);
     };
     this.frame = requestAnimationFrame(step);
-    return true;
+    void this.watch(hand);
   }
 
-  /** Reels in by hand, at the multiplier now. */
-  reelIn() {
-    if (!this.live || this.m < MIN_REEL) return;
-    this.end(true);
+  /** The engine says when the line snaps: it ends there, unless it's been reeled in first. */
+  private async watch(hand: DeepDropLive) {
+    const out = await player.watch();
+    if (this.live?.hand !== hand) return;
+    const r = out.ok && out.result && 'live' in out.result ? out.result.rounds[0] : undefined;
+    if (r) this.end(r);
   }
 
-  private end(landed: boolean) {
+  /** Reels in by hand, at the multiplier now: the engine pays it if the line held that far. */
+  async reelIn() {
+    const live = this.live;
+    if (!live?.hand || this.reeling || this.m < MIN_REEL) return;
+    this.reeling = true;
+    const out = await player.act({ type: 'deepdrop.reel', at: this.m });
+    this.reeling = false;
+    if (this.live !== live) return;
+    const r = out.ok && out.result && 'live' in out.result ? out.result.rounds[0] : undefined;
+    if (r) this.end(r);
+  }
+
+  /** A line has ended, as the engine settled it: reeled in, or snapped. */
+  private end(r: DeepDropRound) {
     const live = this.live;
     if (!live) return;
     cancelAnimationFrame(this.frame);
     this.live = null;
-    const pay = landed ? this.m * this.times : 0;
-    this.phase = landed ? 'landed' : 'snapped';
-    this.result = { at: landed ? this.m : live.snap, pay: live.bet.mul(pay), snap: live.snap };
-    this.recent = [live.snap, ...this.recent].slice(0, 14);
+    const bet = new Decimal(r.bet);
+    this.m = r.at;
+    this.phase = r.landed ? 'landed' : 'snapped';
+    this.result = { at: r.at, pay: bet.mul(r.x), snap: r.snap };
+    this.recent = [r.snap, ...this.recent].slice(0, 14);
     save('deepdrop.recent', this.recent);
-    if (landed) sfx.win();
+    if (r.landed) sfx.win();
     else sfx.lose();
-    const gold = this.golden ? 'Golden line · ' : '';
-    const text = landed ? `${gold}Reeled in ${this.m.toFixed(2)}×` : live.snap <= 1 ? `${gold}Snapped at once` : `${gold}Snapped at ${live.snap.toFixed(2)}×`;
-    const sub = landed ? `line held to ${live.snap.toFixed(2)}×` : this.autoPlay ? `auto play at ${this.marker.toFixed(2)}×` : 'reeled by hand';
-    const lines = landed ? [{ label: `Reeled in at ${this.m.toFixed(2)}×${this.golden ? `, golden ×${GOLD_X}` : ''}`, amount: pay }] : [];
-    this.lastReplay = { run: this.runSeed, round: live.round, at: this.m, snap: live.snap, golden: this.golden, bet: live.bet.toString() };
-    this.settle(live.round, live.bet, pay, text, sub, lines);
+    if (live.hold !== null) player.reveal(live.hold);
+    this.lastReplay = r.replay;
+    jackpots.contribute();
+    meta.showFlash(r.triggers, r.tokens, bet);
+    this.record({ bet, pay: r.x, units: r.net, lines: r.lines, text: r.text, sub: r.sub, onHouse: r.onHouse });
+    autoplay.round(r.net, this.bank);
+  }
+
+  /** Shows a line auto play's batch decided: it sinks to the marker, or to its snap. Resolves when it's over. */
+  private sinkDecided(r: DeepDropRound, hold: number): Promise<void> {
+    return new Promise((resolve) => {
+      player.start(hold, r);
+      this.live = { bet: new Decimal(r.bet), hand: null, decided: r, hold };
+      this.golden = r.golden;
+      this.m = 1;
+      this.result = null;
+      this.phase = 'sinking';
+      if (this.golden) sfx.bigWin();
+      else sfx.spin();
+      const stopAt = r.landed ? r.at : r.snap;
+      const start = performance.now();
+      const pace = PACE[this.seq.speed] ?? 1;
+      let ticked = 1;
+      const step = (now: number) => {
+        if (this.live?.decided !== r) return resolve();
+        const m = crashAt((now - start) * pace);
+        // An instant snap, or the line reaching where it ends.
+        if (stopAt <= 1 || m >= stopAt) {
+          this.end(r);
+          return resolve();
+        }
+        this.m = m;
+        if (Math.floor(m) > ticked) {
+          ticked = Math.floor(m);
+          sfx.tick();
+        }
+        this.frame = requestAnimationFrame(step);
+      };
+      this.frame = requestAnimationFrame(step);
+    });
   }
 
   /**
@@ -198,15 +272,52 @@ export class CrashGame extends InstantGame {
     this.phase = 'idle';
   }
 
-  /** Auto play: line after line, reeling in at the marker. */
+  /** Auto play: line after line, reeling in at the marker, asked for a batch at a time. */
   private async runAuto() {
     while (this.autoPlay && !this.seq.disposed) {
-      if (!this.live && !this.drop()) {
+      // A line by hand still down: it plays out first.
+      while (this.live) if (!(await this.seq.wait(100))) return;
+      if (!this.autoPlay) return;
+      if (!this.canBet) {
         this.autoPlay = false;
         return;
       }
-      while (this.live) if (!(await this.seq.wait(100))) return;
-      if (!(await this.seq.wait(AUTO_NEXT_MS))) return;
+      const s = autoplay.settings;
+      const left = s.stopAfter ? Math.max(1, s.stopRounds - autoplay.rounds) : AUTO_BATCH;
+      const stop = { winX: s.stopOnWin ? s.stopWinX : undefined, below: s.stopBelow ? s.stopBelowAmount : undefined, above: s.stopAbove ? s.stopAboveAmount : undefined };
+      const before = player.shown.floor.best;
+      let rounds: DeepDropRound[] = [];
+      let holds: number[] = [];
+      const out = await player.act(
+        { type: 'deepdrop.drop', step: this.step, room: floor.current, pace: PACE[this.seq.speed] ?? 1, target: this.marker, rounds: Math.min(AUTO_BATCH, left), stop },
+        (landed) => {
+          rounds = landed.result && 'live' in landed.result ? landed.result.rounds : [];
+          holds = player.holdBack(rounds, before);
+        },
+      );
+      if (!out.ok || !rounds.length) {
+        this.error = out.ok ? 'No line came back.' : out.error;
+        this.autoPlay = false;
+        return;
+      }
+      this.error = null;
+      try {
+        for (let i = 0; i < rounds.length; i++) {
+          // Stopped partway: the lines already decided are shown at once.
+          if (!this.autoPlay) {
+            for (let j = i; j < rounds.length; j++) {
+              player.start(holds[j]!, rounds[j]!);
+              this.live = { bet: new Decimal(rounds[j]!.bet), hand: null, decided: rounds[j]!, hold: holds[j]! };
+              this.end(rounds[j]!);
+            }
+            return;
+          }
+          await this.sinkDecided(rounds[i]!, holds[i]!);
+          if (!(await this.seq.wait(AUTO_NEXT_MS))) return;
+        }
+      } finally {
+        player.reveal(...holds);
+      }
     }
   }
 
