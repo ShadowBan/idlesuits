@@ -1,5 +1,7 @@
 import { findCharm, MAX_SLOTS } from '@idlesuits/sim';
+import type { AutoStop } from './instant';
 import { KENO_BATCH_MAX, playKeno, type KenoPlay, type KenoRound } from './keno';
+import { minesAuto, minesBegin, minesCash, minesDig, minesOpen, minesRounds, minesTrack, MINES_BATCH_MAX, type MinesRound, type MinesStep } from './mines';
 import { playPlinko, plinkoRound, PLINKO_BATCH_MAX, type PlinkoPlay, type PlinkoRound } from './plinko';
 import { amount } from './money';
 import { opened } from './rooms';
@@ -11,6 +13,12 @@ import { roomTuningOf } from './tuning';
 export type PlayerAction =
   | ({ type: 'keno.play' } & KenoPlay)
   | ({ type: 'plinko.play' } & PlinkoPlay)
+  | { type: 'mines.begin'; bombs: number; step: number; room: number }
+  | { type: 'mines.dig'; square: number }
+  | { type: 'mines.track'; track: number }
+  | { type: 'mines.cash' }
+  | { type: 'mines.open'; square: number }
+  | { type: 'mines.auto'; bombs: number; digs: number; step: number; room: number; rounds?: number; stop?: AutoStop }
   | { type: 'buyIn' }
   | { type: 'room'; index: number }
   | { type: 'charms.pull'; count: 1 | 10 }
@@ -29,7 +37,7 @@ export type AdminAction =
 export type Action = PlayerAction | AdminAction;
 
 /** What an action returned besides the new state: Keno's draws, or the capsules a pull opened. */
-export type ActResult = { rounds: KenoRound[] | PlinkoRound[] } | { capsules: Capsule[] } | null;
+export type ActResult = { rounds: KenoRound[] | PlinkoRound[] } | { steps: MinesStep[]; rounds: MinesRound[] } | { capsules: Capsule[] } | null;
 
 export type ActOutcome = { ok: true; state: PlayerState; result: ActResult } | { ok: false; error: string };
 
@@ -56,6 +64,26 @@ export function act(state: PlayerState, raw: unknown, ctx: EngineContext, opts: 
     case 'plinko.play': {
       const out = playPlinko(state, a, ctx);
       return out.ok ? { ok: true, state: out.state, result: { rounds: out.rounds } } : fail(out.error);
+    }
+    case 'mines.begin':
+    case 'mines.dig':
+    case 'mines.track':
+    case 'mines.cash':
+    case 'mines.open':
+    case 'mines.auto': {
+      const out =
+        a.type === 'mines.begin'
+          ? minesBegin(state, a, ctx)
+          : a.type === 'mines.dig'
+            ? minesDig(state, a.square, ctx)
+            : a.type === 'mines.track'
+              ? minesTrack(state, a.track, ctx)
+              : a.type === 'mines.cash'
+                ? minesCash(state, ctx)
+                : a.type === 'mines.open'
+                  ? minesOpen(state, a.square, ctx)
+                  : minesAuto(state, a, ctx);
+      return out.ok ? { ok: true, state: out.state, result: { steps: out.steps, rounds: out.rounds } } : fail(out.error);
     }
     case 'buyIn':
       return done(buyIn(state, t), 'You still have chips to play.');
@@ -107,7 +135,7 @@ export function act(state: PlayerState, raw: unknown, ctx: EngineContext, opts: 
  * Every other game is still decided in the browser, and members play it on a
  * practice bankroll until it moves here.
  */
-export const ENGINE_GAMES: readonly string[] = ['keno', 'plinko'];
+export const ENGINE_GAMES: readonly string[] = ['keno', 'plinko', 'mines'];
 
 /** A run of seeds an action may need: `count` rounds of `game` from `from`. */
 export interface SeedRun {
@@ -129,6 +157,15 @@ export function seedsWanted(state: PlayerState, action: unknown): SeedRun[] {
       return [{ game: 'plinko', from: plinkoRound(state), count: PLINKO_BATCH_MAX }];
     case 'charms.pull':
       return [{ game: 'charms', from: 0, count: 1 }];
+    case 'mines.begin':
+    case 'mines.dig':
+    case 'mines.track':
+    case 'mines.cash':
+    case 'mines.open':
+    case 'mines.auto': {
+      const r = minesRounds(state);
+      return [{ game: 'mines', from: r.live ?? r.next, count: MINES_BATCH_MAX + 1 }];
+    }
     default:
       return [];
   }

@@ -6,4 +6,5 @@ export * from './settle';
 export * from './instant';
 export * from './keno';
 export * from './plinko';
+export * from './mines';
 export * from './act';

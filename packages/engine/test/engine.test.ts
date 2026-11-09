@@ -1,4 +1,4 @@
-import { dropBall, kenoDraw, KENO_BUFFS, plinkoPays, STARTER_TOKENS } from '@idlesuits/sim';
+import { dropBall, kenoDraw, KENO_BUFFS, minesBoard, plinkoPays, STARTER_TOKENS } from '@idlesuits/sim';
 import { describe, expect, it } from 'vitest';
 import {
   act,
@@ -8,6 +8,11 @@ import {
   freshPlayer,
   KENO_BATCH_MAX,
   playerFromSave,
+  minesAuto,
+  minesBegin,
+  minesCash,
+  minesDig,
+  minesProgress,
   playKeno,
   playPlinko,
   plinkoRound,
@@ -253,5 +258,72 @@ describe('lucky drop on the engine', () => {
 
   it('refuses a board that does not exist', () => {
     expect(playPlinko(freshPlayer('s'), { rows: 9 as 8, risk: 'medium', step: 0, room: 0 }, ctx()).ok).toBe(false);
+  });
+});
+
+describe('dynamite dig on the engine', () => {
+  it('stakes on the first move, and settles the board it dealt', () => {
+    let state: PlayerState = freshPlayer('s');
+    const begun = minesBegin(state, { bombs: 3, step: 0, room: 0 }, ctx());
+    expect(begun.ok).toBe(true);
+    if (!begun.ok) return;
+    state = begun.state;
+    expect(state.bank).toBe('495');
+    const board = minesBoard(3, { run: ctx().seed('mines', 0), round: 0 });
+    // Dig every safe square that isn't a cart, then cash out.
+    const safe = board.map((t, i) => [t, i] as const).filter(([t]) => t === 'gem' || t === 'star').slice(0, 2);
+    for (const [, i] of safe) {
+      const dug = minesDig(state, i, ctx());
+      expect(dug.ok).toBe(true);
+      if (dug.ok) state = dug.state;
+    }
+    const cashed = minesCash(state, ctx());
+    expect(cashed.ok).toBe(true);
+    if (!cashed.ok) return;
+    const r = cashed.rounds[0]!;
+    expect(r.board).toEqual(board);
+    expect(r.how).toBe('cashed');
+    expect(bankOf(cashed.state).toNumber()).toBeCloseTo(500 + 5 * r.net, 6);
+    expect(minesProgress(cashed.state).live).toBeNull();
+  });
+
+  it('loses the stake on dynamite', () => {
+    let state: PlayerState = freshPlayer('s');
+    const begun = minesBegin(state, { bombs: 3, step: 0, room: 0 }, ctx());
+    if (!begun.ok) throw new Error();
+    state = begun.state;
+    const bomb = minesBoard(3, { run: ctx().seed('mines', 0), round: 0 }).indexOf('bomb');
+    const out = minesDig(state, bomb, ctx());
+    expect(out.ok && out.rounds[0]!.how).toBe('boom');
+    expect(out.ok && out.state.bank).toBe('495');
+  });
+
+  it('will not dig before a round, twice, or off the board', () => {
+    const s = freshPlayer('s');
+    expect(minesDig(s, 0, ctx()).ok).toBe(false);
+    const begun = minesBegin(s, { bombs: 3, step: 0, room: 0 }, ctx());
+    if (!begun.ok) throw new Error();
+    expect(minesDig(begun.state, 25, ctx()).ok).toBe(false);
+    expect(minesBegin(begun.state, { bombs: 3, step: 0, room: 0 }, ctx()).ok).toBe(false);
+  });
+
+  it('pays back near the tuned payback on auto play, vault and carts included', () => {
+    let state: PlayerState = { ...freshPlayer('s'), bank: '1e15' };
+    let paid = 0;
+    let n = 0;
+    let vaults = 0;
+    for (let i = 0; i < 6000; i++) {
+      const out = minesAuto(state, { bombs: 6, digs: 2, step: 0, room: 0, rounds: 5 }, ctx());
+      if (!out.ok) throw new Error(out.error);
+      state = out.state;
+      for (const r of out.rounds) {
+        n++;
+        paid += r.x;
+        if (r.vault) vaults++;
+      }
+    }
+    expect(vaults).toBeGreaterThan(0);
+    expect(paid / n).toBeGreaterThan(0.94);
+    expect(paid / n).toBeLessThan(1.0);
   });
 });
