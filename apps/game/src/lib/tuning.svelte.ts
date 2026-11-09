@@ -1,7 +1,6 @@
-import { cleanTuning, ENGINE_TUNING_KEYS, type EngineTuning } from '@idlesuits/engine';
+import { cleanTuning, ENGINE_TUNING_KEYS, gameValue, rulesFor, type EngineTuning } from '@idlesuits/engine';
 import { PULL_COST, TEN_PULL_COST } from '@idlesuits/sim';
 import { api } from './api';
-import { withOverrides } from './gameRules';
 import { roomTuning } from './rooms';
 import { load, save } from './save';
 
@@ -80,9 +79,8 @@ class Tuning {
   private local = $state<TuningValues>({ ...TUNING_DEFAULTS, ...load<Partial<TuningValues>>('tuning', {}) });
   /** A member's: the server's numbers that decide rounds and prices, which the pit boss sets for everyone. */
   server = $state.raw<EngineTuning | null>(null);
-  /** Each game's rule overrides, by game id and path in its rules object. */
-  games = $state<Record<string, Overrides>>(load('tuning.games', {}));
-  private tuned = new Map<string, { key: string; base: object; rules: object }>();
+  /** This browser's own rule overrides, by game id and path in its rules object: a guest's. */
+  private localGames = $state<Record<string, Overrides>>(load('tuning.games', {}));
 
   constructor() {
     this.sync();
@@ -90,12 +88,23 @@ class Tuning {
 
   /** The numbers in force: the server's where it keeps them, this browser's for the rest. */
   get values(): TuningValues {
-    return this.server ? { ...this.local, ...this.server } : this.local;
+    if (!this.server) return this.local;
+    const out = { ...this.local };
+    for (const key of ENGINE_TUNING_KEYS) out[key] = this.server[key];
+    return out;
   }
+
+  /** Each game's rule overrides in force: the server's for a member, by game id and path in its rules object. */
+  get games(): Record<string, Overrides> {
+    return this.server ? this.server.games : this.localGames;
+  }
+
+  /** A guest's tuning as the engine reads it, worked out again only when it changes. */
+  private localEngine = $derived(cleanTuning({ ...$state.snapshot(this.local), games: $state.snapshot(this.localGames) }));
 
   /** The numbers the engine reads, as in force here. */
   get engine(): EngineTuning {
-    return cleanTuning(this.values);
+    return this.server ?? this.localEngine;
   }
 
   /** Signed in: the server's numbers take over the ones it keeps. Null when signed out. */
@@ -134,18 +143,12 @@ class Tuning {
 
   /** A game's rules with any overrides set: the same object until they change, so strategy can be cached on it. */
   rules<T extends object>(id: string, base: T): T {
-    const overrides = this.games[id] ?? {};
-    const key = JSON.stringify(overrides);
-    const hit = this.tuned.get(id);
-    if (hit && hit.key === key && hit.base === base) return hit.rules as T;
-    const rules = withOverrides(base, overrides);
-    this.tuned.set(id, { key, base, rules });
-    return rules;
+    return rulesFor(this.engine, id, base);
   }
 
   /** One override for a game, or `fallback` if it hasn't been set. */
   gameValue<V extends number | boolean>(id: string, path: string, fallback: V): V {
-    return (this.games[id]?.[path] as V | undefined) ?? fallback;
+    return gameValue(this.engine, id, path, fallback);
   }
 
   setRule(id: string, path: string, value: number | boolean, designed: number | boolean) {
@@ -153,14 +156,22 @@ class Tuning {
     const game = { ...this.games[id] };
     if (value === designed) delete game[path];
     else game[path] = value;
-    this.games = { ...this.games, [id]: game };
-    save('tuning.games', $state.snapshot(this.games));
+    this.setGames({ ...this.games, [id]: game });
   }
 
   resetGame(id: string) {
     const { [id]: _, ...rest } = this.games;
-    this.games = rest;
-    save('tuning.games', $state.snapshot(this.games));
+    this.setGames(rest);
+  }
+
+  /** A member's rule overrides are the server's (the pit boss sets them for everyone); a guest's are this browser's. */
+  private setGames(games: Record<string, Overrides>) {
+    if (this.server) {
+      void this.setServer({ ...this.server, games });
+      return;
+    }
+    this.localGames = games;
+    save('tuning.games', $state.snapshot(this.localGames));
   }
 
   /** Knobs moved off their defaults. */

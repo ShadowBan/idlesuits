@@ -8,4 +8,5 @@ export * from './keno';
 export * from './plinko';
 export * from './mines';
 export * from './deepdrop';
+export * from './roulette';
 export * from './act';

@@ -123,17 +123,4 @@ export function ruleKnobs(id: string): RuleKnob[] {
   return [...out, ...(game.extra ?? [])];
 }
 
-/** A copy of `base` with values set along their paths, copying only the objects on the way. */
-export function withOverrides<T extends object>(base: T, overrides: Readonly<Record<string, number | boolean>>): T {
-  let out = base;
-  for (const [path, value] of Object.entries(overrides)) {
-    const keys = path.split('.');
-    const set = (obj: Record<string, unknown>, i: number): Record<string, unknown> => {
-      const copy = Array.isArray(obj) ? ([...obj] as unknown as Record<string, unknown>) : { ...obj };
-      copy[keys[i]!] = i === keys.length - 1 ? value : set((obj[keys[i]!] ?? {}) as Record<string, unknown>, i + 1);
-      return copy;
-    };
-    out = set(out as Record<string, unknown>, 0) as T;
-  }
-  return out;
-}
+export { withOverrides } from '@idlesuits/engine';

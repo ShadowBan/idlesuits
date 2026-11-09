@@ -106,7 +106,25 @@ export function batchSize(rounds: unknown, max: number): number {
  */
 export function settleInstant(
   state: PlayerState,
-  r: { game: string; round: number; run: string; room: number; step: number; bet: Decimal; x: number; onHouse?: boolean; lines: BreakdownLine[]; text: string; sub: string; replay: unknown; listRound?: number },
+  r: {
+    game: string;
+    round: number;
+    run: string;
+    room: number;
+    step: number;
+    bet: Decimal;
+    x: number;
+    onHouse?: boolean;
+    lines: BreakdownLine[];
+    text: string;
+    sub: string;
+    replay: unknown;
+    listRound?: number;
+    /** The bets as the charms see them, where a round isn't one bet (roulette's layout). */
+    bets?: RoundReport['bets'];
+    /** The lines already say what the stake did: no "Bet" line of −1. */
+    noBetLine?: boolean;
+  },
   ctx: EngineContext,
 ): { state: PlayerState; settled: InstantSettled } {
   const onHouse = !!r.onHouse;
@@ -115,7 +133,7 @@ export function settleInstant(
     game: r.game,
     seed: { run: r.run, round: r.round },
     // Stake 1 even on the house, as before: charms count a free round's win like any other.
-    bets: [{ kind: 'main', stake: 1, net }],
+    bets: r.bets ?? [{ kind: 'main', stake: 1, net }],
     outcome: net > 0 ? 'win' : net === 0 ? 'push' : 'lose',
   };
   const out = settleRound({ ...state, floor: { ...state.floor, current: r.room } }, report, r.bet, net, ctx);
@@ -139,7 +157,7 @@ export function settleInstant(
       onHouse,
       x: r.x,
       net: units,
-      lines: [...(onHouse ? [] : [{ label: 'Bet', amount: -1 }]), ...r.lines, ...out.lines],
+      lines: [...(onHouse || r.noBetLine ? [] : [{ label: 'Bet', amount: -1 }]), ...r.lines, ...out.lines],
       text: r.text,
       sub: r.sub,
       tokens: out.tokens,

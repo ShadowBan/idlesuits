@@ -1,4 +1,4 @@
-import { crashLineRtp, crashPoint, dropBall, kenoDraw, KENO_BUFFS, minesBoard, plinkoPays, STARTER_TOKENS } from '@idlesuits/sim';
+import { crashLineRtp, crashPoint, dropBall, kenoDraw, KENO_BUFFS, minesBoard, plinkoPays, rouletteSpin, STARTER_TOKENS } from '@idlesuits/sim';
 import { describe, expect, it } from 'vitest';
 import {
   act,
@@ -18,6 +18,7 @@ import {
   minesProgress,
   playKeno,
   playPlinko,
+  playRoulette,
   plinkoRound,
   readPlayer,
   room,
@@ -386,5 +387,41 @@ describe('deep drop on the engine', () => {
     }
     expect(paid / n).toBeGreaterThan(0.95);
     expect(paid / n).toBeLessThan(0.99);
+  });
+});
+
+describe('roulette on the engine', () => {
+  it('spins from the seed it reports, paying the layout', () => {
+    const out = playRoulette({ ...freshPlayer('s'), bank: '1e9' }, { layout: { red: '10', '17': '5' }, room: 0, rounds: 5 }, ctx());
+    expect(out.ok).toBe(true);
+    if (!out.ok) return;
+    for (const r of out.rounds) expect(rouletteSpin({ run: r.replay.run, round: r.replay.round })).toBe(r.pocket);
+  });
+
+  it('refuses bets that are not on the layout, or over the limits', () => {
+    const s = freshPlayer('s');
+    expect(playRoulette(s, { layout: { nope: '10' }, room: 0 }, ctx()).ok).toBe(false);
+    expect(playRoulette(s, { layout: { red: '1' }, room: 0 }, ctx()).ok).toBe(false);
+    expect(playRoulette(s, { layout: { red: '501' }, room: 0 }, ctx()).ok).toBe(false);
+    expect(playRoulette(s, { layout: { red: '10.5' }, room: 0 }, ctx()).ok).toBe(false);
+    expect(playRoulette({ ...s, bank: '20' }, { layout: { red: '50' }, room: 0 }, ctx()).ok).toBe(false);
+    expect(playRoulette(s, { layout: { red: '10' }, room: 3 }, ctx()).ok).toBe(false);
+  });
+
+  it('pays back 36/37', () => {
+    let state: PlayerState = { ...freshPlayer('s'), bank: '1e15' };
+    let paid = 0;
+    let n = 0;
+    for (let i = 0; i < 8000; i++) {
+      const out = playRoulette(state, { layout: { red: '10' }, room: 0, rounds: 5 }, ctx());
+      if (!out.ok) throw new Error(out.error);
+      state = out.state;
+      for (const r of out.rounds) {
+        n++;
+        paid += r.x;
+      }
+    }
+    expect(paid / n).toBeGreaterThan(0.96);
+    expect(paid / n).toBeLessThan(0.985);
   });
 });

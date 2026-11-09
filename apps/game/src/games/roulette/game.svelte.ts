@@ -1,10 +1,14 @@
-import { rouletteBet, rouletteSettle, rouletteSpin, ROULETTE_POCKETS, type RouletteResult, type RoundReport } from '@idlesuits/sim';
+import type { RouletteReplay, RouletteRound } from '@idlesuits/engine';
+import { rouletteBet, rouletteSettle, rouletteSpin, ROULETTE_POCKETS } from '@idlesuits/sim';
+import { autoplay } from '../../lib/autoplay.svelte';
 import type { BreakdownLine } from '../../lib/breakdown';
 import { bankroll } from '../../lib/casino.svelte';
 import { floor } from '../../lib/floor.svelte';
 import { ROULETTE_TOKENS } from '../../lib/gameRules';
+import { jackpots } from '../../lib/jackpot.svelte';
 import { meta } from '../../lib/meta.svelte';
 import { Decimal, formatMoney } from '../../lib/money';
+import { player } from '../../lib/player.svelte';
 import { room } from '../../lib/rooms';
 import { load, saveSoon } from '../../lib/save';
 import { Sequencer } from '../../lib/sequencer.svelte';
@@ -26,14 +30,10 @@ export interface HistoryEntry {
   net: Decimal;
 }
 
-/** A spin kept with its win: enough to spin it again exactly. */
-export interface RouletteReplay {
-  run: string;
-  round: number;
-  /** The layout it was spun with, in dollars, as strings so any size survives saving. */
-  layout: Record<string, string>;
-}
+export type { RouletteReplay };
 
+/** Spins auto play asks for at once. */
+const AUTO_BATCH = 5;
 
 function newSeed(): string {
   return Math.random().toString(36).slice(2, 10);
@@ -68,6 +68,9 @@ function fromSaved(saved: unknown): Layout {
  *
  * Limits: the whole layout must come to at least the room's minimum, no one
  * bet past the room's maximum, and never more than the bankroll.
+ *
+ * Every spin is decided by the engine (on the server, for a member): the
+ * table spins the wheel to the pocket that comes back.
  */
 export class RouletteGame {
   readonly seq = new Sequencer<true>();
@@ -142,9 +145,12 @@ export class RouletteGame {
     return this.bank.lt(this.minimum);
   }
 
+  /** Why the last spin couldn't be played, for a moment on screen. */
+  error = $state<string | null>(null);
+
   get canSpin(): boolean {
     const total = this.total;
-    return this.started && !this.gameOver && !this.spinning && (!this.replaying || this.replayDone) && total.gte(floor.room.min) && total.lte(this.bank);
+    return player.ready && this.started && !this.gameOver && !this.spinning && (!this.replaying || this.replayDone) && total.gte(floor.room.min) && total.lte(this.bank);
   }
 
   /** Why the layout can't be spun yet, if the table's limits are what stop it. */
@@ -378,32 +384,66 @@ export class RouletteGame {
     }
   }
 
+  /**
+   * Spins the layout: once, or a batch for auto play, decided by the engine
+   * together and shown one by one, each held off the bank until its ball drops.
+   */
   private async playRound(): Promise<boolean> {
     this.leaveReplay();
     const layout = { ...this.layout };
-    const unit = Object.values(layout).reduce((sum, v) => sum.add(v), new Decimal(0));
-    const pocket = rouletteSpin({ run: this.runSeed, round: this.round });
-    this.spinLayout = layout;
-    this.lastLayout = layout;
-    this.results = {};
-    this.pocket = pocket;
+    const s = autoplay.settings;
+    const count = this.autoPlay ? Math.min(AUTO_BATCH, s.stopAfter ? Math.max(1, s.stopRounds - autoplay.rounds) : AUTO_BATCH) : 1;
+    const stop = this.autoPlay
+      ? { winX: s.stopOnWin ? s.stopWinX : undefined, below: s.stopBelow ? s.stopBelowAmount : undefined, above: s.stopAbove ? s.stopAboveAmount : undefined }
+      : undefined;
+    const before = player.shown.floor.best;
+    let rounds: RouletteRound[] = [];
+    let holds: number[] = [];
     this.spinning = true;
-    this.spins++;
-    sfx.spin();
-    if (!(await this.seq.wait(SPIN_MS))) return false;
-    sfx.chip();
-    if (!(await this.seq.wait(LAND_MS))) return false;
-
-    // Every bet in units of the whole layout, so the charms see the spin as one bet.
-    const stakes = Object.fromEntries(Object.entries(layout).map(([id, v]) => [id, v.div(unit).toNumber()]));
-    const result = rouletteSettle(stakes, pocket);
-    this.results = Object.fromEntries(result.bets.map((b) => [b.id, b.net]));
-    this.spinning = false;
-    if (result.net >= 5) sfx.bigWin();
-    else if (result.net > 0) sfx.win();
-    else if (result.net < 0) sfx.lose();
-    this.settle(result, unit, layout);
-    return true;
+    const out = await player.act({ type: 'roulette.spin', layout: toSaved(layout), room: floor.current, rounds: count, stop }, (landed) => {
+      rounds = landed.result && 'rounds' in landed.result ? (landed.result.rounds as RouletteRound[]) : [];
+      holds = player.holdBack(rounds, before);
+    });
+    if (!out.ok || !rounds.length) {
+      this.spinning = false;
+      this.error = out.ok ? 'No spin came back.' : out.error;
+      this.autoPlay = false;
+      return true;
+    }
+    this.error = null;
+    try {
+      for (let i = 0; i < rounds.length; i++) {
+        const r = rounds[i]!;
+        // Stopped partway: the spins already decided land at once.
+        const show = i === 0 || this.autoPlay;
+        if (i > 0 && show && !(await this.seq.wait(RESULT_HOLD_MS))) return false;
+        player.start(holds[i]!, r);
+        this.spinLayout = layout;
+        this.lastLayout = layout;
+        this.results = {};
+        this.pocket = r.pocket;
+        this.spinning = true;
+        this.spins++;
+        if (show) {
+          sfx.spin();
+          if (!(await this.seq.wait(SPIN_MS))) return false;
+          sfx.chip();
+          if (!(await this.seq.wait(LAND_MS))) return false;
+        }
+        this.results = Object.fromEntries(r.bets.map((b) => [b.id, b.net]));
+        this.spinning = false;
+        const net = r.net;
+        if (net >= 5) sfx.bigWin();
+        else if (net > 0) sfx.win();
+        else if (net < 0) sfx.lose();
+        player.reveal(holds[i]!);
+        this.settle(r, layout);
+      }
+      return true;
+    } finally {
+      player.reveal(...holds);
+      this.spinning = false;
+    }
   }
 
   /** Which way the pit boss has roulette pay Tokens: by each winning bet, or by the spin as a whole. */
@@ -411,52 +451,27 @@ export class RouletteGame {
     return tuning.gameValue('roulette', ROULETTE_TOKENS.path, ROULETTE_TOKENS.value as boolean);
   }
 
-  /**
-   * The spin as the charms see it, in units of the whole layout. Tokens are a
-   * winning bet's net over its stake, so:
-   *  - by the spin: one bet, the whole layout, earning its net odds only when the spin wins overall;
-   *  - by each bet: every winning bet as a bet of stake 1 (the layout) and its win, so each earns its odds
-   *    weighted by its share of the chips, and the losers together as one losing bet.
-   * Either way the bets add up to the spin's stake and net, so the charms' cash sees the same spin.
-   * Covering every number can't farm Tokens either way: a whole layout earns at most 35/37 a spin on average.
-   */
-  private reportFor(result: RouletteResult): RoundReport {
-    const bets: RoundReport['bets'] = [];
-    if (this.tokensPerBet) {
-      for (const b of result.bets) if (b.net > 0) bets.push({ kind: 'main', stake: 1, net: b.net });
-      const lost = result.bets.filter((b) => b.net < 0).reduce((sum, b) => sum + b.stake, 0);
-      if (lost > 0) bets.push({ kind: 'main', stake: lost, net: -lost });
-    } else bets.push({ kind: 'main', stake: 1, net: result.net });
-    return {
-      game: 'roulette',
-      seed: { run: this.runSeed, round: this.round },
-      bets,
-      outcome: result.net > 0 ? 'win' : result.net < 0 ? 'lose' : 'push',
-    };
-  }
-
-  private settle(result: RouletteResult, unit: Decimal, layout: Layout) {
-    this.tokensBySpin += Math.max(0, result.net);
-    this.tokensByBet += result.bets.reduce((sum, b) => sum + Math.max(0, b.net), 0);
-    this.lastReplay = { run: this.runSeed, round: this.round, layout: toSaved(layout) };
-    const charms = meta.settleRound(this.reportFor(result), unit, result.net);
-    const units = result.net + charms.extra;
-    const lines: BreakdownLine[] = result.bets
-      .filter((b) => b.net > 0)
-      .map((b) => ({ label: `${rouletteBet(b.id)!.label} · ${rouletteBet(b.id)!.pays}:1`, amount: b.net }));
-    const lost = result.bets.filter((b) => b.net < 0).reduce((sum, b) => sum + b.net, 0);
-    if (lost < 0) lines.push({ label: `${result.bets.filter((b) => b.net < 0).length} losing ${result.bets.filter((b) => b.net < 0).length === 1 ? 'bet' : 'bets'}`, amount: lost });
-    this.last = { lines: [...lines, ...charms.lines], net: units };
+  /** A spin the engine settled: its place in the session, and the layout fitted to what's left. */
+  private settle(r: RouletteRound, layout: Layout) {
+    const unit = new Decimal(r.bet);
+    const spinNet = r.bets.reduce((sum, b) => sum + b.net, 0);
+    this.tokensBySpin += Math.max(0, spinNet);
+    this.tokensByBet += r.bets.reduce((sum, b) => sum + Math.max(0, b.net), 0);
+    this.lastReplay = r.replay;
+    jackpots.contribute();
+    meta.showFlash(r.triggers, r.tokens, unit);
+    autoplay.round(r.net, this.bank);
+    this.last = { lines: r.lines, net: r.net };
     this.lastUnit = unit;
-    const net = unit.mul(units);
+    const net = unit.mul(r.net);
     this.sessionNet = this.sessionNet.add(net);
     if (net.gt(this.biggestWin)) this.biggestWin = net;
     this.hands++;
     this.round++;
-    this.numbers = [result.pocket, ...this.numbers].slice(0, HISTORY);
+    this.numbers = [r.pocket, ...this.numbers].slice(0, HISTORY);
     saveSoon('roulette.numbers', () => $state.snapshot(this.numbers));
     const staked = Object.values(layout).reduce((sum, v) => sum.add(v), new Decimal(0));
-    this.history = [{ round: this.round, pocket: result.pocket, staked, net }, ...this.history].slice(0, 12);
+    this.history = [{ round: this.round, pocket: r.pocket, staked, net }, ...this.history].slice(0, 12);
     if (this.broke) {
       this.gameOver = true;
       this.autoPlay = false;
