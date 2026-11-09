@@ -4,6 +4,7 @@ import { KENO_BATCH_MAX, playKeno, type KenoPlay, type KenoRound } from './keno'
 import { deepdropDrop, deepdropExpire, deepdropReel, deepdropRounds, DEEPDROP_BATCH_MAX, type DeepDropLive, type DeepDropRound } from './deepdrop';
 import { jackpotState, withJackpots, JACKPOT_SEEDS, MAJOR_CAP } from './jackpots';
 import { playSlot, slotRound, SLOT_BATCH_MAX, type SlotPlay, type SlotRound } from './slots';
+import { tableAuto, tableDeal, tableGames, tableMove, tableProgress, tableResume, TABLE_BATCH_MAX, type TableDealRequest, type TablePlay } from './tables';
 import { playRoulette, rouletteRound, ROULETTE_BATCH_MAX, type RouletteRound } from './roulette';
 import { minesAuto, minesBegin, minesCash, minesDig, minesOpen, minesRounds, minesTrack, MINES_BATCH_MAX, type MinesRound, type MinesStep } from './mines';
 import { playPlinko, plinkoRound, PLINKO_BATCH_MAX, type PlinkoPlay, type PlinkoRound } from './plinko';
@@ -28,6 +29,10 @@ export type PlayerAction =
   | { type: 'deepdrop.expire' }
   | { type: 'roulette.spin'; layout: Record<string, string>; room: number; rounds?: number; stop?: AutoStop }
   | ({ type: 'slot.spin' } & SlotPlay)
+  | ({ type: 'table.deal'; game: string } & TableDealRequest)
+  | { type: 'table.move'; game: string; choice: unknown }
+  | { type: 'table.resume'; game: string }
+  | ({ type: 'table.auto'; game: string; rounds?: number; stop?: AutoStop } & TableDealRequest)
   | { type: 'buyIn' }
   | { type: 'room'; index: number }
   | { type: 'charms.pull'; count: 1 | 10 }
@@ -51,6 +56,7 @@ export type ActResult =
   | { rounds: KenoRound[] | PlinkoRound[] | RouletteRound[] | SlotRound[] }
   | { steps: MinesStep[]; rounds: MinesRound[] }
   | { live: DeepDropLive | null; rounds: DeepDropRound[] }
+  | { plays: TablePlay[] }
   | { capsules: Capsule[] }
   | null;
 
@@ -114,6 +120,21 @@ export function act(state: PlayerState, raw: unknown, ctx: EngineContext, opts: 
       const out = playSlot(state, a, ctx, !!opts.admin);
       return out.ok ? { ok: true, state: out.state, result: { rounds: out.rounds } } : fail(out.error);
     }
+    case 'table.deal':
+    case 'table.move':
+    case 'table.resume':
+    case 'table.auto': {
+      if (typeof a.game !== 'string') return fail('No such table.');
+      const out =
+        a.type === 'table.deal'
+          ? tableDeal(state, a.game, a, ctx)
+          : a.type === 'table.move'
+            ? tableMove(state, a.game, a.choice, ctx)
+            : a.type === 'table.resume'
+              ? tableResume(state, a.game, ctx)
+              : tableAuto(state, a.game, a, ctx);
+      return out.ok ? { ok: true, state: out.state, result: { plays: out.plays } } : fail(out.error);
+    }
     case 'buyIn':
       return done(buyIn(state, t), 'You still have chips to play.');
     case 'room':
@@ -171,7 +192,7 @@ export function act(state: PlayerState, raw: unknown, ctx: EngineContext, opts: 
  * Every other game is still decided in the browser, and members play it on a
  * practice bankroll until it moves here.
  */
-export const ENGINE_GAMES: readonly string[] = ['keno', 'plinko', 'mines', 'deepdrop', 'roulette', 'vault', 'forge', 'haul', 'carnival', 'lanterns'];
+export const ENGINE_GAMES: readonly string[] = ['keno', 'plinko', 'mines', 'deepdrop', 'roulette', 'vault', 'forge', 'haul', 'carnival', 'lanterns', 'blackjack'];
 
 /** A run of seeds an action may need: `count` rounds of `game` from `from`. */
 export interface SeedRun {
@@ -208,6 +229,19 @@ export function seedsWanted(state: PlayerState, action: unknown): SeedRun[] {
       return [{ game: 'deepdrop', from: deepdropRounds(state).from, count: DEEPDROP_BATCH_MAX + 1 }];
     case 'roulette.spin':
       return [{ game: 'roulette', from: rouletteRound(state), count: ROULETTE_BATCH_MAX }];
+    case 'table.deal':
+    case 'table.move':
+    case 'table.resume':
+    case 'table.auto': {
+      const game = String((action as { game?: unknown }).game ?? '');
+      if (!tableGames().includes(game)) return [];
+      const t = tableProgress(state, game);
+      const shoe = Number((t.progress.shoe as { number?: unknown } | undefined)?.number ?? 0) || 0;
+      return [
+        { game, from: t.round, count: TABLE_BATCH_MAX + 1 },
+        { game: `${game}.shoe`, from: shoe, count: TABLE_BATCH_MAX + 2 },
+      ];
+    }
     case 'slot.spin': {
       const machine = String((action as { machine?: unknown }).machine ?? '');
       if (!/^[a-z]{1,20}$/.test(machine)) return [];

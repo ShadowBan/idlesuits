@@ -28,6 +28,8 @@ export interface EngineTuning {
   slotPayback: number;
   /** × what every round adds to the progressive jackpots. */
   jackpotGrowth: number;
+  /** Blind hands at every poker table, or −1 for what the charms give. */
+  blindHands: number;
   /** Each game's rule overrides, by game id and path in its rules object. */
   games: GameOverrides;
 }
@@ -50,6 +52,7 @@ export const ENGINE_TUNING: Readonly<EngineTuning> = {
   instantPayback: 97,
   slotPayback: 94,
   jackpotGrowth: 1,
+  blindHands: -1,
   games: {},
 };
 
@@ -66,6 +69,7 @@ export const ENGINE_TUNING_LIMITS: Readonly<Record<TuningNumber, [number, number
   instantPayback: [50, 150],
   slotPayback: [50, 150],
   jackpotGrowth: [0, 1000],
+  blindHands: [-1, 2],
 };
 
 export const ENGINE_TUNING_KEYS = Object.keys(ENGINE_TUNING_LIMITS) as TuningNumber[];

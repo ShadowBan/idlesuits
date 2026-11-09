@@ -29,6 +29,7 @@ import {
   type EngineContext,
   type KenoRound,
   type PlayerState,
+  type TablePlay,
 } from '../src';
 
 const ctx = (key = 'test'): EngineContext => ({ now: 1_000, tuning: ENGINE_TUNING, seed: (game, round) => `${key}:${game}:${round}` });
@@ -465,5 +466,76 @@ describe('slots on the engine', () => {
 
   it('refuses a machine that does not exist', () => {
     expect(playSlot(freshPlayer('s'), { machine: 'nope', step: 0, room: 0 }, ctx(), false).ok).toBe(false);
+  });
+});
+
+describe('blackjack on the engine', () => {
+  const deal = { game: 'blackjack', room: 0, bet: '10' };
+
+  it('takes the bet at the deal, hides the hole card, and settles what the hand came to', () => {
+    // A round that stops for a decision, so the hole card is still down.
+    for (let k = 0; k < 40; k++) {
+      const c = ctx(`bj${k}`);
+      const start = freshPlayer('s');
+      const out = act(start, { type: 'table.deal', ...deal }, c);
+      if (!out.ok) throw new Error(out.error);
+      const play = (out.result as { plays: TablePlay[] }).plays[0]!;
+      if (!play.decision) continue;
+      expect(out.state.bank).toBe('490');
+      const hole = (play.events as { type: string; holeCard?: boolean; card?: { uid: string } }[]).find((e) => e.type === 'CardDealt' && e.holeCard);
+      expect(hole?.card?.uid).toBe('hole');
+      // Stand until it's over.
+      let state = out.state;
+      let p: TablePlay = play;
+      while (p.decision) {
+        const d = p.decision as { kind: string };
+        const moved = act(state, { type: 'table.move', game: 'blackjack', choice: d.kind === 'insurance' ? 'noInsurance' : 'stand' }, c);
+        if (!moved.ok) throw new Error(moved.error);
+        state = moved.state;
+        p = (moved.result as { plays: TablePlay[] }).plays[0]!;
+      }
+      expect(p.settled).toBeTruthy();
+      expect(bankOf(state).toNumber()).toBeCloseTo(500 + 10 * p.settled!.units, 6);
+      return;
+    }
+    throw new Error('no round stopped for a decision');
+  });
+
+  it('refuses moves it does not offer, and a second deal mid-hand', () => {
+    for (let k = 0; k < 40; k++) {
+      const c = ctx(`bj${k}`);
+      const out = act(freshPlayer('s'), { type: 'table.deal', ...deal }, c);
+      if (!out.ok) throw new Error(out.error);
+      const play = (out.result as { plays: TablePlay[] }).plays[0]!;
+      if (!play.decision || (play.decision as { kind: string }).kind !== 'move') continue;
+      expect(act(out.state, { type: 'table.move', game: 'blackjack', choice: 'surrender' }, c).ok).toBe(false);
+      expect(act(out.state, { type: 'table.deal', ...deal }, c).ok).toBe(false);
+      return;
+    }
+  });
+
+  it('refuses bets outside the table limits', () => {
+    expect(act(freshPlayer('s'), { type: 'table.deal', ...deal, bet: '1' }, ctx()).ok).toBe(false);
+    expect(act(freshPlayer('s'), { type: 'table.deal', ...deal, bet: '9999' }, ctx()).ok).toBe(false);
+    expect(act(freshPlayer('s'), { type: 'table.deal', ...deal, sides: { nope: '5' } }, ctx()).ok).toBe(false);
+  });
+
+  it('plays auto rounds on the strategy, dealing down the shoe', () => {
+    let state: PlayerState = { ...freshPlayer('s'), bank: '1e12' };
+    let units = 0;
+    let n = 0;
+    for (let i = 0; i < 300; i++) {
+      const out = act(state, { type: 'table.auto', ...deal, rounds: 5 }, ctx());
+      if (!out.ok) throw new Error(out.error);
+      state = out.state;
+      for (const p of (out.result as { plays: TablePlay[] }).plays) {
+        n++;
+        units += p.settled!.net;
+      }
+    }
+    expect(n).toBe(1500);
+    expect(units / n).toBeGreaterThan(-0.12);
+    expect(units / n).toBeLessThan(0.1);
+    expect((state.games.blackjack as { shoe: { number: number } }).shoe.number).toBeGreaterThan(5);
   });
 });

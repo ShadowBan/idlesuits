@@ -41,6 +41,8 @@ export interface HeldRound {
   onHouse: boolean;
   tokens: number;
   after: { best: number; win?: unknown };
+  /** Exactly what to hold back, where a round's stake went down before it settled (a table's hand). */
+  money?: string;
 }
 
 let pendingIds = 0;
@@ -122,7 +124,7 @@ class Player {
     const ids = rounds.map((r, i) => {
       const id = ++pendingIds;
       const bet = amount(r.bet);
-      next.set(id, { money: bet.mul(r.net), tokens: r.tokens, win: r.after.win ? r.game : null, best: i ? rounds[i - 1]!.after.best : before });
+      next.set(id, { money: r.money !== undefined ? amount(r.money) : bet.mul(r.net), tokens: r.tokens, win: r.after.win ? r.game : null, best: i ? rounds[i - 1]!.after.best : before });
       return id;
     });
     this.pending = next;

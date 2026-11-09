@@ -13,3 +13,7 @@ export * from './jackpots';
 export * from './slots';
 export * from './progress';
 export * from './act';
+export * from './report';
+export * from './tables';
+export * from './games/shoe';
+export * from './games/blackjack';
