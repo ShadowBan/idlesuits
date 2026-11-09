@@ -1,138 +1,73 @@
-import { MIDNIGHT_VAULT, type JackpotMeters } from '@idlesuits/sim';
-import { load, saveSoon } from './save';
+import { jackpotState, JACKPOT_SEEDS, MAJOR_CAP, PER_SECOND, type JackpotHit } from '@idlesuits/engine';
+import type { JackpotMeters } from '@idlesuits/sim';
+import { player } from './player.svelte';
 import { tuning } from './tuning.svelte';
 
-/** Where the meters start, and go back to once hit, in total bets. */
-export const JACKPOT_SEEDS: JackpotMeters = { major: MIDNIGHT_VAULT.jackpots.major, grand: MIDNIGHT_VAULT.jackpots.grand };
+export { JACKPOT_SEEDS, MAJOR_CAP, type JackpotHit };
 
-/** The Major must hit before it reaches this, in total bets. */
-export const MAJOR_CAP = JACKPOT_SEEDS.major * 1.5;
-
-/** What every hand anywhere in the casino adds to each meter, in total bets, before the pit boss's growth knob. */
-const PER_HAND: JackpotMeters = { major: 0.003, grand: 0.04 };
-/** What the rest of the link adds every second the casino is open: other players, as on a real bank of machines. */
-const PER_SECOND: JackpotMeters = { major: 0.002, grand: 0.01 };
-
-/** A jackpot someone hit, for the floor's record. */
-export interface JackpotHit {
-  tier: 'major' | 'grand';
-  /** The meter when it hit, in bets, and what it paid in dollars (saved as a string: it can be any size). */
-  x: number;
-  paid: string;
-  machine: string;
-  /** Date.now(). */
-  at: number;
-  /** Won by the must-hit-by draw rather than coins. */
-  mystery?: boolean;
-}
-
-function pickHitPoint(from: number): number {
-  return from + Math.random() * (MAJOR_CAP - from);
-}
+/** The meters creep up on screen at most this long past their last update, as the engine counts it. */
+const MAX_IDLE_SECONDS = 60;
 
 /**
- * The casino-wide progressive jackpots, linked across every slot machine as
- * on a bank of linked machines. Every hand or spin at any table or machine
- * adds to them, and so does the rest of the link, a little every second;
- * whichever machine hits one pays it and starts it over.
+ * The casino-wide progressive jackpots, linked across every slot machine, as
+ * the engine keeps them (on the server, for a member): every round anywhere
+ * adds to them, and so does the rest of the link, a little every second the
+ * player is at it. Whichever machine hits one pays it and starts it over.
  *
- * The meters are multiples of the bet, so they mean the same in every room:
- * a Grand of 2,400× pays $12,000 on a $5 spin and $1.2M on a $500 one.
- *
+ * The meters are multiples of the bet, so they mean the same in every room.
  * The Major is also a must-hit-by jackpot: it pays on the first spin after it
- * passes a hidden point, drawn somewhere between its seed and its cap, so it
- * always pays before the cap. Coins can still hit it sooner.
+ * passes a hidden point, which only the engine knows.
  */
 class Jackpots {
-  major = $state(JACKPOT_SEEDS.major);
-  grand = $state(JACKPOT_SEEDS.grand);
-  /** The hidden point where the Major must hit. */
-  private majorAt: number;
-  history = $state<JackpotHit[]>([]);
-  /** Counts hits, so a meter can flash when it resets. */
-  hits = $state(0);
+  /** Ticks every second, so the meters creep up on screen between rounds as the engine will count them. */
+  private now = $state(Date.now());
 
   constructor() {
-    const saved = load<Partial<JackpotMeters & { majorAt: number; history: JackpotHit[] }>>('jackpots', {});
-    if (Number.isFinite(saved.major) && saved.major! >= JACKPOT_SEEDS.major) this.major = Math.min(saved.major!, MAJOR_CAP);
-    if (Number.isFinite(saved.grand) && saved.grand! >= JACKPOT_SEEDS.grand) this.grand = saved.grand!;
-    this.majorAt =
-      Number.isFinite(saved.majorAt) && saved.majorAt! >= JACKPOT_SEEDS.major && saved.majorAt! <= MAJOR_CAP
-        ? saved.majorAt!
-        : pickHitPoint(this.major);
-    this.history = repairHistory(saved.history);
-    // The rest of the link plays on while the casino is open.
-    if (typeof window !== 'undefined') setInterval(() => this.grow(PER_SECOND), 1000);
+    if (typeof window !== 'undefined') setInterval(() => (this.now = Date.now()), 1000);
+  }
+
+  private get state() {
+    return jackpotState(player.shown);
+  }
+
+  /** The meter now: as last counted, plus the link's seconds since (a minute at most). */
+  private creep(tier: 'major' | 'grand'): number {
+    const j = this.state;
+    const seconds = j.at ? Math.min(MAX_IDLE_SECONDS, Math.max(0, (this.now - j.at) / 1000)) : 0;
+    const v = j[tier] + PER_SECOND[tier] * seconds * tuning.values.jackpotGrowth;
+    return tier === 'major' ? Math.min(MAJOR_CAP, v) : v;
+  }
+
+  get major(): number {
+    return this.creep('major');
+  }
+
+  get grand(): number {
+    return this.creep('grand');
   }
 
   get meters(): JackpotMeters {
     return { major: this.major, grand: this.grand };
   }
 
-  /** The Major has passed its hidden point: the next spin on any machine wins it. */
-  get majorDue(): boolean {
-    return this.major >= this.majorAt;
+  get history(): JackpotHit[] {
+    return this.state.history;
   }
 
-  /** A hand settled somewhere in the casino. */
-  contribute() {
-    this.grow(PER_HAND);
-  }
-
-  private grow(by: JackpotMeters) {
-    const rate = tuning.values.jackpotGrowth;
-    if (rate <= 0) return;
-    this.major = Math.min(MAJOR_CAP, this.major + by.major * rate);
-    this.grand += by.grand * rate;
-    this.persist();
-  }
-
-  /** A machine hit one: it's recorded and starts over from its seed. */
-  hit(hit: Omit<JackpotHit, 'at'>) {
-    // Two hits on one spin (a pair of Majors) still need times of their own: the list is keyed by them.
-    const at = Math.max(Date.now(), (this.history[0]?.at ?? 0) + 1);
-    this.history = [{ ...hit, at }, ...this.history].slice(0, 10);
-    this[hit.tier] = JACKPOT_SEEDS[hit.tier];
-    if (hit.tier === 'major') this.majorAt = pickHitPoint(this.major);
-    this.hits++;
-    this.persist();
-  }
-
-  /** Admin: set a meter directly. */
+  /** Pit boss: set a meter directly. */
   set(tier: 'major' | 'grand', value: number) {
-    this[tier] = Math.max(JACKPOT_SEEDS[tier], tier === 'major' ? Math.min(value, MAJOR_CAP) : value);
-    this.persist();
+    void player.act({ type: 'admin.jackpot', tier, value });
   }
 
-  /** Admin: the Major hits on the next spin. */
+  /** Pit boss: the Major hits on the next spin. */
   makeMajorDue() {
-    this.majorAt = this.major;
-    this.persist();
+    void player.act({ type: 'admin.jackpot', due: true });
   }
-
-  private persist() {
-    saveSoon('jackpots', () => ({ major: this.major, grand: this.grand, majorAt: this.majorAt, history: $state.snapshot(this.history) }));
-  }
-}
-
-/**
- * A saved history, made safe to show: only well-formed hits, newest first,
- * each with a time of its own. An older save could hold two hits from one spin
- * with the same time (a pair of Majors), which no list keyed by time can show.
- */
-function repairHistory(saved: unknown): JackpotHit[] {
-  if (!Array.isArray(saved)) return [];
-  const hits = saved.filter((h): h is JackpotHit => !!h && typeof h === 'object' && Number.isFinite((h as JackpotHit).at)).slice(0, 10);
-  // Newest first: walking back, each time must be earlier than the one before it.
-  for (let i = 1; i < hits.length; i++) {
-    if (hits[i]!.at >= hits[i - 1]!.at) hits[i] = { ...hits[i]!, at: hits[i - 1]!.at - 1 };
-  }
-  return hits;
 }
 
 export const jackpots = new Jackpots();
 
-/** The pit boss's slot switches, for testing: never saved. */
+/** The pit boss's slot switches, for testing: never saved, honoured only for the pit boss. */
 export const slotTest = $state({
   forceFeature: false,
   /** Fills every pot on the machine of the next spin. */

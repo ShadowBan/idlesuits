@@ -2,7 +2,6 @@ import { minesProgress, type MinesLive, type MinesReplay, type MinesRound, type 
 import { CART_TRACKS, minesBoard, minesState, MINES_MAX_BOMBS, MINES_TILES, VAULT_FULL, type MinesFind, type MinesTile } from '@idlesuits/sim';
 import { autoplay } from '../../lib/autoplay.svelte';
 import { floor } from '../../lib/floor.svelte';
-import { jackpots } from '../../lib/jackpot.svelte';
 import { meta } from '../../lib/meta.svelte';
 import { Decimal, formatMoney } from '../../lib/money';
 import { player } from '../../lib/player.svelte';
@@ -333,7 +332,6 @@ export class MinesGame extends InstantGame {
     if (hold !== null) player.reveal(hold);
     this.lastReplay = r.replay;
     this.vaultShare = r.vault?.share ?? 0;
-    jackpots.contribute();
     meta.showFlash(r.triggers, r.tokens, bet);
     this.record({ bet, pay: r.x, units: r.net, lines: r.lines, text: r.text, sub: r.sub, onHouse: r.onHouse });
     autoplay.round(r.net, this.bank);

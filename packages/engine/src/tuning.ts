@@ -24,6 +24,10 @@ export interface EngineTuning {
   buyIn: number;
   /** The instant games' payback, in percent. */
   instantPayback: number;
+  /** The slot machines' payback, in percent, with the progressives at their seeds. */
+  slotPayback: number;
+  /** × what every round adds to the progressive jackpots. */
+  jackpotGrowth: number;
   /** Each game's rule overrides, by game id and path in its rules object. */
   games: GameOverrides;
 }
@@ -44,6 +48,8 @@ export const ENGINE_TUNING: Readonly<EngineTuning> = {
   roomTokenBonus: ROOM_DEFAULTS.tokenBonusPerRoom,
   buyIn: 500,
   instantPayback: 97,
+  slotPayback: 94,
+  jackpotGrowth: 1,
   games: {},
 };
 
@@ -58,6 +64,8 @@ export const ENGINE_TUNING_LIMITS: Readonly<Record<TuningNumber, [number, number
   roomTokenBonus: [0, 10],
   buyIn: [5, 1e9],
   instantPayback: [50, 150],
+  slotPayback: [50, 150],
+  jackpotGrowth: [0, 1000],
 };
 
 export const ENGINE_TUNING_KEYS = Object.keys(ENGINE_TUNING_LIMITS) as TuningNumber[];

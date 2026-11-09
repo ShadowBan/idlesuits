@@ -14,7 +14,6 @@ import {
 import { autoplay } from './autoplay.svelte';
 import type { BreakdownLine } from './breakdown';
 import { bankroll } from './casino.svelte';
-import { jackpots } from './jackpot.svelte';
 import type { Decimal } from './money';
 import { player } from './player.svelte';
 import { tuning } from './tuning.svelte';
@@ -112,8 +111,6 @@ class Meta {
    * cash, to the practice bankroll, but nothing else counts.
    */
   settleRound(report: RoundReport, unit: Decimal, net: number): { extra: number; lines: BreakdownLine[] } {
-    // Every hand anywhere feeds the linked progressives.
-    jackpots.contribute();
     let extra: number;
     let triggers: CharmTrigger[];
     let tokens = 0;

@@ -5,7 +5,6 @@ import type { BreakdownLine } from '../../lib/breakdown';
 import { bankroll } from '../../lib/casino.svelte';
 import { floor } from '../../lib/floor.svelte';
 import { ROULETTE_TOKENS } from '../../lib/gameRules';
-import { jackpots } from '../../lib/jackpot.svelte';
 import { meta } from '../../lib/meta.svelte';
 import { Decimal, formatMoney } from '../../lib/money';
 import { player } from '../../lib/player.svelte';
@@ -458,7 +457,6 @@ export class RouletteGame {
     this.tokensBySpin += Math.max(0, spinNet);
     this.tokensByBet += r.bets.reduce((sum, b) => sum + Math.max(0, b.net), 0);
     this.lastReplay = r.replay;
-    jackpots.contribute();
     meta.showFlash(r.triggers, r.tokens, unit);
     autoplay.round(r.net, this.bank);
     this.last = { lines: r.lines, net: r.net };

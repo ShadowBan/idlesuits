@@ -19,6 +19,10 @@ import {
   playKeno,
   playPlinko,
   playRoulette,
+  playSlot,
+  jackpotState,
+  jackpotsWon,
+  JACKPOT_SEEDS,
   plinkoRound,
   readPlayer,
   room,
@@ -423,5 +427,43 @@ describe('roulette on the engine', () => {
     }
     expect(paid / n).toBeGreaterThan(0.96);
     expect(paid / n).toBeLessThan(0.985);
+  });
+});
+
+describe('slots on the engine', () => {
+  it('spins from the seed it reports, and grows the progressives', () => {
+    const start = { ...freshPlayer('s'), bank: '1e9' };
+    const out = playSlot(start, { machine: 'vault', step: 0, room: 0, rounds: 5 }, ctx(), false);
+    expect(out.ok).toBe(true);
+    if (!out.ok) return;
+    expect(out.rounds).toHaveLength(5);
+    const again = playSlot(start, { machine: 'vault', step: 0, room: 0, rounds: 5 }, ctx(), false);
+    expect(again.ok && again.rounds.map((r) => r.result.stops)).toEqual(out.rounds.map((r) => r.result.stops));
+    expect(jackpotState(out.state).grand).toBeGreaterThan(JACKPOT_SEEDS.grand);
+  });
+
+  it('lands the bonus on the pit boss’s switch, and only for the pit boss', () => {
+    const start = { ...freshPlayer('s'), bank: '1e9' };
+    const boss = playSlot(start, { machine: 'forge', step: 0, room: 0, test: { forceFeature: true } }, ctx(), true);
+    expect(boss.ok && boss.rounds[0]!.result.feature).toBeTruthy();
+    const player = playSlot(start, { machine: 'forge', step: 0, room: 0, test: { forceFeature: true } }, ctx('x'), false);
+    const plain = playSlot(start, { machine: 'forge', step: 0, room: 0 }, ctx('x'), false);
+    expect(player.ok && plain.ok && player.rounds[0]!.result.stops).toEqual(plain.ok && plain.rounds[0]!.result.stops);
+  });
+
+  it('pays the Major once it is due', () => {
+    const due = act({ ...freshPlayer('s'), bank: '1e9' }, { type: 'admin.jackpot', due: true }, ctx(), { admin: true });
+    if (!due.ok) throw new Error();
+    const out = playSlot(due.state, { machine: 'vault', step: 0, room: 0 }, ctx(), false);
+    expect(out.ok).toBe(true);
+    if (!out.ok) return;
+    const r = out.rounds[0]!;
+    expect(r.mystery || jackpotsWon(r.result).includes('major')).toBe(true);
+    expect(jackpotState(out.state).major).toBe(JACKPOT_SEEDS.major);
+    expect(jackpotState(out.state).history[0]?.tier).toBe('major');
+  });
+
+  it('refuses a machine that does not exist', () => {
+    expect(playSlot(freshPlayer('s'), { machine: 'nope', step: 0, room: 0 }, ctx(), false).ok).toBe(false);
   });
 });

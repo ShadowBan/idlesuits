@@ -3,6 +3,7 @@ import { Decimal } from './money';
 import { affordable, room } from './rooms';
 import { bankOf, recordWin, settleRound, type BreakdownLine, type EngineContext } from './settle';
 import type { PlayerState, WinRecord } from './state';
+export { counter, progressOf, withProgress } from './progress';
 import { roomTuningOf } from './tuning';
 
 /** The bets an instant game takes, in the room's minimums. */
@@ -49,22 +50,6 @@ export interface InstantSettled {
   tokens: number;
   triggers: CharmTrigger[];
   after: RoundAfter;
-}
-
-/** The game's own progress kept in the state: whatever it is, as a plain object. */
-export function progressOf(state: PlayerState, game: string): Record<string, unknown> {
-  const p = state.games[game];
-  return p && typeof p === 'object' && !Array.isArray(p) ? (p as Record<string, unknown>) : {};
-}
-
-export function withProgress(state: PlayerState, game: string, progress: Record<string, unknown>): PlayerState {
-  return { ...state, games: { ...state.games, [game]: progress } };
-}
-
-/** A count kept in a game's progress: its rounds started, say. */
-export function counter(p: Record<string, unknown>, key: string): number {
-  const v = p[key];
-  return typeof v === 'number' && Number.isInteger(v) && v >= 0 ? v : 0;
 }
 
 /**
@@ -124,6 +109,10 @@ export function settleInstant(
     bets?: RoundReport['bets'];
     /** The lines already say what the stake did: no "Bet" line of −1. */
     noBetLine?: boolean;
+    /** What the stake's line is called ("Spin"), if not "Bet". */
+    betLabel?: string;
+    /** More for the charms to read: a slot spin's gems, a poker hand's rank. */
+    extra?: Partial<Pick<RoundReport, 'gems' | 'nearMiss' | 'tier' | 'flush' | 'blackjack'>>;
   },
   ctx: EngineContext,
 ): { state: PlayerState; settled: InstantSettled } {
@@ -135,6 +124,7 @@ export function settleInstant(
     // Stake 1 even on the house, as before: charms count a free round's win like any other.
     bets: r.bets ?? [{ kind: 'main', stake: 1, net }],
     outcome: net > 0 ? 'win' : net === 0 ? 'push' : 'lose',
+    ...r.extra,
   };
   const out = settleRound({ ...state, floor: { ...state.floor, current: r.room } }, report, r.bet, net, ctx);
   let next = out.state;
@@ -157,7 +147,7 @@ export function settleInstant(
       onHouse,
       x: r.x,
       net: units,
-      lines: [...(onHouse || r.noBetLine ? [] : [{ label: 'Bet', amount: -1 }]), ...r.lines, ...out.lines],
+      lines: [...(onHouse || r.noBetLine ? [] : [{ label: r.betLabel ?? 'Bet', amount: -1 }]), ...r.lines, ...out.lines],
       text: r.text,
       sub: r.sub,
       tokens: out.tokens,

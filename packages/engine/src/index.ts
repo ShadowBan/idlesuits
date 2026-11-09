@@ -9,4 +9,7 @@ export * from './plinko';
 export * from './mines';
 export * from './deepdrop';
 export * from './roulette';
+export * from './jackpots';
+export * from './slots';
+export * from './progress';
 export * from './act';

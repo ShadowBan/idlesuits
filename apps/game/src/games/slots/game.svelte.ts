@@ -1,10 +1,9 @@
+import { bonusName, bonusTitle, isSuper, jackpotsWon, jackpotState, potsOf, TIER_NAME, type SlotRound } from '@idlesuits/engine';
 import {
   cellsOf,
   coinPay,
-  countOf,
   jackpotPay,
   Rng,
-  spinSlot,
   triggerSymbol,
   upgradeMap,
   waysScaleFor,
@@ -20,7 +19,6 @@ import {
   type PickResult,
   type PotDef,
   type PotPower,
-  type RoundReport,
   type SlotCharms,
   type SlotSpinResult,
   type WayWin,
@@ -31,7 +29,9 @@ import type { BreakdownLine } from '../../lib/breakdown';
 import { bankroll } from '../../lib/casino.svelte';
 import { floor } from '../../lib/floor.svelte';
 import { jackpots, slotTest } from '../../lib/jackpot.svelte';
+import { autoplay } from '../../lib/autoplay.svelte';
 import { meta } from '../../lib/meta.svelte';
+import { player } from '../../lib/player.svelte';
 import { Decimal, formatMoney } from '../../lib/money';
 import { room } from '../../lib/rooms';
 import { load, save } from '../../lib/save';
@@ -107,22 +107,10 @@ export function winLevel(x: number): number {
   return level;
 }
 
-/** What the bonus is called on this machine, for banners, history and the rules. */
-export function bonusName(machine: MachineDef): string {
-  switch (machine.bonus.kind) {
-    case 'holdSpin':
-      return 'Hold & spin';
-    case 'upgrade':
-    case 'collect':
-      return 'Free spins';
-    case 'wheel':
-      return 'Wheel bonus';
-    case 'pick':
-      return 'Jackpot pick';
-  }
-}
+export { bonusName, bonusTitle, isSuper, TIER_NAME };
 
-export const TIER_NAME: Record<JackpotTier, string> = { mini: 'Mini', minor: 'Minor', major: 'Major', grand: 'Grand' };
+/** Spins auto play asks for at once. */
+const AUTO_BATCH = 5;
 
 /** What a pot's power does, in a few words, for the pot and the rules. */
 export function powerText(power: PotPower, machine: MachineDef): string {
@@ -159,18 +147,6 @@ export function powerText(power: PotPower, machine: MachineDef): string {
     case 'rise':
       return 'Jackpot climbs a tier';
   }
-}
-
-/** Every pot joined the bonus. */
-export function isSuper(machine: MachineDef, lit: readonly number[]): boolean {
-  const pots = machine.pots?.length ?? 0;
-  return pots > 1 && lit.length === pots;
-}
-
-/** The bonus by name, Super when every pot is in it. */
-export function bonusTitle(machine: MachineDef, lit: readonly number[]): string {
-  const name = bonusName(machine);
-  return isSuper(machine, lit) ? `Super ${name.toLowerCase()}` : name;
 }
 
 /** What carries the pots' gems, plural and lower case: gold coins, anvils, treasure maps. */
@@ -422,11 +398,7 @@ export class SlotGame {
     this.bonusFull = load<boolean>(`slot.${machine.id}.bonusFull`, true) !== false;
     this.bonusControl = load<boolean>(`slot.${machine.id}.bonusControl`, true) !== false;
     const defs = machine.pots ?? [];
-    const saved = load<unknown>(`slot.${machine.id}.pots`, []);
-    this.potState = defs.map((def, i) => {
-      const n = Array.isArray(saved) ? Number(saved[i]) : 0;
-      return Number.isInteger(n) ? Math.min(def.size, Math.max(0, n)) : 0;
-    });
+    this.potState = potsOf(player.shown, machine);
     this.pots = [...this.potState];
     this.potHits = defs.map(() => 0);
     // A screen to look at before the first spin.
@@ -454,8 +426,11 @@ export class SlotGame {
   }
 
   get canSpin(): boolean {
-    return this.seq.awaiting === 'spin' && this.bet.lte(this.bank);
+    return player.ready && this.seq.awaiting === 'spin' && this.bet.lte(this.bank);
   }
+
+  /** Why the last spin couldn't be played, for a moment on screen. */
+  error = $state<string | null>(null);
 
   /** Any bonus on the screen. */
   get inBonus(): boolean {
@@ -568,35 +543,59 @@ export class SlotGame {
     this.banner = { key: ++this.banners, title, amount, tier, sub };
   }
 
+  /**
+   * Spins: once, or a batch for auto play, each decided whole by the engine
+   * (on the server, for a member), bonus and all, and shown one by one. What a
+   * spin pays, and the progressives it hits, stay off the screen until it's shown.
+   */
   private async playRound(): Promise<boolean> {
-    const bet = this.bet;
-    // The meters as the reels start: they keep ticking, but this spin pays what they showed.
-    const meters = jackpots.meters;
-    if (slotTest.fillPots && this.machine.pots) {
-      this.potState = this.machine.pots.map((p) => p.size);
-      this.pots = [...this.potState];
-    }
-    slotTest.fillPots = false;
-    const charms = slotTest.allCharms
-      ? { charms: { nudge: 1, wild: 1, fill: 1, encore: 1 }, names: { nudge: 'Pit boss', wild: 'Pit boss', fill: 'Pit boss', encore: 'Pit boss' } }
-      : meta.slotCharms;
-    const result = spinSlot({
-      machine: this.machine,
-      seed: { run: this.runSeed, round: this.round },
-      waysScale: this.waysScale,
-      meters,
-      forceFeature: slotTest.forceFeature,
-      pots: this.potState,
-      charms: charms.charms,
-    });
+    const s = autoplay.settings;
+    const count = this.autoPlay ? Math.min(AUTO_BATCH, s.stopAfter ? Math.max(1, s.stopRounds - autoplay.rounds) : AUTO_BATCH) : 1;
+    const stop = this.autoPlay
+      ? { winX: s.stopOnWin ? s.stopWinX : undefined, below: s.stopBelow ? s.stopBelowAmount : undefined, above: s.stopAbove ? s.stopAboveAmount : undefined }
+      : undefined;
+    const test = { forceFeature: slotTest.forceFeature, fillPots: slotTest.fillPots, allCharms: slotTest.allCharms };
     slotTest.forceFeature = false;
-    // The Major past its hidden point goes to this spin, unless the spin wins it anyway.
-    const mystery = jackpots.majorDue && !jackpotsWon(result).includes('major');
-    const spin: Spin = { result, meters, mystery, pay: result.pay + (mystery ? meters.major : 0), charms: charms.names };
-    this.roundBet = bet;
-    if (!(await this.show(spin, bet))) return false;
-    this.settle(spin, bet);
-    return true;
+    slotTest.fillPots = false;
+    const before = { best: player.shown.floor.best, jackpots: jackpotState(player.shown) };
+    let rounds: SlotRound[] = [];
+    let holds: number[] = [];
+    const out = await player.act({ type: 'slot.spin', machine: this.machine.id, step: this.step, room: floor.current, rounds: count, stop, test }, (landed) => {
+      rounds = landed.result && 'rounds' in landed.result ? (landed.result.rounds as SlotRound[]) : [];
+      holds = player.holdBack(rounds, before.best);
+      // The meters stay as the reels started until each spin is shown.
+      player.view('jackpots', before.jackpots);
+    });
+    if (!out.ok || !rounds.length) {
+      this.error = out.ok ? 'No spin came back.' : out.error;
+      this.autoPlay = false;
+      return true;
+    }
+    this.error = null;
+    try {
+      for (let i = 0; i < rounds.length; i++) {
+        const r = rounds[i]!;
+        const bet = new Decimal(r.bet);
+        const spin: Spin = { result: r.result, meters: r.meters, mystery: r.mystery, pay: r.x, charms: r.names };
+        player.start(holds[i]!, r);
+        this.roundBet = bet;
+        if (i > 0 && !this.autoPlay) {
+          // Stopped partway: the spins already decided land at once.
+          this.clear();
+          this.grid = r.result.grid.map((col) => [...col]);
+        } else {
+          if (i > 0 && !(await this.seq.wait(RESULT_HOLD_MS))) return false;
+          if (!(await this.show(spin, bet))) return false;
+        }
+        player.reveal(holds[i]!);
+        player.view('jackpots', i === rounds.length - 1 ? null : { ...jackpotState(player.truth), major: r.after.meters.major, grand: r.after.meters.grand });
+        this.settle(spin, bet, r);
+      }
+      return true;
+    } finally {
+      player.reveal(...holds);
+      player.view('jackpots', null);
+    }
   }
 
   /** Clears the screen of the last spin's bonus and wins. */
@@ -1355,79 +1354,20 @@ export class SlotGame {
     return true;
   }
 
-  private reportFor(spin: Spin): RoundReport {
-    const net = spin.pay - 1;
-    return {
-      game: this.machine.id,
-      seed: { run: this.runSeed, round: this.round },
-      bets: [{ kind: 'main', stake: 1, net }],
-      outcome: net > 0 ? 'win' : net === 0 ? 'push' : 'lose',
-      // For the slot charms: gems into the pots, and a spin one short of the bonus.
-      gems: spin.result.gems.length,
-      nearMiss: !spin.result.feature && countOf(spin.result.grid, triggerSymbol(this.machine)) === this.machine.bonus.trigger - 1,
-    };
-  }
 
-  /** The spin's lines for the breakdown, in bets. */
-  private linesFor({ result, meters, mystery, charms }: Spin): BreakdownLine[] {
-    const { machine } = this;
-    const lines: BreakdownLine[] = [{ label: 'Spin', amount: -1 }];
-    if (result.wins.length) {
-      const n = result.wins.reduce((sum, w) => sum + w.ways, 0);
-      lines.push({ label: `Ways · ${plural(n, 'way')}`, amount: result.waysPay });
-    }
-    const baseJackpots = result.collects.flatMap((c) => c.jackpots);
-    if (result.collects.length) {
-      const won = baseJackpots.reduce((sum, t) => sum + jackpotPay(machine, t, meters), 0);
-      lines.push({ label: `Collected · ${plural(result.coins.length, 'coin')}`, amount: result.collectPay - won });
-    }
-    // The bonus, and again if a charm brought it back.
-    for (const [f, again] of [
-      [result.feature, false],
-      [result.encore, true],
-    ] as const) {
-      if (!f) continue;
-      const won = f.jackpots.reduce((sum, t) => sum + jackpotPay(machine, t, meters), 0);
-      const name = again ? `${charms.encore ?? 'Charm'} · ${bonusTitle(machine, result.lit).toLowerCase()} again` : bonusTitle(machine, result.lit);
-      const label =
-        f.kind === 'holdSpin'
-          ? `${name} · ${plural(f.coins.length, 'coin')}`
-          : f.kind === 'freeSpins'
-            ? `${name} · ${f.spins.length}`
-            : f.kind === 'wheel' && f.rounds.length > 1
-              ? `${name} · twice`
-              : name;
-      if (f.kind !== 'pick') lines.push({ label, amount: f.pay - won });
-      for (const tier of f.jackpots) lines.push({ label: `${TIER_NAME[tier]} jackpot`, amount: jackpotPay(machine, tier, meters) });
-    }
-    for (const tier of baseJackpots) {
-      lines.push({ label: `${TIER_NAME[tier]} jackpot`, amount: jackpotPay(machine, tier, meters) });
-    }
-    if (mystery) lines.push({ label: 'Must-hit Major', amount: meters.major });
-    return lines;
-  }
 
-  private settle(spin: Spin, bet: Decimal) {
+  /** A spin the engine settled: its place in the session, and the pots as it left them. */
+  private settle(spin: Spin, bet: Decimal, r: SlotRound) {
     const { result } = spin;
-    const net = spin.pay - 1;
-    const lines = this.linesFor(spin);
-    // Charms act on the settled spin; the bankroll is paid the spin and whatever they add.
-    const charms = meta.settleRound(this.reportFor(spin), bet, net);
-    const units = net + charms.extra;
-    this.last = { lines: [...lines, ...charms.lines], net: units };
-    // Whoever hits a progressive starts it over, for every machine on the floor.
-    const hits = [...jackpotsWon(result), ...(spin.mystery ? ['major' as const] : [])];
-    for (const tier of hits) {
-      if (tier !== 'major' && tier !== 'grand') continue;
-      const x = spin.meters[tier];
-      jackpots.hit({ tier, x, paid: bet.mul(x).toString(), machine: this.machine.name, mystery: spin.mystery && tier === 'major' });
-    }
+    const units = r.net;
+    this.last = { lines: r.lines, net: units };
+    meta.showFlash(r.triggers, r.tokens, bet);
+    autoplay.round(r.net, this.bank);
     // The pots keep what they hold for the next spin, whatever its bet.
     if (this.machine.pots) {
-      this.potState = [...result.pots];
-      this.pots = [...result.pots];
+      this.potState = [...r.pots];
+      this.pots = [...r.pots];
       this.potsInPlay = [];
-      save(`slot.${this.machine.id}.pots`, this.potState);
     }
     const money = bet.mul(units);
     this.lastBet = bet;
@@ -1438,36 +1378,7 @@ export class SlotGame {
     this.sessionNet = this.sessionNet.add(money);
     if (bet.mul(spin.pay).gt(this.biggestWin)) this.biggestWin = bet.mul(spin.pay);
     this.round++;
-    if (spin.pay > 0) {
-      const top = [...result.wins].sort((a, b) => b.pay - a.pay)[0];
-      const name = top ? this.machine.symbols.find((s) => s.id === top.symbol)!.name : '';
-      const f = result.feature;
-      const entry: HistoryEntry = {
-        round: this.round,
-        text: spin.mystery
-          ? 'Must-hit Major'
-          : f
-            ? f.kind === 'pick'
-              ? f.boards.map((b) => TIER_NAME[b.won]).join(' + ') + (f.boards.length > 1 ? ' jackpots' : ' jackpot')
-              : bonusTitle(this.machine, result.lit)
-            : top
-              ? `${top.reels} ${name}`
-              : 'Captain’s haul',
-        sub: f
-          ? f.kind === 'holdSpin'
-            ? plural(f.coins.length, 'coin')
-            : f.kind === 'freeSpins'
-              ? plural(f.spins.length, 'spin')
-              : f.kind === 'wheel'
-                ? f.rounds.map((r) => `wheel ${r.stops.length}`).join(' + ')
-                : plural(f.boards.reduce((n, b) => n + b.picks.length, 0), 'pick')
-          : result.collects.length
-            ? plural(result.coins.length, 'coin')
-            : plural(result.wins.length, 'win'),
-        net: money,
-      };
-      this.history = [entry, ...this.history].slice(0, 12);
-    }
+    if (spin.pay > 0) this.history = [{ round: this.round, text: r.text, sub: r.sub, net: money }, ...this.history].slice(0, 12);
     if (this.broke) {
       // Losing it all is the penalty for running unattended: auto play stops until it's pressed again.
       this.gameOver = true;
@@ -1476,10 +1387,7 @@ export class SlotGame {
   }
 }
 
-/** Every jackpot a spin won, wherever it came from. */
-export function jackpotsWon(result: SlotSpinResult): JackpotTier[] {
-  return [...result.collects.flatMap((c) => c.jackpots), ...(result.feature?.jackpots ?? []), ...(result.encore?.jackpots ?? [])];
-}
+export { jackpotsWon };
 
 /** The wheels by name, outermost first. */
 export const WHEEL_NAMES = ['outer wheel', 'middle wheel', 'crown wheel'];

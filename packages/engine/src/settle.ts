@@ -14,6 +14,7 @@ import { amount, Decimal } from './money';
 import { MIN_BET, opened, room } from './rooms';
 import type { GameStats, PlayerState, WinRecord } from './state';
 import { WINS_KEPT } from './state';
+import { growJackpots } from './jackpots';
 import { roomTuningOf, type EngineTuning } from './tuning';
 
 /** What a host gives the engine for one action. */
@@ -105,6 +106,8 @@ export function settleRound(state: PlayerState, report: RoundReport, unit: Decim
   };
   next = moveBank(next, unit.mul(net + out.cash), t);
   next = countRound(next, report, unit, net + out.cash, ctx.now);
+  // Every round anywhere feeds the linked progressives.
+  next = growJackpots(next, ctx, true);
   return {
     state: next,
     extra: out.cash,

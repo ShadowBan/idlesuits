@@ -21,7 +21,6 @@ import {
 } from '@idlesuits/sim';
 import { autoplay } from '../../lib/autoplay.svelte';
 import { floor } from '../../lib/floor.svelte';
-import { jackpots } from '../../lib/jackpot.svelte';
 import { meta } from '../../lib/meta.svelte';
 import { Decimal } from '../../lib/money';
 import { player } from '../../lib/player.svelte';
@@ -365,7 +364,6 @@ export class KenoGame extends InstantGame {
       this.step = r.step;
       save('keno.bet', r.step);
     }
-    jackpots.contribute();
     meta.showFlash(r.triggers, r.tokens, bet);
     this.record({ bet, pay: r.x, units: r.net, lines: r.lines, text: r.text, sub: r.sub, onHouse: r.onHouse });
     autoplay.round(r.net, this.bank);

@@ -2,6 +2,8 @@ import { findCharm, MAX_SLOTS } from '@idlesuits/sim';
 import type { AutoStop } from './instant';
 import { KENO_BATCH_MAX, playKeno, type KenoPlay, type KenoRound } from './keno';
 import { deepdropDrop, deepdropExpire, deepdropReel, deepdropRounds, DEEPDROP_BATCH_MAX, type DeepDropLive, type DeepDropRound } from './deepdrop';
+import { jackpotState, withJackpots, JACKPOT_SEEDS, MAJOR_CAP } from './jackpots';
+import { playSlot, slotRound, SLOT_BATCH_MAX, type SlotPlay, type SlotRound } from './slots';
 import { playRoulette, rouletteRound, ROULETTE_BATCH_MAX, type RouletteRound } from './roulette';
 import { minesAuto, minesBegin, minesCash, minesDig, minesOpen, minesRounds, minesTrack, MINES_BATCH_MAX, type MinesRound, type MinesStep } from './mines';
 import { playPlinko, plinkoRound, PLINKO_BATCH_MAX, type PlinkoPlay, type PlinkoRound } from './plinko';
@@ -25,6 +27,7 @@ export type PlayerAction =
   | { type: 'deepdrop.reel'; at: number }
   | { type: 'deepdrop.expire' }
   | { type: 'roulette.spin'; layout: Record<string, string>; room: number; rounds?: number; stop?: AutoStop }
+  | ({ type: 'slot.spin' } & SlotPlay)
   | { type: 'buyIn' }
   | { type: 'room'; index: number }
   | { type: 'charms.pull'; count: 1 | 10 }
@@ -38,13 +41,14 @@ export type AdminAction =
   | { type: 'admin.tokens'; add: number }
   | { type: 'admin.charm'; id: string; copies: number }
   | { type: 'admin.slots' }
-  | { type: 'admin.rooms'; best: number };
+  | { type: 'admin.rooms'; best: number }
+  | { type: 'admin.jackpot'; tier?: 'major' | 'grand'; value?: number; due?: boolean };
 
 export type Action = PlayerAction | AdminAction;
 
 /** What an action returned besides the new state: Keno's draws, or the capsules a pull opened. */
 export type ActResult =
-  | { rounds: KenoRound[] | PlinkoRound[] | RouletteRound[] }
+  | { rounds: KenoRound[] | PlinkoRound[] | RouletteRound[] | SlotRound[] }
   | { steps: MinesStep[]; rounds: MinesRound[] }
   | { live: DeepDropLive | null; rounds: DeepDropRound[] }
   | { capsules: Capsule[] }
@@ -106,6 +110,10 @@ export function act(state: PlayerState, raw: unknown, ctx: EngineContext, opts: 
       const out = playRoulette(state, a, ctx);
       return out.ok ? { ok: true, state: out.state, result: { rounds: out.rounds } } : fail(out.error);
     }
+    case 'slot.spin': {
+      const out = playSlot(state, a, ctx, !!opts.admin);
+      return out.ok ? { ok: true, state: out.state, result: { rounds: out.rounds } } : fail(out.error);
+    }
     case 'buyIn':
       return done(buyIn(state, t), 'You still have chips to play.');
     case 'room':
@@ -145,6 +153,13 @@ export function act(state: PlayerState, raw: unknown, ctx: EngineContext, opts: 
       if (!Number.isInteger(a.best) || a.best < 0 || a.best > 1000) return fail('Not a room.');
       return done({ ...state, floor: { best: a.best, current: Math.min(state.floor.current, a.best) } }, '');
     }
+    case 'admin.jackpot': {
+      const j = jackpotState(state);
+      if (a.due) return done(withJackpots(state, { ...j, due: true }), '');
+      if ((a.tier !== 'major' && a.tier !== 'grand') || typeof a.value !== 'number' || !Number.isFinite(a.value)) return fail('Not a meter.');
+      const value = Math.max(JACKPOT_SEEDS[a.tier], a.tier === 'major' ? Math.min(a.value, MAJOR_CAP) : a.value);
+      return done(withJackpots(state, { ...j, [a.tier]: value }), '');
+    }
     default:
       return fail('Unknown action.');
   }
@@ -156,7 +171,7 @@ export function act(state: PlayerState, raw: unknown, ctx: EngineContext, opts: 
  * Every other game is still decided in the browser, and members play it on a
  * practice bankroll until it moves here.
  */
-export const ENGINE_GAMES: readonly string[] = ['keno', 'plinko', 'mines', 'deepdrop', 'roulette'];
+export const ENGINE_GAMES: readonly string[] = ['keno', 'plinko', 'mines', 'deepdrop', 'roulette', 'vault', 'forge', 'haul', 'carnival', 'lanterns'];
 
 /** A run of seeds an action may need: `count` rounds of `game` from `from`. */
 export interface SeedRun {
@@ -193,6 +208,14 @@ export function seedsWanted(state: PlayerState, action: unknown): SeedRun[] {
       return [{ game: 'deepdrop', from: deepdropRounds(state).from, count: DEEPDROP_BATCH_MAX + 1 }];
     case 'roulette.spin':
       return [{ game: 'roulette', from: rouletteRound(state), count: ROULETTE_BATCH_MAX }];
+    case 'slot.spin': {
+      const machine = String((action as { machine?: unknown }).machine ?? '');
+      if (!/^[a-z]{1,20}$/.test(machine)) return [];
+      return [
+        { game: machine, from: slotRound(state, machine), count: SLOT_BATCH_MAX },
+        { game: 'jackpot', from: jackpotState(state).majorHits, count: SLOT_BATCH_MAX + 1 },
+      ];
+    }
     default:
       return [];
   }

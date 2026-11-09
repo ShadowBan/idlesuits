@@ -2,7 +2,6 @@ import { deepdropProgress, MIN_REEL, type CrashReplay, type DeepDropLive, type D
 import { crashAt, CRASH_CAP, GOLD_X } from '@idlesuits/sim';
 import { autoplay } from '../../lib/autoplay.svelte';
 import { floor } from '../../lib/floor.svelte';
-import { jackpots } from '../../lib/jackpot.svelte';
 import { meta } from '../../lib/meta.svelte';
 import { Decimal } from '../../lib/money';
 import { player } from '../../lib/player.svelte';
@@ -190,7 +189,6 @@ export class CrashGame extends InstantGame {
     else sfx.lose();
     if (live.hold !== null) player.reveal(live.hold);
     this.lastReplay = r.replay;
-    jackpots.contribute();
     meta.showFlash(r.triggers, r.tokens, bet);
     this.record({ bet, pay: r.x, units: r.net, lines: r.lines, text: r.text, sub: r.sub, onHouse: r.onHouse });
     autoplay.round(r.net, this.bank);
