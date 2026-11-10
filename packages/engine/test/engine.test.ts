@@ -20,6 +20,8 @@ import {
   playPlinko,
   playRoulette,
   playSlot,
+  potsOf,
+  findMachine,
   jackpotState,
   jackpotsWon,
   JACKPOT_SEEDS,
@@ -202,6 +204,9 @@ describe('reading saves', () => {
         'keno.rowPot': wrap('3.5'),
         'keno.buffs': wrap({ meters: { run: 2 }, queue: [{ kind: 'double', left: 1 }] }),
         'keno.picks': wrap([1, 2, 3]),
+        'mines.vault': wrap({ cash: '12.5', finds: 30 }),
+        'slot.forge.pots': wrap([2, 0, 5]),
+        jackpots: wrap({ major: 300, grand: 2600, history: [] }),
       },
       'fresh',
     );
@@ -216,6 +221,9 @@ describe('reading saves', () => {
     expect(state!.keno.card).toEqual([1, 2]);
     expect(state!.keno.rowPot).toBe('3.5');
     expect(state!.keno.buffs.queue).toEqual([{ kind: 'double', left: 1 }]);
+    expect(minesProgress(state!).vault).toEqual({ cash: '12.5', finds: 30 });
+    expect(potsOf(state!, findMachine('forge')!)).toEqual([2, 0, 5]);
+    expect(jackpotState(state!).grand).toBe(2600);
   });
 
   it('finds nothing to move in a save with no player state', () => {

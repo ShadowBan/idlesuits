@@ -1,8 +1,8 @@
 # Step 2: results the server decides
 
-Status: the first milestone (the engine, with Keno) is built and tested locally, not yet
-deployed (2026-11-08). Step 1 (Players Club accounts and cloud saves) is live at
-idlesuits.crowbro.dev.
+Status: every game is decided by the engine, built and tested locally on the
+`server-authority` branch, not yet deployed (2026-11-10). Step 1 (Players Club accounts
+and cloud saves) is live at idlesuits.crowbro.dev.
 
 ## Goal
 
@@ -121,6 +121,42 @@ Durable Object.
 - A new member starts fresh on the server: a guest's progress in the browser isn't
   moved into a new account, since it was never checked. Accounts that already had a
   cloud save are moved in once, on their first request.
+
+## Every game, as built (2026-11-09 to 11-10)
+
+The patterns, from simplest to most involved:
+
+- **Decided at once, a batch for auto play**: Keno, Lucky Drop, roulette, the five slot
+  machines (bonus and all; a pick bonus's picks are the machine's, the tiles tapped are
+  only how they're shown), baccarat. The client holds each decided round's results off
+  the screen (`player.holdBack`) until its animation reaches them.
+- **A live round whose secrets come from its seed**: Dynamite Dig (the board, the cart's
+  cave-ins and the vault's shares are rebuilt from the round's seed on each move, so
+  nothing secret is stored in the state), and Deep Drop by hand (the snap point is never
+  stored: a reel-in is checked against the server's clock, and `/api/watch` answers when
+  the line snaps). Auto play's lines reel in at the marker, so they're decided at once.
+- **Tables** (`tables.ts`, one adapter per game): Blackjack, baccarat, UTH, Three Card,
+  Caribbean Stud, Crazy 4, Mississippi Stud, Let It Ride, Deuces Wild, Pai Gow and Idle
+  Suits. The bets go down at the deal and raises as they're made, so walking away from
+  a bad hand doesn't dodge it; a hand left mid-way resumes. Every move is checked
+  against the offered choices and the bank. Shoes (Blackjack, baccarat) are shuffled
+  from a secret seed per shoe; Blackjack's hole card is hidden until turned. Blind hands
+  are dealt and settled by the engine. Auto play asks for up to 5 rounds on the strategy.
+- **The progressives** are the engine's (per player for now): they grow with every round
+  and with time at play (at most a minute between rounds), and the Major's must-hit
+  point comes from a secret seed per Major.
+- **The pit boss's tuning** includes slot payback, jackpot growth, blind hands and every
+  game's rule overrides; for members it's the server's, for everyone.
+- A member's first visit moves their old cloud save in once: bank, rooms, Tokens, charms,
+  stats, wins, Keno, the Gem Vault, slot pots and the progressive meters. New members
+  start fresh.
+
+Known follow-ups:
+
+- Stopping auto play partway through a batch still shows the rounds already decided
+  (up to four more), at the table's pace.
+- The practice bankroll has no games left to serve; it stays for games added later.
+- The progressives are per player until the shared jackpot (step 3).
 
 ## Open questions
 

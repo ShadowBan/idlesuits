@@ -286,7 +286,11 @@ function unwrap(save: Record<string, string>, key: string): unknown {
 
 /** The keys the browser kept player state under before the engine, now all in one state. */
 export function isOldStateKey(key: string): boolean {
-  return ['bank', 'floor', 'meta', 'stats', 'keno.card', 'keno.rowPot', 'keno.cardPot', 'keno.buffs', 'keno.wins'].includes(key) || key.startsWith('wins.');
+  return (
+    ['bank', 'floor', 'meta', 'stats', 'keno.card', 'keno.rowPot', 'keno.cardPot', 'keno.buffs', 'keno.wins', 'mines.vault', 'jackpots'].includes(key) ||
+    key.startsWith('wins.') ||
+    /^slot\.[a-z]+\.pots$/.test(key)
+  );
 }
 
 /**
@@ -298,6 +302,17 @@ export function playerFromSave(save: Record<string, string>, seed: string): Play
   if (!Object.keys(save).some(isOldStateKey)) return null;
   const wins: Record<string, unknown> = {};
   for (const key of Object.keys(save)) if (key.startsWith('wins.')) wins[key.slice(5)] = unwrap(save, key);
+  // Each game's own progress that carries over: the Gem Vault, the slot machines' pots, the progressive meters.
+  const games: Record<string, unknown> = {};
+  const vault = unwrap(save, 'mines.vault');
+  if (vault && typeof vault === 'object') games.mines = { round: 0, vault, live: null };
+  for (const key of Object.keys(save)) {
+    const m = key.match(/^slot\.([a-z]+)\.pots$/);
+    const pots = m ? unwrap(save, key) : undefined;
+    if (m && Array.isArray(pots)) games[m[1]!] = { round: 0, pots };
+  }
+  const meters = unwrap(save, 'jackpots') as { major?: unknown; grand?: unknown; history?: unknown } | undefined;
+  if (meters && typeof meters === 'object') games.jackpots = { major: meters.major, grand: meters.grand, history: meters.history, majorHits: 0, at: 0 };
   return readPlayer(
     {
       bank: unwrap(save, 'bank'),
@@ -306,6 +321,7 @@ export function playerFromSave(save: Record<string, string>, seed: string): Play
       stats: unwrap(save, 'stats'),
       wins,
       keno: { card: unwrap(save, 'keno.card'), rowPot: unwrap(save, 'keno.rowPot'), cardPot: unwrap(save, 'keno.cardPot'), buffs: unwrap(save, 'keno.buffs') },
+      games,
     },
     seed,
   );
