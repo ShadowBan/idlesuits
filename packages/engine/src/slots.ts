@@ -172,6 +172,18 @@ function describe(machine: MachineDef, result: SlotSpinResult, mystery: boolean)
   return { text, sub };
 }
 
+/** Each machine's way-pay scale at a payback: a search that takes up to a second, so it's worked out once. */
+const scales = new Map<string, number>();
+export function slotScale(machine: MachineDef, payback: number): number {
+  const key = `${machine.id}|${payback}`;
+  let scale = scales.get(key);
+  if (scale === undefined) {
+    scale = waysScaleFor(machine, payback);
+    scales.set(key, scale);
+  }
+  return scale;
+}
+
 const ALL_CHARMS = { charms: { nudge: 1, wild: 1, fill: 1, encore: 1 }, names: { nudge: 'Pit boss', wild: 'Pit boss', fill: 'Pit boss', encore: 'Pit boss' } };
 
 function spinOnce(state: PlayerState, machine: MachineDef, play: SlotPlay, test: SlotTest, ctx: EngineContext): { state: PlayerState; round: SlotRound } | null {
@@ -188,7 +200,7 @@ function spinOnce(state: PlayerState, machine: MachineDef, play: SlotPlay, test:
   const result = spinSlot({
     machine,
     seed: { run, round },
-    waysScale: waysScaleFor(machine, ctx.tuning.slotPayback / 100),
+    waysScale: slotScale(machine, ctx.tuning.slotPayback / 100),
     meters,
     forceFeature: test.forceFeature,
     pots,

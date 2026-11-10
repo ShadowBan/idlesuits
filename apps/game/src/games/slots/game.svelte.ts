@@ -1,4 +1,4 @@
-import { bonusName, bonusTitle, isSuper, jackpotsWon, jackpotState, potsOf, TIER_NAME, type SlotRound } from '@idlesuits/engine';
+import { bonusName, bonusTitle, isSuper, jackpotsWon, jackpotState, potsOf, slotScale, TIER_NAME, type SlotRound } from '@idlesuits/engine';
 import {
   cellsOf,
   coinPay,
@@ -418,7 +418,7 @@ export class SlotGame {
 
   /** Way-pays scaled so the machine pays back what the pit boss has set. */
   get waysScale(): number {
-    return waysScaleFor(this.machine, tuning.values.slotPayback / 100);
+    return slotScale(this.machine, tuning.values.slotPayback / 100);
   }
 
   get broke(): boolean {
