@@ -69,6 +69,8 @@ export interface TableSettled {
   units: number;
   /** What the round paid back in all, the blind hands included: the stakes back and the winnings. */
   money: string;
+  /** What the round put down in all, the blind hands included. */
+  staked: string;
   /** The charms' lines, Tokens and triggers. */
   lines: BreakdownLine[];
   tokens: number;
@@ -280,6 +282,7 @@ function settleTable(state: PlayerState, adapter: TableAdapter, live: TableLive,
       net: r.net,
       units,
       money: money.toString(),
+      staked: unit.mul(live.down).add(live.blind.reduce((sum, b) => sum.add(amount(b.unit).mul(b.down)), new Decimal(0))).toString(),
       lines: out.lines,
       tokens: out.tokens,
       triggers: out.triggers,

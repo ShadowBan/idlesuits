@@ -41,8 +41,10 @@ export interface HeldRound {
   onHouse: boolean;
   tokens: number;
   after: { best: number; win?: unknown };
-  /** Exactly what to hold back, where a round's stake went down before it settled (a table's hand). */
+  /** Exactly what to hold back once it starts, where a round's stake went down before it settled (a table's hand). */
   money?: string;
+  /** What it put down, for a round held back before it starts: its stake shows only as it starts. */
+  staked?: string;
 }
 
 let pendingIds = 0;
@@ -124,7 +126,8 @@ class Player {
     const ids = rounds.map((r, i) => {
       const id = ++pendingIds;
       const bet = amount(r.bet);
-      next.set(id, { money: r.money !== undefined ? amount(r.money) : bet.mul(r.net), tokens: r.tokens, win: r.after.win ? r.game : null, best: i ? rounds[i - 1]!.after.best : before });
+      const money = r.money !== undefined ? amount(r.money).sub(r.staked !== undefined ? amount(r.staked) : 0) : bet.mul(r.net);
+      next.set(id, { money, tokens: r.tokens, win: r.after.win ? r.game : null, best: i ? rounds[i - 1]!.after.best : before });
       return id;
     });
     this.pending = next;
@@ -137,7 +140,7 @@ class Player {
     if (!p) return;
     const bet = amount(r.bet);
     const next = new Map(this.pending);
-    next.set(id, { ...p, money: bet.mul(r.net).add(r.onHouse ? 0 : bet) });
+    next.set(id, { ...p, money: r.money !== undefined ? amount(r.money) : bet.mul(r.net).add(r.onHouse ? 0 : bet) });
     this.pending = next;
   }
 
@@ -147,6 +150,11 @@ class Player {
     const next = new Map(this.pending);
     for (const id of ids) next.delete(id);
     this.pending = next;
+  }
+
+  /** Leaving a table mid-show: everything it held back shows as it truly is. */
+  releaseAll() {
+    this.clearHolds();
   }
 
   /** Shows a game's progress as of the round on screen (null: as it truly is). */

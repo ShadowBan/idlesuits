@@ -189,6 +189,8 @@ export class BjGame {
   }
 
   dispose() {
+    // Anything still held back for this table's show is shown as it is.
+    player.releaseAll();
     this.seq.dispose();
     this.started = false;
   }
@@ -250,6 +252,7 @@ export class BjGame {
       for (let i = 0; i < reply.plays.length; i++) {
         const play = reply.plays[i]!;
         if (i > 0 && !(await this.seq.wait(RESULT_HOLD_MS))) return false;
+        reply.begin(i);
         if (!(await this.showPlay(play))) return false;
         if (play.settled) this.settle(play.result as BjRoundResult, play.settled, reply.holds[i] ?? null, bet);
       }

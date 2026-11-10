@@ -1,9 +1,6 @@
 import {
   BACCARAT_BONUSES,
   BACCARAT_RULES,
-  cutCardOut,
-  shuffleShoe,
-  simulateBaccaratRound,
   type BaccaratEvent,
   type BaccaratHand,
   type BaccaratRoundResult,
@@ -11,16 +8,16 @@ import {
   type BaccaratWinner,
   type BonusResult,
   type Card,
-  type RoundReport,
-  type Shoe,
 } from '@idlesuits/sim';
 import type { BreakdownLine } from '../../lib/breakdown';
+import type { TableSettled } from '@idlesuits/engine';
+import { autoplay } from '../../lib/autoplay.svelte';
 import { bankroll } from '../../lib/casino.svelte';
-import { PENETRATION } from '../../lib/gameRules';
-import { meta } from '../../lib/meta.svelte';
+import { floor } from '../../lib/floor.svelte';
 import { Decimal } from '../../lib/money';
-import { mainBet, sideBets } from '../../lib/report';
+import { player } from '../../lib/player.svelte';
 import { load, save, saveSoon } from '../../lib/save';
+import { landSettled, sidesInDollars, tableAct } from '../../lib/table.svelte';
 import { Sequencer } from '../../lib/sequencer.svelte';
 import { bonusLine, SideStakes } from '../../lib/sidebets.svelte';
 import { sfx } from '../../lib/sound';
@@ -28,6 +25,8 @@ import { ChipBets } from '../../lib/stakes.svelte';
 import { tuning } from '../../lib/tuning.svelte';
 
 const STARTING_BET = 5;
+/** Coups auto play asks for at once. */
+const AUTO_BATCH = 5;
 
 /** Milliseconds at 1× before each step is shown. */
 const DEAL_MS = 260;
@@ -84,10 +83,8 @@ export class BaccaratGame {
     1,
   );
 
-  private shoe: Shoe;
-  private shoeSeed: string;
-  private shoeNumber: number;
-  private shoeDecks: number;
+  /** Why the last coup couldn't be dealt, for a moment on screen. */
+  error = $state<string | null>(null);
   shoeView = $state({ size: 0, next: 0, cut: 0 });
   shuffling = $state(false);
   /** This shoe's coups, oldest first, for the bead plate. */
@@ -126,19 +123,11 @@ export class BaccaratGame {
   constructor() {
     this.bets.remember('baccarat');
     this.seq.remember('baccarat');
-    const saved = load<{ seed: string; number: number; next: number; decks: number; road: Bead[] } | null>(
-      'shoe.baccarat',
-      null,
-    );
-    this.shoeSeed = saved?.seed ?? newSeed();
-    this.shoeNumber = saved?.number ?? 0;
-    this.shoeDecks = saved?.decks ?? this.rules.decks;
-    this.shoe = shuffleShoe(this.shoeDecks, [this.shoeSeed, this.shoeNumber], this.cutRange());
-    if (saved && saved.next > this.shoe.next && saved.next < this.shoe.cards.length) {
-      this.shoe.next = saved.next;
-      this.road = saved.road ?? [];
-    }
-    this.refreshShoe();
+    // The shoe's place, as the engine keeps it (its order is the engine's secret); the bead plate is this browser's.
+    const shoe = (player.shown.games.baccarat as { shoe?: { next: number; decks: number } } | undefined)?.shoe;
+    if (shoe) this.shoeView = { size: shoe.decks * 52, next: shoe.next, cut: Math.round(shoe.decks * 52 * 0.75) };
+    const road = load<Bead[]>('baccarat.road', []);
+    this.road = Array.isArray(road) ? road.slice(-ROAD_LENGTH) : [];
   }
 
   get broke(): boolean {
@@ -149,20 +138,8 @@ export class BaccaratGame {
     return bankroll.balance;
   }
 
-  private cutRange(): [number, number] {
-    const at = tuning.gameValue('baccarat', PENETRATION.path, PENETRATION.value as number) / 100;
-    return [Math.max(0.1, at - 0.05), Math.min(0.97, at + 0.05)];
-  }
-
-  private refreshShoe() {
-    this.shoeView = { size: this.shoe.cards.length, next: this.shoe.next, cut: this.shoe.cut };
-    saveSoon('shoe.baccarat', () => ({
-      seed: this.shoeSeed,
-      number: this.shoeNumber,
-      next: this.shoe.next,
-      decks: this.shoeDecks,
-      road: $state.snapshot(this.road),
-    }));
+  private saveRoad() {
+    saveSoon('baccarat.road', () => $state.snapshot(this.road));
   }
 
   /** Moves the main bet to the other hand. Only between coups. */
@@ -213,6 +190,8 @@ export class BaccaratGame {
   }
 
   dispose() {
+    // Anything still held back for this table's show is shown as it is.
+    player.releaseAll();
     this.seq.dispose();
     this.started = false;
   }
@@ -249,35 +228,49 @@ export class BaccaratGame {
     }
   }
 
+  /**
+   * Deals a coup, as the engine decides it (on the server, for a member), or a
+   * few for auto play, and shows each in turn.
+   */
   private async playRound(): Promise<boolean> {
-    // The cut card came out, or the shoe should hold a different number of decks: shuffle before dealing on.
-    if (cutCardOut(this.shoe) || this.shoeDecks !== this.rules.decks) {
-      this.shuffling = true;
-      sfx.shuffle();
-      const ok = await this.seq.wait(SHUFFLE_MS);
-      this.shoeDecks = this.rules.decks;
-      this.shoe = shuffleShoe(this.shoeDecks, [this.shoeSeed, ++this.shoeNumber], this.cutRange());
-      // A new shoe, a new scoreboard.
-      this.road = [];
-      this.refreshShoe();
-      this.shuffling = false;
-      if (!ok) return false;
-    }
     const bet = this.bet;
     const bonuses = this.sides.units(bet);
-    const result = simulateBaccaratRound({
-      rules: this.rules,
-      seed: { run: this.runSeed, round: this.round },
-      side: this.side,
-      bonuses,
-      shoe: this.shoe,
-      recordEvents: true,
-    });
-    this.roundBet = bet;
-    if (!(await this.show(result.events))) return false;
-    this.shoe.next += result.cardsUsed;
-    this.refreshShoe();
-    this.settle(result, bet);
+    const req = { game: 'baccarat', room: floor.current, bet: bet.toString(), sides: sidesInDollars(bonuses, bet), options: { side: this.side } };
+    const s = autoplay.settings;
+    const reply = this.autoPlay
+      ? await tableAct({
+          type: 'table.auto',
+          ...req,
+          rounds: Math.min(AUTO_BATCH, s.stopAfter ? Math.max(1, s.stopRounds - autoplay.rounds) : AUTO_BATCH),
+          stop: { winX: s.stopOnWin ? s.stopWinX : undefined, below: s.stopBelow ? s.stopBelowAmount : undefined, above: s.stopAbove ? s.stopAboveAmount : undefined },
+        })
+      : await tableAct({ type: 'table.deal', ...req });
+    if (!reply.ok) {
+      this.error = reply.error ?? 'The coup couldn’t be dealt.';
+      this.autoPlay = false;
+      return true;
+    }
+    this.error = null;
+    for (let i = 0; i < reply.plays.length; i++) {
+      const play = reply.plays[i]!;
+      if (i > 0 && !(await this.seq.wait(RESULT_HOLD_MS))) return false;
+      reply.begin(i);
+      const shoe = play.info.shoe as { size: number; next: number; cut: number } | undefined;
+      if (play.info.shuffled) {
+        // The cut card came out: the dealer shuffles before dealing on, and a new shoe starts a new scoreboard.
+        this.shuffling = true;
+        sfx.shuffle();
+        const ok = await this.seq.wait(SHUFFLE_MS);
+        this.shuffling = false;
+        this.road = [];
+        this.saveRoad();
+        if (!ok) return false;
+      }
+      if (shoe) this.shoeView = { ...shoe };
+      this.roundBet = bet;
+      if (!(await this.show(play.events as BaccaratEvent[]))) return false;
+      if (play.settled) this.settle(play.result as BaccaratRoundResult, play.settled, reply.holds[i] ?? null, bet);
+    }
     return true;
   }
 
@@ -400,19 +393,10 @@ export class BaccaratGame {
     return true;
   }
 
-  private reportFor(r: BaccaratRoundResult): RoundReport {
-    return {
-      game: 'baccarat',
-      seed: { run: this.runSeed, round: this.round },
-      bets: [...mainBet(1, r.main), ...sideBets(r.bonuses, this.roundSide)],
-      outcome: r.winner === 'tie' ? 'push' : r.main > 0 ? 'win' : 'lose',
-    };
-  }
-
-  private settle(result: BaccaratRoundResult, bet: Decimal) {
-    // Charms act on the settled coup; the bankroll is paid the coup and whatever they add.
-    const charms = meta.settleRound(this.reportFor(result), bet, result.net);
-    const units = result.net + charms.extra;
+  private settle(result: BaccaratRoundResult, settled: TableSettled, hold: number | null, bet: Decimal) {
+    // The coup as the engine settled it, charms and all, shows now that the table has dealt it out.
+    const charms = landSettled(settled, hold);
+    const units = charms.units;
     if (charms.lines.length) {
       this.net = units;
       this.last = { lines: [...(this.last?.lines ?? []), ...charms.lines], net: units };
@@ -424,7 +408,7 @@ export class BaccaratGame {
     this.wins[result.winner]++;
     if (result.natural) this.naturals++;
     this.road = [...this.road, { winner: result.winner, natural: result.natural }].slice(-ROAD_LENGTH);
-    this.refreshShoe();
+    this.saveRoad();
     this.hands++;
     this.round++;
     const entry: HistoryEntry = {

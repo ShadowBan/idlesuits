@@ -11,6 +11,8 @@ export interface TableReply {
   plays: TablePlay[];
   /** By play: the id its money is held back under, or null. */
   holds: (number | null)[];
+  /** Call as a play starts on the table: its stake shows as down. */
+  begin: (index: number) => void;
 }
 
 /**
@@ -21,17 +23,26 @@ export interface TableReply {
 export async function tableAct(action: Action): Promise<TableReply> {
   const before = player.shown.floor.best;
   let holds: (number | null)[] = [];
+  const held = (p: TablePlay) =>
+    p.settled ? { game: p.settled.game, bet: p.settled.unit, net: 0, onHouse: true, tokens: p.settled.tokens, money: p.settled.money, staked: p.settled.staked, after: p.settled.after } : null;
   const out = await player.act(action, (landed) => {
     const plays = landed.result && 'plays' in landed.result ? landed.result.plays : [];
-    holds = plays.map((p) =>
-      p.settled
-        ? player.holdBack([{ game: p.settled.game, bet: p.settled.unit, net: 0, onHouse: true, tokens: p.settled.tokens, money: p.settled.money, after: p.settled.after }], before)[0]!
-        : null,
-    );
+    // The first play's stake is already down (it was dealt by this action, or before); later ones' show as they start.
+    holds = plays.map((p, i) => {
+      const h = held(p);
+      if (!h) return null;
+      const id = player.holdBack([h], before)[0]!;
+      if (i === 0) player.start(id, h);
+      return id;
+    });
   });
-  if (!out.ok) return { ok: false, error: out.error, plays: [], holds: [] };
+  if (!out.ok) return { ok: false, error: out.error, plays: [], holds: [], begin: () => {} };
   const plays = out.result && 'plays' in out.result ? out.result.plays : [];
-  return { ok: true, plays, holds };
+  const begin = (i: number) => {
+    const h = plays[i] ? held(plays[i]!) : null;
+    if (h && holds[i] != null) player.start(holds[i]!, h);
+  };
+  return { ok: true, plays, holds, begin };
 }
 
 /** Side bets in units of the main bet, as the engine takes them: in dollars. */
