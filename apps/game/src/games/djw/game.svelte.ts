@@ -15,7 +15,10 @@ import {
   type DjRoundResult,
   type RoundReport,
 } from '@idlesuits/sim';
+import type { TableSettled } from '@idlesuits/engine';
 import { BlindHands } from '../../lib/blind.svelte';
+import { player } from '../../lib/player.svelte';
+import { landSettled, playTable, sidesInDollars } from '../../lib/table.svelte';
 import type { BreakdownLine } from '../../lib/breakdown';
 import { bankroll } from '../../lib/casino.svelte';
 import { Decimal } from '../../lib/money';
@@ -88,6 +91,8 @@ export class DjGame {
   started = $state(false);
   gameOver = $state(false);
   autoPlay = $state(false);
+  /** Why the last hand couldn't be dealt or played on, for a moment on screen. */
+  error = $state<string | null>(null);
   suggestion = $state<DjMove | null>(null);
 
   player = $state<(Card | null)[]>(Array(5).fill(null));
@@ -100,11 +105,7 @@ export class DjGame {
   /** Side bets riding on this hand, in antes. */
   roundSide = $state<Record<string, number>>({});
   /** Hands the Lucky Seat deals blind beside the player's, played all in. */
-  readonly blind = new BlindHands<DjRoundResult>('djw', {
-    show: (r) => ({ cards: r.player, label: DJ_CATEGORY_NAMES[djCategoryOf(r.playerScore)] }),
-    report: (r, sides) => this.reportFor(r, sides),
-    net: (r) => r.net,
-  });
+  readonly blind = new BlindHands('djw');
   bonusResults = $state<Record<string, BonusResult>>({});
   net = $state<number | null>(null);
   breakdown = $state<BreakdownLine[]>([]);
@@ -165,6 +166,8 @@ export class DjGame {
 
 
   dispose() {
+    // Anything still held back for this table's show is shown as it is.
+    player.releaseAll();
     this.seq.dispose();
     this.started = false;
   }
@@ -202,41 +205,38 @@ export class DjGame {
     }
   }
 
+  /**
+   * Plays a hand through the engine (on the server, for a member), or a few
+   * under auto play: the bets go down, each decision goes to the engine, and
+   * the felt shows what comes back. A hand left mid-way picks up where it was.
+   */
   private async playRound(): Promise<boolean> {
-    const ante = this.ante;
-    const bonuses = this.side.units(ante);
-    this.roundAnte = ante;
-    const seed = { run: this.runSeed, round: this.round };
-    // Blind hands sit in the seats dealt before the player's; each puts down the ante, the blind and the 2× play.
-    const mine = this.blind.deal(this.bank, { unit: ante, sides: bonuses }, 4, (stake, seat) =>
-      simulateDjRound({ rules: this.rules, seed, seat, bonuses: stake.sides, decide: BLIND.djw }),
-    );
-    this.blind.start(() => 4);
-    const run = (decide: (d: DjDecision) => DjMove, onEvent: (e: DjEvent) => void) =>
-      simulateDjRound({ rules: this.rules, seed, bonuses, decide, onEvent, seat: mine });
-
-    const choices: DjMove[] = [];
-    let shown = 0;
-    for (;;) {
-      const step = stepWithChoices(run, choices);
-      if (!(await this.show(step.events.slice(shown)))) return false;
-      shown = step.events.length;
-
-      if (step.kind === 'done') {
-        this.settle(step.result, ante);
-        return true;
-      }
-
-      const suggestion = decideDj(step.decision.cards);
-      let choice: DjMove | null = suggestion;
-      if (!this.autoPlay) {
+    return playTable<DjDecision, DjMove>({
+      game: 'djwild',
+      request: () => ({ bet: this.ante.toString(), sides: sidesInDollars(this.side.units(this.ante), this.ante), blind: this.blind.request() }),
+      autoPlay: () => this.autoPlay,
+      wait: (ms) => this.seq.wait(ms),
+      between: RESULT_HOLD_MS,
+      start: (play, unit) => {
+        this.roundAnte = unit;
+        this.blind.fromDeal(play.blind, Number(play.info.holeCards) || 0);
+      },
+      ready: (play, unit) => void this.blind.fromSettled(play.settled!.blind, unit),
+      show: (events) => this.show(events as DjEvent[]),
+      decide: async (decision) => {
+        const suggestion = decideDj(decision.cards);
+        if (this.autoPlay) return suggestion;
         this.suggestion = suggestion;
-        choice = await this.seq.ask('move');
+        const choice = await this.seq.ask('move');
         this.suggestion = null;
-      }
-      if (choice === null) return false;
-      choices.push(choice);
-    }
+        return choice;
+      },
+      settled: (play, hold, unit) => this.settle(play.result as DjRoundResult, play.settled!, hold, unit),
+      failed: (error) => {
+        this.error = error;
+        this.autoPlay = false;
+      },
+    });
   }
 
   private async show(events: DjEvent[]): Promise<boolean> {
@@ -325,26 +325,13 @@ export class DjGame {
   }
 
   /** What the casino is told about one settled hand, for charms and Tokens. */
-  private reportFor(r: DjRoundResult, sides = this.roundSide): RoundReport {
-    return {
-      game: 'djw',
-      seed: { run: this.runSeed, round: this.round },
-      bets: [
-        ...mainBet(1, r.parts.ante),
-        ...mainBet(1, r.parts.blind),
-        ...mainBet(r.folded ? 0 : this.rules.play, r.parts.play),
-        ...sideBets(r.bonuses, sides),
-      ],
-      outcome: outcomeOf(r.folded, r.parts.ante + r.parts.play),
-      tier: Math.min(9, djCategoryOf(r.playerScore)),
-    };
-  }
 
-  private settle(result: DjRoundResult, ante: Decimal) {
-    const blind = this.blind.settle(ante);
+  private settle(result: DjRoundResult, settled: TableSettled, hold: number | null, ante: Decimal) {
+    const blind = this.blind.fromSettled(settled.blind, ante);
     // Charms act on the settled hand; the bankroll is paid the hand and whatever they add.
-    const charms = meta.settleRound(this.reportFor(result), ante, result.net);
-    const units = result.net + charms.extra;
+    // The hand as the engine settled it, charms and all, shows now that the felt has dealt it out.
+    const charms = landSettled(settled, hold);
+    const units = charms.units;
     if (charms.lines.length) this.net = units;
     if (charms.lines.length || blind.hands) {
       this.last = { lines: [...(this.last?.lines ?? []), ...charms.lines, ...blind.lines], net: units + blind.units };

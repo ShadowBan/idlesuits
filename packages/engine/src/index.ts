@@ -18,3 +18,4 @@ export * from './tables';
 export * from './games/shoe';
 export * from './games/blackjack';
 export * from './games/baccarat';
+export * from './games/poker';

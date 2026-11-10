@@ -15,7 +15,10 @@ import {
   type ThreeCardHand,
   type RoundReport,
 } from '@idlesuits/sim';
+import type { TableSettled } from '@idlesuits/engine';
 import { BlindHands } from '../../lib/blind.svelte';
+import { player } from '../../lib/player.svelte';
+import { landSettled, playTable, sidesInDollars } from '../../lib/table.svelte';
 import type { BreakdownLine } from '../../lib/breakdown';
 import { bankroll } from '../../lib/casino.svelte';
 import { Decimal } from '../../lib/money';
@@ -88,6 +91,8 @@ export class TcpGame {
   started = $state(false);
   gameOver = $state(false);
   autoPlay = $state(false);
+  /** Why the last hand couldn't be dealt or played on, for a moment on screen. */
+  error = $state<string | null>(null);
   /** The suggested move while the table waits on the player. */
   suggestion = $state<TcpMove | null>(null);
 
@@ -106,11 +111,7 @@ export class TcpGame {
   breakdown = $state<BreakdownLine[]>([]);
   last = $state<{ lines: BreakdownLine[]; net: number } | null>(null);
   /** Hands the Lucky Seat deals blind beside the player's, played all in. */
-  readonly blind = new BlindHands<TcpRoundResult>('tcp', {
-    show: (r) => ({ cards: r.player, label: THREE_CARD_NAMES[r.playerHand] }),
-    report: (r, sides) => this.reportFor(r, sides),
-    net: (r) => r.net,
-  });
+  readonly blind = new BlindHands('tcp');
 
   hands = $state(0);
   sessionNet = $state(new Decimal(0));
@@ -168,6 +169,8 @@ export class TcpGame {
 
 
   dispose() {
+    // Anything still held back for this table's show is shown as it is.
+    player.releaseAll();
     this.seq.dispose();
     this.started = false;
   }
@@ -205,40 +208,38 @@ export class TcpGame {
     }
   }
 
+  /**
+   * Plays a hand through the engine (on the server, for a member), or a few
+   * under auto play: the bets go down, each decision goes to the engine, and
+   * the felt shows what comes back. A hand left mid-way picks up where it was.
+   */
   private async playRound(): Promise<boolean> {
-    const ante = this.ante;
-    const bonuses = this.side.units(ante);
-    this.roundAnte = ante;
-    const seed = { run: this.runSeed, round: this.round };
-    // Blind hands sit in the seats dealt before the player's; each can lose its ante, play and side bets.
-    const mine = this.blind.deal(this.bank, { unit: ante, sides: bonuses }, 2, (stake, seat) =>
-      simulateTcpRound({ rules: this.rules, seed, seat, bonuses: stake.sides, decide: BLIND.tcp }),
-    );
-    const run = (decide: (d: TcpDecision) => TcpMove, onEvent: (e: TcpEvent) => void) =>
-      simulateTcpRound({ rules: this.rules, seed, seat: mine, bonuses, decide, onEvent });
-
-    const choices: TcpMove[] = [];
-    let shown = 0;
-    for (;;) {
-      const step = stepWithChoices(run, choices);
-      if (!(await this.show(step.events.slice(shown)))) return false;
-      shown = step.events.length;
-
-      if (step.kind === 'done') {
-        this.settle(step.result, ante);
-        return true;
-      }
-
-      const suggestion = decideTcp(step.decision.cards);
-      let choice: TcpMove | null = suggestion;
-      if (!this.autoPlay) {
+    return playTable<TcpDecision, TcpMove>({
+      game: 'tcp',
+      request: () => ({ bet: this.ante.toString(), sides: sidesInDollars(this.side.units(this.ante), this.ante), blind: this.blind.request() }),
+      autoPlay: () => this.autoPlay,
+      wait: (ms) => this.seq.wait(ms),
+      between: RESULT_HOLD_MS,
+      start: (play, unit) => {
+        this.roundAnte = unit;
+        this.blind.fromDeal(play.blind, Number(play.info.holeCards) || 0);
+      },
+      ready: (play, unit) => void this.blind.fromSettled(play.settled!.blind, unit),
+      show: (events) => this.show(events as TcpEvent[]),
+      decide: async (decision) => {
+        const suggestion = decideTcp(decision.cards);
+        if (this.autoPlay) return suggestion;
         this.suggestion = suggestion;
-        choice = await this.seq.ask('move');
+        const choice = await this.seq.ask('move');
         this.suggestion = null;
-      }
-      if (choice === null) return false;
-      choices.push(choice);
-    }
+        return choice;
+      },
+      settled: (play, hold, unit) => this.settle(play.result as TcpRoundResult, play.settled!, hold, unit),
+      failed: (error) => {
+        this.error = error;
+        this.autoPlay = false;
+      },
+    });
   }
 
   private async show(events: TcpEvent[]): Promise<boolean> {
@@ -284,8 +285,6 @@ export class TcpGame {
         this.bonusResults = {};
         this.net = null;
         this.breakdown = [];
-        // Blind hands always play: the ante and the play bet, plus the side bets.
-        this.blind.start(() => 2);
         break;
       case 'PlayerCards':
         this.player = [...event.cards];
@@ -331,26 +330,13 @@ export class TcpGame {
   }
 
   /** What the casino is told about one settled hand, for charms and Tokens. */
-  private reportFor(result: TcpRoundResult, sides = this.roundSide): RoundReport {
-    return {
-      game: 'tcp',
-      seed: { run: this.runSeed, round: this.round },
-      bets: [
-        ...mainBet(1, result.parts.ante),
-        ...mainBet(result.folded ? 0 : 1, result.parts.play),
-        ...(result.parts.anteBonus > 0 ? mainBet(1, result.parts.anteBonus) : []),
-        ...sideBets(result.bonuses, sides),
-      ],
-      outcome: outcomeOf(result.folded, result.parts.ante + result.parts.play),
-      tier: ({ high: 0, pair: 1, straight: 4, flush: 5, trips: 3, straightFlush: 8, miniRoyal: 9 } as const)[result.playerHand],
-    };
-  }
 
-  private settle(result: TcpRoundResult, ante: Decimal) {
-    const blind = this.blind.settle(ante);
+  private settle(result: TcpRoundResult, settled: TableSettled, hold: number | null, ante: Decimal) {
+    const blind = this.blind.fromSettled(settled.blind, ante);
     // Charms act on the settled hand; the bankroll is paid the hand and whatever they add.
-    const charms = meta.settleRound(this.reportFor(result), ante, result.net);
-    const units = result.net + charms.extra;
+    // The hand as the engine settled it, charms and all, shows now that the felt has dealt it out.
+    const charms = landSettled(settled, hold);
+    const units = charms.units;
     if (charms.lines.length) this.net = units;
     if (charms.lines.length || blind.hands) {
       this.last = { lines: [...(this.last?.lines ?? []), ...charms.lines, ...blind.lines], net: units + blind.units };

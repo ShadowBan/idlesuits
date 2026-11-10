@@ -19,7 +19,10 @@ import {
   type UthRoundResult,
   type RoundReport,
 } from '@idlesuits/sim';
+import type { TableSettled } from '@idlesuits/engine';
 import { BlindHands } from '../../lib/blind.svelte';
+import { player } from '../../lib/player.svelte';
+import { landSettled, playTable, sidesInDollars } from '../../lib/table.svelte';
 import type { BreakdownLine } from '../../lib/breakdown';
 import { bankroll } from '../../lib/casino.svelte';
 import { Decimal } from '../../lib/money';
@@ -107,6 +110,8 @@ export class UthGame {
   started = $state(false);
   gameOver = $state(false);
   autoPlay = $state(false);
+  /** Why the last hand couldn't be dealt or played on, for a moment on screen. */
+  error = $state<string | null>(null);
   pending = $state<Pending | null>(null);
 
   // The table, as the events have revealed it.
@@ -121,11 +126,7 @@ export class UthGame {
   /** Side bets riding on this hand, in antes. */
   roundSide = $state<Record<string, number>>({});
   /** Hands the Lucky Seat deals blind beside the player's, played all in. */
-  readonly blind = new BlindHands<UthRoundResult>('uth', {
-    show: (r) => ({ cards: r.hole, label: shortName(r.playerHand) }),
-    report: (r, sides) => this.reportFor(r, sides),
-    net: (r) => r.net,
-  });
+  readonly blind = new BlindHands('uth');
   bonusResults = $state<Record<string, BonusResult>>({});
   /** The 6-Card Bonus's own four cards, once shown. */
   bonusCards = $state<Card[]>([]);
@@ -201,6 +202,8 @@ export class UthGame {
 
 
   dispose() {
+    // Anything still held back for this table's show is shown as it is.
+    player.releaseAll();
     this.seq.dispose();
     this.started = false;
   }
@@ -238,46 +241,42 @@ export class UthGame {
     }
   }
 
+  /**
+   * Plays a hand through the engine (on the server, for a member), or a few
+   * under auto play: the bets go down, each decision goes to the engine, and
+   * the felt shows what comes back. A hand left mid-way picks up where it was.
+   */
   private async playRound(): Promise<boolean> {
-    const ante = this.ante;
-    const bonuses = this.side.units(ante);
-    this.roundAnte = ante;
-    const seed = { run: this.runSeed, round: this.round };
-    // Blind hands sit in the seats dealt before the player's; each puts down the ante, the blind and a 4× play.
-    const mine = this.blind.deal(this.bank, { unit: ante, sides: bonuses }, 6, (stake, seat) =>
-      simulateUthRound({ rules: this.rules, seed, seat, bonuses: stake.sides, decide: BLIND.uth }),
-    );
-    this.blind.start(() => 6);
-    const run = (decide: (d: UthDecision) => Choice, onEvent: (e: UthEvent) => void) =>
-      simulateUthRound({ rules: this.rules, seed, bonuses, decide, onEvent, seat: mine });
-
-    const choices: Choice[] = [];
-    let shown = 0;
-    for (;;) {
-      const step = stepWithChoices(run, choices);
-      if (!(await this.show(step.events.slice(shown)))) return false;
-      shown = step.events.length;
-
-      if (step.kind === 'done') {
-        this.settle(step.result, ante);
-        return true;
-      }
-
-      // Only the play bets the bankroll can cover are offered; with none left before the river, it's check.
-      const down = ante.mul(2 + Object.values(bonuses).reduce((a, b) => a + b, 0));
-      const decision = { ...step.decision, raises: step.decision.raises.filter((r) => this.blind.covers(this.bank, down, ante.mul(r))) };
-      let suggestion = decideUth(STRATEGY, decision, DECK);
-      if (suggestion.move === 'raise' && !decision.raises.length) suggestion = { move: decision.canCheck ? 'check' : 'fold' };
-      const odds = decision.street === 'river' ? riverOdds(decision.hole, decision.board, DECK) : null;
-      let choice: Choice | null = suggestion;
-      if (!this.autoPlay) {
+    return playTable<UthDecision, Choice>({
+      game: 'uth',
+      request: () => ({ bet: this.ante.toString(), sides: sidesInDollars(this.side.units(this.ante), this.ante), blind: this.blind.request() }),
+      autoPlay: () => this.autoPlay,
+      wait: (ms) => this.seq.wait(ms),
+      between: RESULT_HOLD_MS,
+      start: (play, unit) => {
+        this.roundAnte = unit;
+        this.blind.fromDeal(play.blind, Number(play.info.holeCards) || 0);
+      },
+      ready: (play, unit) => void this.blind.fromSettled(play.settled!.blind, unit),
+      show: (events) => this.show(events as UthEvent[]),
+      decide: async (decision) => {
+        let suggestion = decideUth(STRATEGY, decision, DECK);
+        if (suggestion.move === 'raise' && !decision.raises.includes(suggestion.raise ?? 0)) {
+          suggestion = decision.raises.length ? { move: 'raise', raise: Math.max(...decision.raises) } : { move: decision.canCheck ? 'check' : 'fold' };
+        }
+        if (this.autoPlay) return suggestion;
+        const odds = decision.street === 'river' ? riverOdds(decision.hole, decision.board, DECK) : null;
         this.pending = { decision, suggestion, odds };
-        choice = await this.seq.ask('move');
+        const choice = await this.seq.ask('move');
         this.pending = null;
-      }
-      if (choice === null) return false;
-      choices.push(choice);
-    }
+        return choice;
+      },
+      settled: (play, hold, unit) => this.settle(play.result as UthRoundResult, play.settled!, hold, unit),
+      failed: (error) => {
+        this.error = error;
+        this.autoPlay = false;
+      },
+    });
   }
 
   private async show(events: UthEvent[]): Promise<boolean> {
@@ -395,26 +394,13 @@ export class UthGame {
   }
 
   /** What the casino is told about one settled hand, for charms and Tokens. */
-  private reportFor(r: UthRoundResult, sides = this.roundSide): RoundReport {
-    return {
-      game: 'uth',
-      seed: { run: this.runSeed, round: this.round },
-      bets: [
-        ...mainBet(1, r.parts.ante),
-        ...mainBet(1, r.parts.blind),
-        ...mainBet(r.play, r.parts.play),
-        ...sideBets(r.bonuses, sides),
-      ],
-      outcome: outcomeOf(r.folded, r.parts.ante + r.parts.play),
-      tier: r.playerHand.category,
-    };
-  }
 
-  private settle(result: UthRoundResult, ante: Decimal) {
-    const blind = this.blind.settle(ante);
+  private settle(result: UthRoundResult, settled: TableSettled, hold: number | null, ante: Decimal) {
+    const blind = this.blind.fromSettled(settled.blind, ante);
     // Charms act on the settled hand; the bankroll is paid the hand and whatever they add.
-    const charms = meta.settleRound(this.reportFor(result), ante, result.net);
-    const units = result.net + charms.extra;
+    // The hand as the engine settled it, charms and all, shows now that the felt has dealt it out.
+    const charms = landSettled(settled, hold);
+    const units = charms.units;
     if (charms.lines.length) this.net = units;
     if (charms.lines.length || blind.hands) {
       this.last = { lines: [...(this.last?.lines ?? []), ...charms.lines, ...blind.lines], net: units + blind.units };

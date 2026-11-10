@@ -307,3 +307,6 @@ if (typeof window !== 'undefined') {
   saveSoon('player', () => player.truth);
   for (const key of Object.keys(storedEntries())) if (isOldStateKey(key)) unstore(key);
 }
+
+// In development, the player store is reachable from the console (and from browser tests).
+if (import.meta.env?.DEV && typeof window !== 'undefined') (window as unknown as { __player: Player }).__player = player;

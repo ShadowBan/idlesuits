@@ -1,5 +1,6 @@
-import type { Action, TablePlay, TableSettled } from '@idlesuits/engine';
+import { tableProgress, type Action, type TableDealRequest, type TablePlay, type TableSettled } from '@idlesuits/engine';
 import { autoplay } from './autoplay.svelte';
+import { floor } from './floor.svelte';
 import { meta } from './meta.svelte';
 import { Decimal } from './money';
 import { player } from './player.svelte';
@@ -63,3 +64,93 @@ export function landSettled(settled: TableSettled, hold: number | null): { units
   autoplay.round(settled.units + blindMoney.div(unit).toNumber(), player.bank);
   return { units: settled.units, lines: settled.lines, money: unit.mul(settled.units) };
 }
+
+/** How a table plays one round through the engine (see `playTable`). */
+export interface TableRound<D, C> {
+  game: string;
+  /** The bets, as the engine takes them. */
+  request: () => Omit<TableDealRequest, 'room'>;
+  autoPlay: () => boolean;
+  /** Waits between auto play's rounds. False if the table was reset. */
+  wait: (ms: number) => Promise<boolean>;
+  between: number;
+  /** A round starts on the felt: its main bet, and the blind hands as dealt. */
+  start: (play: TablePlay, unit: Decimal) => void;
+  /** A round's result has come back, before it's shown: the blind hands' results go under their seats. */
+  ready?: (play: TablePlay, unit: Decimal) => void;
+  /** Shows events on the felt. False if the table was reset. */
+  show: (events: unknown[], play: TablePlay) => Promise<boolean>;
+  /** The decision in front of the player: their answer (the suggestion under auto play), or null if the table was reset. */
+  decide: (decision: D, unit: Decimal) => Promise<C | null>;
+  /** A round shown in full: it settles on the felt. */
+  settled: (play: TablePlay, hold: number | null, unit: Decimal) => void;
+  /** The engine turned the round down. */
+  failed: (error: string) => void;
+}
+
+/**
+ * Plays one round at a table through the engine (on the server, for a
+ * member), or a few under auto play: deals (or picks up a hand left mid-way),
+ * shows what comes back, sends each decision, and settles each round on the
+ * felt once it's been shown. False if the table was reset part-way through.
+ */
+export async function playTable<D, C>(t: TableRound<D, C>): Promise<boolean> {
+  const live = tableProgress(player.truth, t.game).live;
+  const auto = t.autoPlay() && !live;
+  const req = { room: floor.current, ...t.request() };
+  let reply: TableReply;
+  if (auto) {
+    const s = autoplay.settings;
+    reply = await tableAct({
+      type: 'table.auto',
+      game: t.game,
+      ...req,
+      rounds: Math.min(AUTO_BATCH, s.stopAfter ? Math.max(1, s.stopRounds - autoplay.rounds) : AUTO_BATCH),
+      stop: { winX: s.stopOnWin ? s.stopWinX : undefined, below: s.stopBelow ? s.stopBelowAmount : undefined, above: s.stopAbove ? s.stopAboveAmount : undefined },
+    });
+  } else reply = await tableAct(live ? { type: 'table.resume', game: t.game } : { type: 'table.deal', game: t.game, ...req });
+  if (!reply.ok) {
+    t.failed(reply.error ?? 'The hand couldn’t be dealt.');
+    return true;
+  }
+  const unit = new Decimal(live?.unit ?? req.bet);
+  if (auto) {
+    for (let i = 0; i < reply.plays.length; i++) {
+      const play = reply.plays[i]!;
+      if (i > 0 && !(await t.wait(t.between))) return false;
+      reply.begin(i);
+      t.start(play, unit);
+      t.ready?.(play, unit);
+      if (!(await t.show(play.events, play))) return false;
+      t.settled(play, reply.holds[i] ?? null, unit);
+    }
+    return true;
+  }
+  let play = reply.plays[0];
+  if (!play) return true;
+  t.start(play, unit);
+  let fresh = true;
+  for (;;) {
+    if (play.settled) t.ready?.(play, unit);
+    if (fresh && !(await t.show(play.events, play))) return false;
+    fresh = true;
+    if (play.settled) {
+      t.settled(play, reply.holds[0] ?? null, unit);
+      return true;
+    }
+    const choice = await t.decide(play.decision as D, unit);
+    if (choice === null) return false;
+    const next = await tableAct({ type: 'table.move', game: t.game, choice });
+    if (!next.ok) {
+      // Not taken, or no answer: the same decision is asked again.
+      t.failed(next.error ?? 'That move didn’t go through.');
+      fresh = false;
+      continue;
+    }
+    reply = next;
+    play = next.plays[0]!;
+  }
+}
+
+/** Rounds auto play asks a table for at once. */
+const AUTO_BATCH = 5;

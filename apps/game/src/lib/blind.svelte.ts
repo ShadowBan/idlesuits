@@ -1,4 +1,5 @@
-import type { Card, RoundReport, Seat } from '@idlesuits/sim';
+import type { BlindDeal, BlindSettled } from '@idlesuits/engine';
+import type { Card } from '@idlesuits/sim';
 import type { BreakdownLine } from './breakdown';
 import { floor } from './floor.svelte';
 import { Decimal } from './money';
@@ -48,47 +49,27 @@ export function unitsDown(main: number, sides: Readonly<Record<string, number>>)
   return Object.values(sides).reduce((sum, s) => sum + s, main);
 }
 
-interface BlindRules<R> {
-  /** The hand's cards and what it made. */
-  show: (result: R) => { cards: Card[]; label: string };
-  /** What the casino is told about the hand, given the side bets it had riding, in units. */
-  report: (result: R, sides: Record<string, number>) => RoundReport;
-  /** Everything the hand won or lost, in base bets. */
-  net: (result: R) => number;
-}
+/** A face-down card, before the engine says what it is. */
+const FACE_DOWN: Card = { uid: 'down', suit: 'S', rank: 2, source: 'player' };
 
 /**
- * A table's blind hands for the round on the felt: dealt (simulated) up front
- * from the seats before the player's, shown face down, turned over with the
- * dealer, and settled one by one, each a hand of its own to the charms.
+ * A table's blind hands for the round on the felt, as the engine dealt them:
+ * from the seats before the player's, shown face down with their stakes,
+ * turned over with the dealer, each settled as a hand of its own.
  *
  * The player sets how each seat bets between hands (`bets`); once dealt, a
  * blind hand plays all in, with no decisions.
  */
-export class BlindHands<R> {
+export class BlindHands {
   seats = $state<BlindSeat[]>([]);
   /** What they won or lost together this round, in dollars, once settled. */
   net = $state(new Decimal(0));
   /** How each seat bets, in seat order. Seats past what the charms give wait, unused. */
   bets = $state<BlindBets[]>([]);
-  private hands: { stake: BlindStake; result: R }[] = [];
-  /** What this round's blind hands have down, all in: money the player's own hand can't raise with. */
-  private held = new Decimal(0);
+  /** The settled hands' nets, held until the dealer shows. */
+  private nets: Decimal[] = [];
 
-  /**
-   * Whether the bankroll covers `more` on the player's own hand, on top of
-   * `down` already bet on it this round and everything the blind hands hold.
-   * Bets are paid from the bankroll when the hand settles, so a raise the
-   * player can't cover is never offered.
-   */
-  covers(bank: Decimal, down: Decimal, more: Decimal): boolean {
-    return bank.sub(this.held).sub(down).gte(more);
-  }
-
-  constructor(
-    private readonly key: string,
-    private readonly rules: BlindRules<R>,
-  ) {
+  constructor(private readonly key: string) {
     const saved = load<{ mode: BlindMode; bet: string; sides: Record<string, string> }[] | null>(`blind.${key}`, null);
     try {
       this.bets = (saved ?? []).map((s) => ({
@@ -121,101 +102,67 @@ export class BlindHands<R> {
     );
   }
 
-  /**
-   * What each seat in play stakes this hand, kept within the room's limits.
-   * `mine` is the player's own hand. A blind hand risks `main` base bets all
-   * in plus its side bets; seats are dealt in order while the bankroll could
-   * cover every hand, the player's included, losing all of it.
-   */
-  stakes(bank: Decimal, mine: BlindStake, main: number): BlindStake[] {
-    const room = floor.room;
-    const exposure = (s: BlindStake) => s.unit.mul(unitsDown(main, s.sides));
-    let total = exposure(mine);
-    const out: BlindStake[] = [];
-    for (let i = 0; i < blindSeats(); i++) {
-      const seat = this.seat(i);
-      if (seat.mode === 'out') continue;
-      let stake = mine;
-      if (seat.mode === 'own') {
-        const unit = Decimal.min(Decimal.max(seat.bet, room.min), room.max);
-        const sides: Record<string, number> = {};
-        for (const [id, v] of Object.entries(seat.sides)) {
-          if (v.gt(0)) sides[id] = Decimal.min(v, room.sideMax).div(unit).toNumber();
-        }
-        stake = { unit, sides };
-      }
-      if (bank.lt(total.add(exposure(stake)))) break;
-      total = total.add(exposure(stake));
-      out.push(stake);
-    }
-    return out;
+  /** How the seats bet, as the engine is asked to deal them. */
+  request(): { mode: BlindMode; bet: string; sides: Record<string, string> }[] {
+    return Array.from({ length: blindSeats() }, (_, i) => {
+      const s = this.seat(i);
+      return { mode: s.mode, bet: s.bet.toString(), sides: Object.fromEntries(Object.entries(s.sides).map(([id, v]) => [id, v.toString()])) };
+    });
   }
 
-  /**
-   * Plays the round's blind hands out before the player's round starts: one
-   * for each seat in play, dealt from the seats before the player's. Returns
-   * the player's own seat.
-   */
-  deal(bank: Decimal, mine: BlindStake, main: number, play: (stake: BlindStake, seat: Seat) => R): Seat {
-    const stakes = this.stakes(bank, mine, main);
-    this.held = stakes.reduce((sum, s) => sum.add(s.unit.mul(unitsDown(main, s.sides))), new Decimal(0));
-    const of = stakes.length + 1;
-    this.hands = stakes.map((stake, index) => ({ stake, result: play(stake, { index, of }) }));
-    return { index: stakes.length, of };
-  }
-
-  /** As the round starts: the hands land face down, each with its stake on it, `main` base bets plus its side bets. */
-  start(main: (result: R) => number) {
+  /** As the round starts: the hands the engine dealt land face down, each with its stake on it. */
+  fromDeal(deals: readonly BlindDeal[], holeCards: number) {
     this.net = new Decimal(0);
-    this.seats = this.hands.map(({ stake, result }) => ({
-      ...this.rules.show(result),
+    this.nets = [];
+    this.seats = deals.map((d) => ({
+      cards: Array.from({ length: holeCards }, () => FACE_DOWN),
+      label: '',
       shown: false,
-      stake: stake.unit.mul(unitsDown(main(result), stake.sides)),
+      stake: new Decimal(d.unit).mul(d.down),
       net: null,
     }));
+  }
+
+  /**
+   * The round is settled: each hand's cards and what it made go under its
+   * seat, still face down until the dealer shows. Returns what they came to,
+   * in dollars and in units of the player's main bet `unit`, with a line each.
+   */
+  fromSettled(settled: readonly BlindSettled[], unit: Decimal): { money: Decimal; units: number; hands: number; lines: BreakdownLine[] } {
+    let money = new Decimal(0);
+    const lines: BreakdownLine[] = [];
+    this.nets = settled.map((b, i) => {
+      const show = b.show as { cards: Card[]; label: string };
+      const seat = this.seats[i];
+      if (seat) {
+        seat.cards = show.cards;
+        seat.label = show.label;
+      }
+      const m = new Decimal(b.money);
+      money = money.add(m);
+      lines.push({ label: `Blind ${i + 1} · ${show.label.toLowerCase() || 'hand'}`, amount: m.div(unit).toNumber() });
+      return m;
+    });
+    return { money, units: money.div(unit).toNumber(), hands: settled.length, lines };
   }
 
   reveal() {
     for (const seat of this.seats) seat.shown = true;
   }
 
-  /**
-   * As the round settles on the felt: each hand's result, before charms. Turns
-   * them over too, for a round that ends early (the player folds before the
-   * last card) without a showdown.
-   */
+  /** As the round settles on the felt: each hand turned over, with what it won or lost. */
   showResults() {
     this.reveal();
-    this.hands.forEach(({ stake, result }, i) => {
+    this.nets.forEach((m, i) => {
       const seat = this.seats[i];
-      if (seat) seat.net = stake.unit.mul(this.rules.net(result));
+      if (seat) seat.net = m;
     });
-  }
-
-  /**
-   * Pays each blind hand through the charms. Settle them before the player's
-   * own hand, so the player's charms are the ones the banner shows. `units`
-   * is counted in the player's main bet, `unit`, for the hand's breakdown.
-   */
-  settle(unit: Decimal): { money: Decimal; units: number; hands: number; lines: BreakdownLine[] } {
-    let money = new Decimal(0);
-    const lines: BreakdownLine[] = [];
-    this.hands.forEach(({ stake, result }, i) => {
-      const charms = meta.settleRound(this.rules.report(result, stake.sides), stake.unit, this.rules.net(result));
-      const net = this.rules.net(result) + charms.extra;
-      const seat = this.seats[i];
-      if (seat) seat.net = stake.unit.mul(net);
-      money = money.add(stake.unit.mul(net));
-      lines.push({ label: `Blind ${i + 1} · ${seat?.label.toLowerCase() ?? 'hand'}`, amount: stake.unit.mul(net).div(unit).toNumber() });
-    });
-    this.net = money;
-    return { money, units: money.div(unit).toNumber(), hands: this.hands.length, lines };
+    this.net = this.nets.reduce((sum, m) => sum.add(m), new Decimal(0));
   }
 
   clear() {
-    this.hands = [];
-    this.held = new Decimal(0);
     this.seats = [];
+    this.nets = [];
     this.net = new Decimal(0);
   }
 }

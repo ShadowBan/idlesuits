@@ -30,6 +30,8 @@ import {
   type KenoRound,
   type PlayerState,
   type TablePlay,
+  tableAdapter,
+  tableProgress,
 } from '../src';
 
 const ctx = (key = 'test'): EngineContext => ({ now: 1_000, tuning: ENGINE_TUNING, seed: (game, round) => `${key}:${game}:${round}` });
@@ -537,5 +539,52 @@ describe('blackjack on the engine', () => {
     expect(units / n).toBeGreaterThan(-0.12);
     expect(units / n).toBeLessThan(0.1);
     expect((state.games.blackjack as { shoe: { number: number } }).shoe.number).toBeGreaterThan(5);
+  });
+});
+
+describe('poker tables on the engine', () => {
+  const GAMES = ['uth', 'tcp', 'csp', 'c4p', 'stud', 'lir', 'djwild', 'paigow'];
+
+  it.each(GAMES)('%s plays auto rounds, the money adding up', (game) => {
+    let state: PlayerState = { ...freshPlayer('s'), bank: '1e9' };
+    for (let i = 0; i < 20; i++) {
+      const before = bankOf(state);
+      const out = act(state, { type: 'table.auto', game, room: 0, bet: '10', rounds: 5 }, ctx());
+      if (!out.ok) throw new Error(`${game}: ${out.error}`);
+      state = out.state;
+      const plays = (out.result as { plays: TablePlay[] }).plays;
+      expect(plays).toHaveLength(5);
+      const units = plays.reduce((sum, p) => sum + p.settled!.units, 0);
+      expect(bankOf(state).sub(before).toNumber()).toBeCloseTo(10 * units, 4);
+    }
+    expect(state.stats.games[game === 'djwild' ? 'djw' : game]?.rounds).toBe(100);
+  });
+
+  it.each(GAMES)('%s takes moves by hand, refusing what it does not offer', (game) => {
+    const c = ctx('hand');
+    let out = act({ ...freshPlayer('s'), bank: '1e6' }, { type: 'table.deal', game, room: 0, bet: '10' }, c);
+    if (!out.ok) throw new Error(out.error);
+    let play = (out.result as { plays: TablePlay[] }).plays[0]!;
+    expect(act(out.state, { type: 'table.move', game, choice: { move: 'nonsense' } }, c).ok).toBe(false);
+    let state = out.state;
+    for (let guard = 0; play.decision && guard < 10; guard++) {
+      const live = tableProgress(state, game).live!;
+      const choice = tableAdapter(game)!.suggest(play.decision, live.data, c);
+      out = act(state, { type: 'table.move', game, choice }, c);
+      if (!out.ok) throw new Error(out.error);
+      state = out.state;
+      play = (out.result as { plays: TablePlay[] }).plays[0]!;
+    }
+    expect(play.settled).toBeTruthy();
+  });
+
+  it('deals blind hands beside the player’s, from the pit boss’s seats, settling each', () => {
+    const c: EngineContext = { ...ctx(), tuning: { ...ENGINE_TUNING, blindHands: 2 } };
+    const out = act({ ...freshPlayer('s'), bank: '1e6' }, { type: 'table.auto', game: 'uth', room: 0, bet: '10', rounds: 3 }, c);
+    if (!out.ok) throw new Error(out.error);
+    for (const p of (out.result as { plays: TablePlay[] }).plays) {
+      expect(p.blind).toHaveLength(2);
+      expect(p.settled!.blind).toHaveLength(2);
+    }
   });
 });

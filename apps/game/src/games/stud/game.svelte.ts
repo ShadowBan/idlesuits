@@ -15,7 +15,10 @@ import {
   type StudRoundResult,
   type RoundReport,
 } from '@idlesuits/sim';
+import type { TableSettled } from '@idlesuits/engine';
 import { BlindHands } from '../../lib/blind.svelte';
+import { player } from '../../lib/player.svelte';
+import { landSettled, playTable, sidesInDollars } from '../../lib/table.svelte';
 import type { BreakdownLine } from '../../lib/breakdown';
 import { bankroll } from '../../lib/casino.svelte';
 import { Decimal } from '../../lib/money';
@@ -90,6 +93,8 @@ export class StudGame {
   started = $state(false);
   gameOver = $state(false);
   autoPlay = $state(false);
+  /** Why the last hand couldn't be dealt or played on, for a moment on screen. */
+  error = $state<string | null>(null);
   pending = $state<Pending | null>(null);
 
   hole = $state<(Card | null)[]>([null, null]);
@@ -100,11 +105,7 @@ export class StudGame {
   /** Side bets riding on this hand, in antes. */
   roundSide = $state<Record<string, number>>({});
   /** Hands the Lucky Seat deals blind beside the player's, played all in. */
-  readonly blind = new BlindHands<StudRoundResult>('stud', {
-    show: (r) => ({ cards: r.hole, label: r.hand ? shortName(r.hand) : '' }),
-    report: (r, sides) => this.reportFor(r, sides),
-    net: (r) => r.net,
-  });
+  readonly blind = new BlindHands('stud');
   bonusResults = $state<Record<string, BonusResult>>({});
   hand = $state<PokerHand | null>(null);
   multiplier = $state<number | null>(null);
@@ -179,6 +180,8 @@ export class StudGame {
 
 
   dispose() {
+    // Anything still held back for this table's show is shown as it is.
+    player.releaseAll();
     this.seq.dispose();
     this.started = false;
   }
@@ -216,52 +219,44 @@ export class StudGame {
     }
   }
 
+  /**
+   * Plays a hand through the engine (on the server, for a member), or a few
+   * under auto play: the bets go down, each decision goes to the engine, and
+   * the felt shows what comes back. A hand left mid-way picks up where it was.
+   */
   private async playRound(): Promise<boolean> {
-    const ante = this.ante;
-    const bonuses = this.side.units(ante);
-    this.roundAnte = ante;
-    this.roundSide = bonuses;
-    const seed = { run: this.runSeed, round: this.round };
-    // Blind hands sit in the seats dealt before the player's; each puts down the ante and 3× on every street.
-    const mine = this.blind.deal(this.bank, { unit: ante, sides: bonuses }, 10, (stake, seat) =>
-      simulateStudRound({ rules: this.rules, seed, seat, bonuses: stake.sides, decide: BLIND.stud }),
-    );
-    this.blind.start(() => 10);
-    const run = (decide: (d: StudDecision) => StudChoice, onEvent: (e: StudEvent) => void) =>
-      simulateStudRound({ rules: this.rules, seed, decide, bonuses, onEvent, seat: mine });
-
-    const choices: StudChoice[] = [];
-    let shown = 0;
-    for (;;) {
-      const step = stepWithChoices(run, choices);
-      if (!(await this.show(step.events.slice(shown)))) return false;
-      shown = step.events.length;
-
-      if (step.kind === 'done') {
-        this.settle(step.result, ante);
-        return true;
-      }
-
-      // Only bets the bankroll can cover are offered, keeping 1× back for every street still to come.
-      const d = step.decision;
-      const down = ante.mul(1 + d.bets.reduce((a, b) => a + b, 0) + Object.values(bonuses).reduce((a, b) => a + b, 0));
-      const later = 5 - d.street;
-      const decision = { ...d, raises: d.raises.filter((r) => this.blind.covers(this.bank, down, ante.mul(r + later))) };
-      let suggestion = decideStud(decision);
-      if (suggestion.move === 'bet' && !decision.raises.includes(suggestion.size)) {
-        const wanted = suggestion.size;
-        const fits = decision.raises.filter((r) => r <= wanted);
-        suggestion = fits.length ? { move: 'bet', size: Math.max(...fits) } : { move: 'fold' };
-      }
-      let choice: StudChoice | null = suggestion;
-      if (!this.autoPlay) {
+    return playTable<StudDecision, StudChoice>({
+      game: 'stud',
+      request: () => ({ bet: this.ante.toString(), sides: sidesInDollars(this.side.units(this.ante), this.ante), blind: this.blind.request() }),
+      autoPlay: () => this.autoPlay,
+      wait: (ms) => this.seq.wait(ms),
+      between: RESULT_HOLD_MS,
+      start: (play, unit) => {
+        this.roundAnte = unit;
+        this.blind.fromDeal(play.blind, Number(play.info.holeCards) || 0);
+      },
+      ready: (play, unit) => void this.blind.fromSettled(play.settled!.blind, unit),
+      show: (events) => this.show(events as StudEvent[]),
+      decide: async (decision) => {
+        // Only bets the bankroll covers come back from the engine, keeping 1× back for every street still to come.
+        let suggestion = decideStud(decision);
+        if (suggestion.move === 'bet' && !decision.raises.includes(suggestion.size)) {
+          const wanted = suggestion.size;
+          const fits = decision.raises.filter((r) => r <= wanted);
+          suggestion = fits.length ? { move: 'bet', size: Math.max(...fits) } : { move: 'fold' };
+        }
+        if (this.autoPlay) return suggestion;
         this.pending = { decision, suggestion };
-        choice = await this.seq.ask('move');
+        const choice = await this.seq.ask('move');
         this.pending = null;
-      }
-      if (choice === null) return false;
-      choices.push(choice);
-    }
+        return choice;
+      },
+      settled: (play, hold, unit) => this.settle(play.result as StudRoundResult, play.settled!, hold, unit),
+      failed: (error) => {
+        this.error = error;
+        this.autoPlay = false;
+      },
+    });
   }
 
   private async show(events: StudEvent[]): Promise<boolean> {
@@ -344,24 +339,13 @@ export class StudGame {
   }
 
   /** What the casino is told about one settled hand, for charms and Tokens. */
-  private reportFor(r: StudRoundResult, sides = this.roundSide): RoundReport {
-    return {
-      game: 'stud',
-      seed: { run: this.runSeed, round: this.round },
-      bets: [
-        ...[1, ...r.bets].flatMap((stake) => mainBet(stake, r.folded ? -stake : stake * (r.multiplier ?? -1))),
-        ...sideBets(r.bonuses, sides),
-      ],
-      outcome: outcomeOf(r.folded, r.multiplier ?? -1),
-      tier: r.hand?.category,
-    };
-  }
 
-  private settle(result: StudRoundResult, ante: Decimal) {
-    const blind = this.blind.settle(ante);
+  private settle(result: StudRoundResult, settled: TableSettled, hold: number | null, ante: Decimal) {
+    const blind = this.blind.fromSettled(settled.blind, ante);
     // Charms act on the settled hand; the bankroll is paid the hand and whatever they add.
-    const charms = meta.settleRound(this.reportFor(result), ante, result.net);
-    const units = result.net + charms.extra;
+    // The hand as the engine settled it, charms and all, shows now that the felt has dealt it out.
+    const charms = landSettled(settled, hold);
+    const units = charms.units;
     if (charms.lines.length) this.net = units;
     if (charms.lines.length || blind.hands) {
       this.last = { lines: [...(this.last?.lines ?? []), ...charms.lines, ...blind.lines], net: units + blind.units };

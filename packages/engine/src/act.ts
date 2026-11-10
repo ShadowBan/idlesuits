@@ -192,7 +192,7 @@ export function act(state: PlayerState, raw: unknown, ctx: EngineContext, opts: 
  * Every other game is still decided in the browser, and members play it on a
  * practice bankroll until it moves here.
  */
-export const ENGINE_GAMES: readonly string[] = ['keno', 'plinko', 'mines', 'deepdrop', 'roulette', 'vault', 'forge', 'haul', 'carnival', 'lanterns', 'blackjack', 'baccarat'];
+export const ENGINE_GAMES: readonly string[] = ['keno', 'plinko', 'mines', 'deepdrop', 'roulette', 'vault', 'forge', 'haul', 'carnival', 'lanterns', 'blackjack', 'baccarat', 'uth', 'tcp', 'csp', 'c4p', 'stud', 'lir', 'djwild', 'paigow'];
 
 /** A run of seeds an action may need: `count` rounds of `game` from `from`. */
 export interface SeedRun {

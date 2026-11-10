@@ -15,7 +15,10 @@ import {
   type Card,
   type RoundReport,
 } from '@idlesuits/sim';
+import type { TableSettled } from '@idlesuits/engine';
 import { BlindHands } from '../../lib/blind.svelte';
+import { player } from '../../lib/player.svelte';
+import { landSettled, playTable, sidesInDollars } from '../../lib/table.svelte';
 import type { BreakdownLine } from '../../lib/breakdown';
 import { bankroll } from '../../lib/casino.svelte';
 import { Decimal } from '../../lib/money';
@@ -88,6 +91,8 @@ export class C4pGame {
   started = $state(false);
   gameOver = $state(false);
   autoPlay = $state(false);
+  /** Why the last hand couldn't be dealt or played on, for a moment on screen. */
+  error = $state<string | null>(null);
   suggestion = $state<C4pChoice | null>(null);
   /** Play sizes on offer while deciding: [1], or [1, 3] with a pair of aces or better. */
   sizes = $state<number[]>([1]);
@@ -107,11 +112,7 @@ export class C4pGame {
   /** Side bets riding on this hand, in antes. */
   roundSide = $state<Record<string, number>>({});
   /** Hands the Lucky Seat deals blind beside the player's, played all in. */
-  readonly blind = new BlindHands<C4pRoundResult>('c4p', {
-    show: (r) => ({ cards: r.player, label: FOUR_CARD_NAMES[fourCategoryOf(r.playerScore)] }),
-    report: (r, sides) => this.reportFor(r, sides),
-    net: (r) => r.net,
-  });
+  readonly blind = new BlindHands('c4p');
   bonusResults = $state<Record<string, BonusResult>>({});
   net = $state<number | null>(null);
   breakdown = $state<BreakdownLine[]>([]);
@@ -173,6 +174,8 @@ export class C4pGame {
 
 
   dispose() {
+    // Anything still held back for this table's show is shown as it is.
+    player.releaseAll();
     this.seq.dispose();
     this.started = false;
   }
@@ -210,46 +213,42 @@ export class C4pGame {
     }
   }
 
+  /**
+   * Plays a hand through the engine (on the server, for a member), or a few
+   * under auto play: the bets go down, each decision goes to the engine, and
+   * the felt shows what comes back. A hand left mid-way picks up where it was.
+   */
   private async playRound(): Promise<boolean> {
-    const ante = this.ante;
-    const bonuses = this.side.units(ante);
-    this.roundAnte = ante;
-    const seed = { run: this.runSeed, round: this.round };
-    // Blind hands sit in the seats dealt before the player's; each puts down the ante, the Super Bonus and the biggest play.
-    const mine = this.blind.deal(this.bank, { unit: ante, sides: bonuses }, 5, (stake, seat) =>
-      simulateC4pRound({ rules: this.rules, seed, seat, bonuses: stake.sides, decide: BLIND.c4p }),
-    );
-    this.blind.start((r) => 2 + r.play);
-    const run = (decide: (d: C4pDecision) => C4pChoice, onEvent: (e: C4pEvent) => void) =>
-      simulateC4pRound({ rules: this.rules, seed, bonuses, decide, onEvent, seat: mine });
-
-    const choices: C4pChoice[] = [];
-    let shown = 0;
-    for (;;) {
-      const step = stepWithChoices(run, choices);
-      if (!(await this.show(step.events.slice(shown)))) return false;
-      shown = step.events.length;
-
-      if (step.kind === 'done') {
-        this.settle(step.result, ante);
-        return true;
-      }
-
-      // Only Play sizes the bankroll can cover are offered: the big Play drops out when it can't.
-      const down = ante.mul(2 + Object.values(bonuses).reduce((a, b) => a + b, 0));
-      const sizes = step.decision.sizes.filter((size) => this.blind.covers(this.bank, down, ante.mul(size)));
-      let suggestion = decideC4p(step.decision.cards, this.rules.bigPlay);
-      if (suggestion.move === 'play' && !sizes.includes(suggestion.size)) suggestion = sizes.length ? { move: 'play', size: Math.max(...sizes) } : { move: 'fold' };
-      let choice: C4pChoice | null = suggestion;
-      if (!this.autoPlay) {
+    return playTable<C4pDecision, C4pChoice>({
+      game: 'c4p',
+      request: () => ({ bet: this.ante.toString(), sides: sidesInDollars(this.side.units(this.ante), this.ante), blind: this.blind.request() }),
+      autoPlay: () => this.autoPlay,
+      wait: (ms) => this.seq.wait(ms),
+      between: RESULT_HOLD_MS,
+      start: (play, unit) => {
+        this.roundAnte = unit;
+        this.blind.fromDeal(play.blind, Number(play.info.holeCards) || 0);
+      },
+      ready: (play, unit) => void this.blind.fromSettled(play.settled!.blind, unit),
+      show: (events) => this.show(events as C4pEvent[]),
+      decide: async (decision) => {
+        // Only Play sizes the bankroll covers come back from the engine: the big Play drops out when it can't.
+        const sizes = decision.sizes;
+        let suggestion = decideC4p(decision.cards, this.rules.bigPlay);
+        if (suggestion.move === 'play' && !sizes.includes(suggestion.size)) suggestion = sizes.length ? { move: 'play', size: Math.max(...sizes) } : { move: 'fold' };
+        if (this.autoPlay) return suggestion;
         this.suggestion = suggestion;
         this.sizes = sizes;
-        choice = await this.seq.ask('move');
+        const choice = await this.seq.ask('move');
         this.suggestion = null;
-      }
-      if (choice === null) return false;
-      choices.push(choice);
-    }
+        return choice;
+      },
+      settled: (play, hold, unit) => this.settle(play.result as C4pRoundResult, play.settled!, hold, unit),
+      failed: (error) => {
+        this.error = error;
+        this.autoPlay = false;
+      },
+    });
   }
 
   private async show(events: C4pEvent[]): Promise<boolean> {
@@ -344,26 +343,13 @@ export class C4pGame {
   }
 
   /** What the casino is told about one settled hand, for charms and Tokens. */
-  private reportFor(r: C4pRoundResult, sides = this.roundSide): RoundReport {
-    return {
-      game: 'c4p',
-      seed: { run: this.runSeed, round: this.round },
-      bets: [
-        ...mainBet(1, r.parts.ante),
-        ...mainBet(r.play, r.parts.play),
-        ...mainBet(1, r.parts.superBonus),
-        ...sideBets(r.bonuses, sides),
-      ],
-      outcome: outcomeOf(r.folded, r.parts.ante + r.parts.play),
-      tier: [0, 1, 2, 4, 5, 3, 8, 7][fourCategoryOf(r.playerScore)],
-    };
-  }
 
-  private settle(result: C4pRoundResult, ante: Decimal) {
-    const blind = this.blind.settle(ante);
+  private settle(result: C4pRoundResult, settled: TableSettled, hold: number | null, ante: Decimal) {
+    const blind = this.blind.fromSettled(settled.blind, ante);
     // Charms act on the settled hand; the bankroll is paid the hand and whatever they add.
-    const charms = meta.settleRound(this.reportFor(result), ante, result.net);
-    const units = result.net + charms.extra;
+    // The hand as the engine settled it, charms and all, shows now that the felt has dealt it out.
+    const charms = landSettled(settled, hold);
+    const units = charms.units;
     if (charms.lines.length) this.net = units;
     if (charms.lines.length || blind.hands) {
       this.last = { lines: [...(this.last?.lines ?? []), ...charms.lines, ...blind.lines], net: units + blind.units };

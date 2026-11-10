@@ -96,6 +96,10 @@ export interface TablePlay<D = unknown, E = unknown, R = unknown> {
 /** How the engine plays one table game: its bets, its rounds, and what they're worth. */
 export interface TableAdapter<D = unknown, C = unknown, E = unknown, R = unknown> {
   game: string;
+  /** What the charms and lifetime stats call the game, if not its table id. */
+  statsId?: string;
+  /** Cards a blind hand holds face down, for its seat before it's turned over. */
+  holeCards?: number;
   /** The side bets the table takes, by id. */
   sides(ctx: EngineContext): readonly string[];
   /** Main bets a blind hand plays all in, in units (UTH's ante, blind and 4× play: 6). Zero: no blind hands here. */
@@ -106,7 +110,13 @@ export interface TableAdapter<D = unknown, C = unknown, E = unknown, R = unknown
    * the main bet and the units down at the deal (sides included). A string is
    * what's wrong.
    */
-  open(state: PlayerState, req: TableDealRequest, seed: string, ctx: EngineContext, seat: { index: number; of: number }): { data: Record<string, unknown>; down: number } | string;
+  open(
+    state: PlayerState,
+    req: TableDealRequest,
+    seed: string,
+    ctx: EngineContext,
+    seat: { index: number; of: number },
+  ): { data: Record<string, unknown>; down: number; reserve?: number } | string;
   /** Plays the round from its data with the choices so far. The round's seed comes from `ctx` and `data.round`. */
   step(data: Record<string, unknown>, choices: readonly C[], ctx: EngineContext): TableStep<D, E, R>;
   /** Plays one blind hand all in, from the round's seed and its seat; its show data, net and report. */
@@ -228,10 +238,10 @@ function advance(state: PlayerState, adapter: TableAdapter, live: TableLive, sho
     const unit = amount(live.unit);
     const decision = adapter.offer(step.decision, live.data, (units) => bank.gte(unit.mul(units)), ctx);
     const events = adapter.redact ? adapter.redact(fresh) : fresh;
-    return { state, play: { events, decision, result: null, settled: null, blind: live.blind, info: adapter.info?.(live.data, ctx) ?? {} } };
+    return { state, play: { events, decision, result: null, settled: null, blind: live.blind, info: { holeCards: adapter.holeCards ?? 0, ...adapter.info?.(live.data, ctx) } } };
   }
   const settled = settleTable(state, adapter, live, step.result, ctx);
-  return { state: settled.state, play: { events: fresh, decision: null, result: step.result, settled: settled.settled, blind: live.blind, info: adapter.info?.(live.data, ctx) ?? {} } };
+  return { state: settled.state, play: { events: fresh, decision: null, result: step.result, settled: settled.settled, blind: live.blind, info: { holeCards: adapter.holeCards ?? 0, ...adapter.info?.(live.data, ctx) } } };
 }
 
 /**
@@ -252,7 +262,7 @@ function settleTable(state: PlayerState, adapter: TableAdapter, live: TableLive,
     const bu = amount(b.unit);
     const hand = adapter.blindHand!(live.data, b.sides, { index: i, of: live.blind.length + 1 }, ctx);
     next = moveBank(next, bu.mul(b.down), ctx.tuning);
-    const out = settleRound(next, { ...hand.report, game, seed: { run, round: live.round } } as RoundReport, bu, hand.net, ctx);
+    const out = settleRound(next, { ...hand.report, game: adapter.statsId ?? game, seed: { run, round: live.round } } as RoundReport, bu, hand.net, ctx);
     next = out.state;
     const units = hand.net + out.extra;
     const back = bu.mul(b.down + units);
@@ -262,7 +272,7 @@ function settleTable(state: PlayerState, adapter: TableAdapter, live: TableLive,
   const r = adapter.report(result, live.data);
   // The player's stakes went down as they were made: they come back before the round settles its net.
   next = moveBank(next, unit.mul(live.down), ctx.tuning);
-  const out = settleRound(next, { ...r.report, game, seed: { run, round: live.round } } as RoundReport, unit, r.net, ctx);
+  const out = settleRound(next, { ...r.report, game: adapter.statsId ?? game, seed: { run, round: live.round } } as RoundReport, unit, r.net, ctx);
   next = out.state;
   const units = r.net + out.extra;
   money = money.add(unit.mul(live.down + units));
@@ -313,7 +323,8 @@ export function tableDeal(state: PlayerState, game: string, req: TableDealReques
   const unit = checked.unit;
   const blindDown = blind.reduce((sum, b) => sum.add(amount(b.unit).mul(b.down)), new Decimal(0));
   const down = unit.mul(opened.down).add(blindDown);
-  if (down.gt(bankOf(state))) return fail('The bank can’t cover those bets.');
+  // A call the hand can't decline without folding (Three Card Poker's play) must be covered from the start.
+  if (down.add(unit.mul(opened.reserve ?? 0)).gt(bankOf(state))) return fail('The bank can’t cover those bets.');
   const live: TableLive = { round: t.round, data: { ...opened.data, room: req.room, round: t.round }, choices: [], unit: unit.toString(), down: opened.down, blind };
   let next = moveBank(state, down.neg(), ctx.tuning);
   next = saveLive(next, game, { ...t.progress, live });
