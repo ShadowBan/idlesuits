@@ -543,7 +543,7 @@ describe('blackjack on the engine', () => {
 });
 
 describe('poker tables on the engine', () => {
-  const GAMES = ['uth', 'tcp', 'csp', 'c4p', 'stud', 'lir', 'djwild', 'paigow'];
+  const GAMES = ['uth', 'tcp', 'csp', 'c4p', 'stud', 'lir', 'djwild', 'paigow', 'suits'];
 
   it.each(GAMES)('%s plays auto rounds, the money adding up', (game) => {
     let state: PlayerState = { ...freshPlayer('s'), bank: '1e9' };

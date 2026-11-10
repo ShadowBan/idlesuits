@@ -255,6 +255,7 @@ export class BaccaratGame {
       const play = reply.plays[i]!;
       if (i > 0 && !(await this.seq.wait(RESULT_HOLD_MS))) return false;
       reply.begin(i);
+      this.batch = reply.plays.length > 1 || this.autoPlay;
       const shoe = play.info.shoe as { size: number; next: number; cut: number } | undefined;
       if (play.info.shuffled) {
         // The cut card came out: the dealer shuffles before dealing on, and a new shoe starts a new scoreboard.
@@ -300,8 +301,11 @@ export class BaccaratGame {
 
   /** Whether the player turns this hand's cards: the one they bet on, unless auto play is dealing. */
   private turnsOwn(to: BaccaratHand): boolean {
-    return !this.autoPlay && to === this.roundSideBet;
+    return !this.autoPlay && !this.batch && to === this.roundSideBet;
   }
+
+  /** The coup on the felt came from an auto play batch: its cards turn on their own, even if auto play stops. */
+  private batch = false;
 
   /** Plays the coup out: four cards face down, turned Player then Banker, then any third cards squeezed. */
   private async show(events: BaccaratEvent[]): Promise<boolean> {

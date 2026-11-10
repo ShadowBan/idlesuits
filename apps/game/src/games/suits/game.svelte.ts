@@ -11,7 +11,14 @@ import {
   type Suit,
   type RoundReport,
   type TableRules,
+  type GameEvent,
+  type RoundResult,
 } from '@idlesuits/sim';
+import { tableProgress, type SuitsDecision, type TablePlay } from '@idlesuits/engine';
+import { autoplay } from '../../lib/autoplay.svelte';
+import { floor } from '../../lib/floor.svelte';
+import { player } from '../../lib/player.svelte';
+import { landSettled, sidesInDollars, tableAct, type TableReply } from '../../lib/table.svelte';
 import { bankroll } from '../../lib/casino.svelte';
 import { Clock } from '../../lib/clock';
 import { beatDelay, direct, resultHold, type Beat, type Drama, type SpeedMode } from './director';
@@ -116,6 +123,8 @@ export class Game {
 
   /** Off: the player deals each hand and flips their own cards. */
   autoPlay = $state(false);
+  /** Why the last hand couldn't be dealt or played on, for a moment on screen. */
+  error = $state<string | null>(null);
   /** What the game is waiting on the player for, if anything. */
   awaiting = $state<'flip' | 'bet' | 'deal' | null>(null);
   /** While awaiting 'bet': the most the player may raise, and what their plan would do. */
@@ -224,6 +233,8 @@ export class Game {
    * remounts the app) leaves the old game playing sounds with no table.
    */
   dispose() {
+    // Anything still held back for this table's show is shown as it is.
+    player.releaseAll();
     this.disposed = true;
     this.estimator?.terminate();
     this.started = false;
@@ -339,53 +350,104 @@ export class Game {
     }
   }
 
-  /** Plays one round; returns how dramatic its result was, or null if the game was reset mid-round. */
+  /**
+   * Plays one round, as the engine deals it (on the server, for a member), or a
+   * few under auto play: the ante goes down, the player's cards turn (by hand,
+   * unless auto play is dealing), the raise goes to the engine, and the dealer
+   * shows. A hand left mid-way picks up where it was. Returns how dramatic the
+   * last result was, or null if the game was reset mid-round.
+   */
   private async playRound(): Promise<Drama | null> {
-    const rules = this.tableRules();
-    const ante = this.ante;
-    // Bets are fixed when the hand is dealt; later edits apply to the next hand.
-    const seatConfig = this.seat(this.planPolicy(), ante);
-    const simulate = (raisePolicy: RaisePolicy) =>
-      simulateRound({
-        shoe: this.shoe,
-        seats: [{ ...seatConfig, raisePolicy }],
-        rules,
-        seed: { run: this.runSeed, dealerId: 'standard', round: this.round },
-        recordEvents: true,
-      });
-    let result = simulate(seatConfig.raisePolicy);
-    // Raises are paid from the bankroll: never more antes than it covers after the ante and side bets.
-    const sidesDown = Object.values(seatConfig.sideBets).reduce((a, b) => a + b, 0);
-    const afford = Math.max(0, Math.floor(this.bank.sub(ante.mul(1 + sidesDown)).div(ante).toNumber()));
-    const planned = result.events.find((e) => e.type === 'RaiseDecided' && e.seat === 0);
-    if (planned?.type === 'RaiseDecided' && planned.raise > afford) result = simulate({ kind: 'fixed', raise: afford });
+    const live = tableProgress(player.truth, 'suits').live;
+    const ante = live ? new Decimal(live.unit) : this.ante;
+    const units: Record<string, number> = {};
+    for (const [id, stake] of Object.entries(this.sideStakes)) if (stake.gt(0)) units[id] = stake.div(ante).toNumber();
+    const req = { room: floor.current, bet: ante.toString(), sides: sidesInDollars(units, ante), options: { plan: $state.snapshot(this.raisePlan), dealerClaims: this.dealerClaims } };
     this.roundAnte = ante;
+    let reply: TableReply;
+    if (this.autoPlay && !live) {
+      const s = autoplay.settings;
+      reply = await tableAct({
+        type: 'table.auto',
+        game: 'suits',
+        ...req,
+        rounds: Math.min(5, s.stopAfter ? Math.max(1, s.stopRounds - autoplay.rounds) : 5),
+        stop: { winX: s.stopOnWin ? s.stopWinX : undefined, below: s.stopBelow ? s.stopBelowAmount : undefined, above: s.stopAbove ? s.stopAboveAmount : undefined },
+      });
+      if (!reply.ok) return this.failed(reply.error);
+      let drama: Drama = 'routine';
+      for (let i = 0; i < reply.plays.length; i++) {
+        const play = reply.plays[i]!;
+        if (i > 0 && !(await this.clock.wait(resultHold(drama, this.speed)))) return null;
+        reply.begin(i);
+        // A hand auto play dealt turns over on its own, even if auto play stops while it's shown.
+        this.flipRest = true;
+        this.bets.touched = false;
+        const beats = await this.playBeats(play.events as GameEvent[], [], ante);
+        if (!beats) return null;
+        drama = this.settle(play, reply.holds[i] ?? null, ante) ?? beats.at(-1)!.drama;
+      }
+      return drama;
+    }
+    reply = await tableAct(live ? { type: 'table.resume', game: 'suits' } : { type: 'table.deal', game: 'suits', ...req });
+    if (!reply.ok) return this.failed(reply.error);
+    let play = reply.plays[0];
+    if (!play) return 'routine';
     this.flipRest = false;
     this.bets.touched = false;
-
-    let beats = direct(result);
-    for (let i = 0; i < beats.length; i++) {
-      const beat = beats[i]!;
-      const { event, drama } = beat;
-
-      if (event.type === 'RaiseDecided' && event.seat === 0 && !this.autoPlay) {
-        const cap = Math.min(maxRaise(rules.raiseCaps, this.view.player.eval!.size), afford);
-        this.betChoice = { cap, suggested: Math.min(event.raise, cap) };
-        const raise = await this.waitFor('bet');
+    const seen: GameEvent[] = [];
+    for (;;) {
+      const beats = await this.playBeats(play.events as GameEvent[], seen, ante);
+      if (!beats) return null;
+      seen.push(...(play.events as GameEvent[]));
+      if (play.settled) return this.settle(play, reply.holds[0] ?? null, ante) ?? beats.at(-1)?.drama ?? 'routine';
+      // The raise: the player picks it (up to what the bank covers), unless auto play takes the plan's.
+      const decision = play.decision as SuitsDecision;
+      let raise = decision.suggested;
+      if (!this.autoPlay) {
+        this.betChoice = { cap: decision.cap, suggested: decision.suggested };
+        raise = await this.waitFor('bet');
         this.betChoice = null;
         if (raise < 0) return null;
-        if (raise !== event.raise) {
-          // Same seed, so the same cards; everything up to this beat is unchanged.
-          result = simulate({ kind: 'fixed', raise });
-          beats = direct(result);
-        }
-        this.view.apply(beats[i]!.event);
-        this.playSound(beats[i]!);
+      }
+      const next = await tableAct({ type: 'table.move', game: 'suits', choice: Math.min(raise, decision.cap) });
+      if (!next.ok) {
+        this.failed(next.error);
+        this.autoPlay = false;
         continue;
       }
+      reply = next;
+      play = next.plays[0]!;
+      // The raise as made shows at once; the rest of the round plays out from there.
+      const first = (play.events as GameEvent[])[0];
+      if (first?.type === 'RaiseDecided') {
+        this.view.apply(first);
+        this.playSound({ event: first, drama: 'routine' });
+        seen.push(first);
+        play = { ...play, events: (play.events as GameEvent[]).slice(1) };
+      }
+    }
+  }
 
+  /** The engine turned the round down: why, for a moment on screen. */
+  private failed(error: string | undefined): Drama {
+    this.error = error ?? 'The hand couldn’t be dealt.';
+    this.autoPlay = false;
+    return 'routine';
+  }
+
+  /**
+   * Shows events beat by beat, paced by how dramatic each is (as judged from
+   * the round so far, `before` them). The player turns their own cards unless
+   * auto play is dealing. Returns the beats, or null if the game was reset.
+   */
+  private async playBeats(events: GameEvent[], before: GameEvent[], ante: Decimal) {
+    void ante;
+    const all = direct({ events: [...before, ...events], dealerCards: Array(this.rules.handSize) } as unknown as RoundResult);
+    const beats = all.slice(before.length);
+    for (const beat of beats) {
+      const { event, drama } = beat;
       const byHand = event.type === 'CardRevealed' && event.hand === 0 && !this.autoPlay && !this.flipRest;
-
       if (byHand) {
         // The player picks the slot; the card is still the next one in deal order,
         // so reveal order (and any future reveal effects) never depends on clicks.
@@ -403,24 +465,15 @@ export class Game {
       }
       this.playSound(beat);
     }
+    return beats;
+  }
 
-    const seat = result.seats[0]!;
-    const report: RoundReport = {
-      game: 'suits',
-      seed: { run: this.runSeed, round: this.round },
-      bets: [
-        ...mainBet(1 + seat.raise, seat.mainNet),
-        ...Object.values(seat.sideBets)
-          .filter((b) => b.owner === 'player')
-          .flatMap((b) => (b.stake > 0 ? [{ kind: 'side' as const, stake: b.stake, net: b.net }] : [])),
-      ],
-      outcome: seat.outcome === 'dealerNoQualify' ? 'win' : seat.outcome,
-      // Every hand here is a flush; a charm's "flush" is a big one.
-      flush: seat.hand.size >= 6,
-    };
-    // Charms act on the settled hand; the bankroll is paid the hand and whatever they add.
-    const charms = meta.settleRound(report, ante, seat.net);
-    const units = seat.net + charms.extra;
+  /** A round the engine settled, now shown: it counts in the session. Returns its drama, from its net. */
+  private settle(play: TablePlay, hold: number | null, ante: Decimal): Drama | null {
+    const seat = (play.result as RoundResult).seats[0]!;
+    // The hand as the engine settled it, charms and all, shows now that the table has dealt it out.
+    const charms = landSettled(play.settled!, hold);
+    const units = charms.units;
     if (charms.lines.length) {
       this.view.net = units;
       this.view.last = { lines: [...(this.view.last?.lines ?? []), ...charms.lines], net: units };
@@ -434,14 +487,12 @@ export class Game {
     this.flushCounts[seat.hand.size] = (this.flushCounts[seat.hand.size] ?? 0) + 1;
     const entry = { round: this.round, size: seat.hand.size, suit: seat.hand.suit, outcome: seat.outcome, net };
     this.history = [entry, ...this.history].slice(0, 12);
-
     if (this.broke) {
       // Losing it all is the penalty for running unattended: auto play stops until it's pressed again.
       this.gameOver = true;
       this.autoPlay = false;
-    }
-    else this.bets.fit();
-    return beats.at(-1)!.drama;
+    } else this.bets.fit();
+    return Math.abs(seat.net) >= 10 ? 'tense' : Math.abs(seat.net) >= 3 ? 'interesting' : null;
   }
 
   /** Called right after the event is shown, so each sound lands with what it describes. */
