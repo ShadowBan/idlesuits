@@ -1,4 +1,4 @@
-import type { PlinkoReplay, PlinkoRound } from '@idlesuits/engine';
+import { pinBoards, pinIndex, pinMeter, pinTable, PIN_TARGET, plinkoBoardPayback, plinkoSlotRtp, type PlinkoReplay, type PlinkoRound, type PrizePins } from '@idlesuits/engine';
 import {
   dropBall,
   FEVER_BALLS,
@@ -48,7 +48,30 @@ export interface Ball {
   replay?: boolean;
   /** The decided round this ball shows, and the id its result is held back under until it lands. */
   decided?: { r: PlinkoRound; hold: number };
+  /** One of Prize Pins' free balls: its place in the bonus. It collects pins, not a slot. */
+  prize?: number;
 }
+
+/** Prize Pins as the board shows it. */
+export interface PrizeShow {
+  decided: { r: PlinkoRound; hold: number };
+  /** The pot as it started, and each pin's prize in it. */
+  pot: Decimal;
+  balls: PrizePins['balls'];
+  /** The free ball falling now (or next). */
+  step: number;
+  /** Pins collected so far, and what they've paid. */
+  taken: Set<number>;
+  total: Decimal;
+  /** The latest pins collected, keyed so each pops afresh. */
+  pops: { pin: number; won: Decimal; key: number }[];
+  done: boolean;
+}
+
+/** Prize Pins: a breath before the first free ball, a beat between them, and the total held up at the end. */
+const PRIZE_START_MS = 1600;
+const PRIZE_GAP_MS = 450;
+const PRIZE_END_MS = 3400;
 
 export type { PlinkoReplay };
 
@@ -99,6 +122,13 @@ export class PlinkoGame extends InstantGame {
   private asking = $state(false);
   /** Why the last drop couldn't be played, for a moment on screen. */
   error = $state<string | null>(null);
+  /** The pins lit on this board, as shown: they light as the balls pass them. */
+  lit = $state<Set<number>>(new Set());
+  /** The board's Pin Pot, as shown. */
+  pot = $state(new Decimal(0));
+  /** Prize Pins under way. */
+  prize = $state<PrizeShow | null>(null);
+  private pops = 0;
 
   constructor() {
     super('plinko');
@@ -106,20 +136,50 @@ export class PlinkoGame extends InstantGame {
     this.rows = (PLINKO_ROWS as readonly number[]).includes(rows) ? (rows as PlinkoRows) : 12;
     const risk = load<string>('plinko.risk', 'medium');
     this.risk = (PLINKO_RISKS as readonly string[]).includes(risk) ? (risk as PlinkoRisk) : 'medium';
+    this.syncBoard();
   }
 
-  /** Every slot's multiplier on this board at the floor's payback. */
+  /** The board's lights and pot afresh, once nothing is in play: after signing in, say. */
+  resync() {
+    if (!this.locked) this.syncBoard();
+  }
+
+  /** The board's lights and pot as the engine keeps them. */
+  private syncBoard() {
+    const board = pinBoards(player.shown)[this.rows];
+    this.lit = new Set(board.lit);
+    this.pot = new Decimal(board.pot);
+  }
+
+  /** How full the light meter is, 0 to 1. */
+  get meter(): number {
+    return Math.min(1, pinMeter(this.rows, [...this.lit]) / PIN_TARGET[this.rows]);
+  }
+
+  /** Each pin's prize in Prize Pins on this board, as a share of the pot. */
+  get shares(): number[] {
+    return pinTable(this.rows).share;
+  }
+
+  /** Every slot's multiplier on this board at the floor's payback: the Pin Pot's share comes out of them. */
   get pays(): number[] {
-    return plinkoPays(this.rows, this.risk, this.rtp);
+    return plinkoPays(this.rows, this.risk, plinkoSlotRtp(this.rtp));
   }
 
-  /** This board's exact payback, Fever included. */
+  /** This board's exact payback: its slots, Fever, and the Pin Pot, which pays back all it takes in. */
   get payback(): number {
-    return plinkoPayback(this.rows, this.risk, this.rtp);
+    return plinkoBoardPayback(this.rows, this.risk, this.rtp);
+  }
+
+  /** The slots' and Fever's payback alone. */
+  get slotPayback(): number {
+    return plinkoPayback(this.rows, this.risk, plinkoSlotRtp(this.rtp));
   }
 
   get locked(): boolean {
-    return this.balls.length > 0 || this.fever !== null || this.asking || this.queue.length > 0 || (this.replaying !== null && !this.replayDone);
+    return (
+      this.balls.length > 0 || this.fever !== null || this.prize !== null || this.asking || this.queue.length > 0 || (this.replaying !== null && !this.replayDone)
+    );
   }
 
   get canBet(): boolean {
@@ -132,6 +192,7 @@ export class PlinkoGame extends InstantGame {
     this.rows = rows;
     this.hits = {};
     save('plinko.rows', rows);
+    this.syncBoard();
   }
 
   setRisk(risk: PlinkoRisk) {
@@ -144,7 +205,7 @@ export class PlinkoGame extends InstantGame {
 
   /** Drops a ball: the engine decides it, then it falls. Not during Fever. */
   drop(): boolean {
-    if (this.fever || (this.replaying && !this.replayDone) || this.balls.length >= MAX_BALLS || !this.canBet) return false;
+    if (this.fever || this.prize || (this.replaying && !this.replayDone) || this.balls.length >= MAX_BALLS || !this.canBet) return false;
     this.leaveReplay();
     void this.ask(1);
     return true;
@@ -203,6 +264,8 @@ export class PlinkoGame extends InstantGame {
     if (ball.replay) return this.landReplay(ball);
     const d = ball.decided;
     if (!d) return;
+    if (ball.prize !== undefined) return this.landPrize();
+    this.pot = new Decimal(d.r.pot);
     const x = ball.fever ? d.r.fever[this.fever?.step ?? 0]!.x : d.r.ball.x;
     const pay = ball.bet.mul(x);
     this.hits = { ...this.hits, [ball.slot]: { key: ball.id, pay, x, fever: ball.fever } };
@@ -219,7 +282,72 @@ export class PlinkoGame extends InstantGame {
       } else this.endFever();
       return;
     }
+    if (d.r.prize) return this.startPrize(d);
     this.finish(d);
+  }
+
+  /**
+   * A ball passes a pin as it bounces down: a pin it touches lights up (a
+   * Prize Pins ball collects it instead). Called for each row as the ball
+   * reaches it.
+   */
+  touch(ball: Ball, row: number) {
+    this.bounce();
+    if (ball.replay) return;
+    const pin = pinIndex(row, ball.path.slice(0, row).reduce<number>((a, b) => a + b, 0));
+    const p = this.prize;
+    if (ball.prize !== undefined) {
+      if (!p || p.taken.has(pin)) return;
+      const hit = p.balls[ball.prize]?.pins.find((x) => x.pin === pin);
+      if (!hit) return;
+      const won = new Decimal(hit.won);
+      p.taken = new Set([...p.taken, pin]);
+      p.total = p.total.add(won);
+      p.pops = [...p.pops.slice(-11), { pin, won, key: ++this.pops }];
+      sfx.coin(p.taken.size);
+      return;
+    }
+    if (ball.rows !== this.rows || this.lit.has(pin)) return;
+    this.lit = new Set([...this.lit, pin]);
+  }
+
+  /** The ball that filled the light meter has landed (Fever and all): Prize Pins starts, the pins showing their prizes. */
+  private startPrize(d: { r: PlinkoRound; hold: number }) {
+    const prize = d.r.prize!;
+    this.prize = { decided: d, pot: new Decimal(prize.pot), balls: prize.balls, step: 0, taken: new Set(), total: new Decimal(0), pops: [], done: false };
+    sfx.bigWin();
+    this.later(() => this.dropPrize(), PRIZE_START_MS);
+  }
+
+  /** Prize Pins' next free ball. */
+  private dropPrize() {
+    const p = this.prize;
+    if (!p) return;
+    const b = p.balls[p.step]!;
+    const bet = new Decimal(p.decided.r.bet);
+    this.balls = [...this.balls, { id: ++this.ids, round: p.decided.r.round, bet, path: b.path, slot: b.slot, rows: p.decided.r.rows, golden: false, fever: false, boost: 1, decided: p.decided, prize: p.step }];
+    sfx.chip();
+  }
+
+  /** A Prize Pins ball is in: the next one drops, or, after the last, the total holds up and the round is shown. */
+  private landPrize() {
+    const p = this.prize;
+    if (!p) return;
+    sfx.tick();
+    if (p.step + 1 < p.balls.length) {
+      p.step++;
+      this.later(() => this.dropPrize(), PRIZE_GAP_MS);
+      return;
+    }
+    p.done = true;
+    sfx.bigWin();
+    this.finish(p.decided);
+    this.later(() => {
+      // The board goes dark, and what wasn't collected stays in the pot.
+      this.prize = null;
+      this.lit = new Set();
+      this.pot = new Decimal(p.decided.r.board.pot);
+    }, PRIZE_END_MS);
   }
 
   /** A decided round is all on screen: its result is shown, and counted in the session. */
@@ -258,6 +386,14 @@ export class PlinkoGame extends InstantGame {
   private endFever() {
     const f = this.fever!;
     f.done = true;
+    // A golden ball that also filled the light meter: Prize Pins follows Fever.
+    if (f.decided.r.prize) {
+      this.later(() => {
+        this.fever = null;
+        this.startPrize(f.decided);
+      }, FEVER_END_MS);
+      return;
+    }
     this.finish(f.decided);
     this.later(() => (this.fever = null), FEVER_END_MS);
   }
@@ -338,11 +474,11 @@ export class PlinkoGame extends InstantGame {
       if (!this.autoPlay) {
         // Stopped with balls decided: they drop anyway, quickly, since they're already paid.
         if (!this.queue.length) return;
-        if (!this.fever) this.dropNext();
+        if (!this.fever && !this.prize) this.dropNext();
         if (!(await this.seq.wait(AUTO_MS / 3))) return;
         continue;
       }
-      if (!this.fever && this.balls.length < MAX_BALLS) {
+      if (!this.fever && !this.prize && this.balls.length < MAX_BALLS) {
         if (this.queue.length) this.dropNext();
         else if (!this.asking) {
           if (!this.canBet) {

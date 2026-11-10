@@ -18,6 +18,9 @@ import {
   minesProgress,
   playKeno,
   playPlinko,
+  PIN_SHARE,
+  pinBoards,
+  pinsTouched,
   playRoulette,
   playSlot,
   potsOf,
@@ -247,32 +250,56 @@ describe('lucky drop on the engine', () => {
     expect(out.rounds).toHaveLength(5);
     for (const r of out.rounds) {
       expect(dropBall(12, { run: r.replay.run, round: r.replay.round })).toEqual({ path: r.ball.path, slot: r.ball.slot });
-      expect(r.ball.x).toBeCloseTo(plinkoPays(12, 'medium', 0.97)[r.ball.slot]!, 9);
+      expect(r.ball.x).toBeCloseTo(plinkoPays(12, 'medium', 0.97 - PIN_SHARE)[r.ball.slot]!, 9);
     }
     expect(plinkoRound(out.state)).toBe(5);
   });
 
-  it('pays back near the tuned payback, Fever included', () => {
-    let state: PlayerState = { ...freshPlayer('s'), bank: '1e15' };
-    let paid = 0;
-    let n = 0;
-    let fevers = 0;
-    for (let i = 0; i < 4000; i++) {
-      const out = playPlinko(state, { rows: 8, risk: 'low', step: 0, room: 0, rounds: 12 }, ctx());
+  it('pays back near the tuned payback, Fever and Prize Pins included, the pot counted', () => {
+    for (const rows of [8, 12, 16] as const) {
+      let state: PlayerState = { ...freshPlayer('s'), bank: '1e15' };
+      let paid = 0;
+      let n = 0;
+      let prizes = 0;
+      for (let i = 0; i < 3000; i++) {
+        const out = playPlinko(state, { rows, risk: 'low', step: 0, room: 0, rounds: 12 }, ctx(`p${rows}`));
+        if (!out.ok) throw new Error(out.error);
+        state = out.state;
+        for (const r of out.rounds) {
+          n++;
+          paid += r.x;
+          if (r.prize) prizes++;
+        }
+      }
+      // What's still in the pot is the players' too: it pays out in a later Prize Pins.
+      const pot = pinBoards(state)[rows].pot;
+      const payback = (paid + Number(pot) / 5) / n;
+      expect(payback).toBeGreaterThan(0.94);
+      expect(payback).toBeLessThan(1.0);
+      // About one Prize Pins every 75 balls.
+      expect(n / prizes).toBeGreaterThan(55);
+      expect(n / prizes).toBeLessThan(100);
+    }
+  });
+
+  it('lights the pins a ball touches, and goes dark after Prize Pins', () => {
+    let state: PlayerState = { ...freshPlayer('s'), bank: '1e9' };
+    for (let i = 0; i < 40; i++) {
+      const out = playPlinko(state, { rows: 8, risk: 'medium', step: 0, room: 0, rounds: 12 }, ctx('lights'));
       if (!out.ok) throw new Error(out.error);
       state = out.state;
       for (const r of out.rounds) {
-        n++;
-        paid += r.x;
-        if (r.golden) {
-          fevers++;
-          expect(r.fever).toHaveLength(5);
+        expect(r.lit.every((pin) => pinsTouched(r.ball.path).includes(pin) || r.fever.some((f) => pinsTouched(f.path).includes(pin)))).toBe(true);
+        if (r.prize) {
+          expect(r.board.lit).toEqual([]);
+          const total = r.prize.balls.flatMap((b) => b.pins).reduce((sum, p) => sum + Number(p.won), 0);
+          expect(total).toBeCloseTo(Number(r.prize.paid), 6);
+          expect(Number(r.board.pot)).toBeCloseTo(Number(r.prize.pot) - Number(r.prize.paid), 6);
+          return;
         }
       }
     }
-    expect(fevers).toBeGreaterThan(0);
-    expect(paid / n).toBeGreaterThan(0.94);
-    expect(paid / n).toBeLessThan(1.0);
+    throw new Error('no Prize Pins in 480 balls');
   });
 
   it('refuses a board that does not exist', () => {

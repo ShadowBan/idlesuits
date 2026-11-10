@@ -1,5 +1,7 @@
 <script lang="ts">
-  import { onDestroy } from 'svelte';
+  import { onDestroy, untrack } from 'svelte';
+  import { player } from '../../lib/player.svelte';
+  import { PIN_SHARE, PRIZE_BALLS } from '@idlesuits/engine';
   import { FEVER_BALLS, FEVER_CHANCE, FEVER_LADDER, FEVER_LIFT, plinkoOdds, PLINKO_RISKS, PLINKO_ROWS } from '@idlesuits/sim';
   import RulesFrame from '../../components/RulesFrame.svelte';
   import SeatOverlay from '../../components/SeatOverlay.svelte';
@@ -16,6 +18,12 @@
 
   const game = new PlinkoGame();
   const seq = game.seq;
+  // Signed in (or out) after the table opened: the board's lights and pot are the account's.
+  $effect(() => {
+    void player.member;
+    void player.ready;
+    untrack(() => game.resync());
+  });
   onDestroy(() => game.dispose());
   let rules = $state<RulesFrame>();
 
@@ -62,8 +70,10 @@
       frames.push({ transform: `translate(${(x + (x - (ball.path[r] ? 0.5 : -0.5) * size)) / 2}px, ${y - size * 0.18}px)`, easing: 'ease-in' });
     }
     frames.push({ transform: `translate(${x}px, ${ry(ball.rows) + size * 0.25}px)` });
-    const anim = node.animate(frames, { duration: game.rowMs * (ball.rows + 1), fill: 'forwards' });
-    const ticks = Array.from({ length: ball.rows }, (_, r) => setTimeout(() => game.bounce(), (game.rowMs * (r + 1) * (ball.rows + 1)) / (ball.rows + 1)));
+    const duration = game.rowMs * (ball.rows + 1);
+    const anim = node.animate(frames, { duration, fill: 'forwards' });
+    // The frames are spread evenly: the ball reaches row r's pin at frame 1 + 2r of them.
+    const ticks = Array.from({ length: ball.rows }, (_, r) => setTimeout(() => game.touch(ball, r), (duration * (1 + 2 * r)) / (frames.length - 1)));
     anim.onfinish = () => game.land(ball);
     return {
       destroy() {
@@ -94,7 +104,13 @@
 
   const odds = $derived(plinkoOdds(game.rows));
   /** What a Fever pays on this board, on average, in bets: its free balls' ladder times the board's own slots. */
-  const feverAvg = $derived(((game.payback / FEVER_LIFT) * FEVER_LADDER.reduce<number>((a, b) => a + b, 0)));
+  const feverAvg = $derived(((game.slotPayback / FEVER_LIFT) * FEVER_LADDER.reduce<number>((a, b) => a + b, 0)));
+  /** Pins worth naming during Prize Pins: the biggest prizes on the board. */
+  const named = $derived.by(() => {
+    const sorted = [...game.shares].sort((a, b) => b - a);
+    const cut = sorted[Math.min(sorted.length - 1, game.rows === 8 ? 7 : 11)]!;
+    return new Set(game.shares.flatMap((x, i) => (x >= cut ? [i] : [])));
+  });
   /** The ladder step falling now, while Fever runs. */
   const boost = $derived(game.fever && !game.fever.done ? FEVER_LADDER[game.fever.step]! : 1);
 </script>
@@ -115,6 +131,15 @@
         { name: 'Each ball', tag: 'one bet', text: 'Every ball is a bet of its own; drop as many as you like at once. The slot it lands in pays the bet times its multiplier.' },
         { name: 'Rows', tag: PLINKO_ROWS.join(' · '), text: 'More rows: the edges are rarer and pay more.' },
         { name: 'Risk', tag: PLINKO_RISKS.join(' · '), text: 'Higher risk: bigger edges, and a middle that pays back less than the ball.' },
+      ],
+    },
+    {
+      heading: 'Prize Pins',
+      note: 'About every 75 balls, on any board.',
+      items: [
+        { name: 'Lights', text: 'Every pin a ball touches lights up and stays lit. New lights fill the meter, the rare edge pins most.' },
+        { name: 'Prize Pins', tag: `${PRIZE_BALLS} free balls`, text: 'A full meter turns every pin into a share of the Pin Pot; each free ball collects the pins it touches.' },
+        { name: 'Pin Pot', tag: `${(PIN_SHARE * 100).toFixed(0)}% of each bet`, text: 'Whatever isn’t collected stays in the pot for next time.' },
       ],
     },
     {
@@ -146,8 +171,19 @@
         on a big edge can pay thousands.
       </li>
       <li>
-        This board pays back {(game.payback * 100).toFixed(2)}%, Fever included, exactly: each slot's multiplier times its chance, added
-        up, plus Fever's share. Every board is within a sixth of a percent of {(game.rtp * 100).toFixed(0)}%.
+        This board pays back {(game.payback * 100).toFixed(2)}%, exactly: each slot's multiplier times its chance, added up, plus
+        Fever's share, plus the Pin Pot's {(PIN_SHARE * 100).toFixed(0)}%. Every board is within a sixth of a percent of {(game.rtp * 100).toFixed(0)}%.
+      </li>
+      <li>
+        <b>Prize Pins.</b> Every pin a ball touches lights up, and stays lit between visits. The light meter fills as new pins light,
+        the rare ones near the edges most; full (about every 75 balls), it sets off Prize Pins: {PRIZE_BALLS} free balls drop
+        through a board where every pin holds a share of the Pin Pot, the rarest the most, and each ball collects every pin it
+        touches. Then the board goes dark and starts again.
+      </li>
+      <li>
+        <b>The Pin Pot.</b> Every ball puts {(PIN_SHARE * 100).toFixed(0)}% of its bet in, and whatever Prize Pins doesn't
+        collect stays in for next time, so the pot pays back everything that goes in. Each board (8, 12 or 16 rows) has its own
+        lights and pot.
       </li>
       <li>Balls in flight are already bet; the board's rows and risk can change once they've all landed.</li>
     </ul>
@@ -191,6 +227,15 @@
             <button type="button" aria-pressed={game.risk === r} disabled={game.locked} onclick={() => game.setRisk(r)}>{r}</button>
           {/each}
         </div>
+        <!-- The light meter: lit pins fill it, the rare ones most; full, it sets off Prize Pins. -->
+        <div class="lights" title="Every pin a ball touches lights up. Light enough of the board and Prize Pins drops {PRIZE_BALLS} free balls to collect the Pin Pot.">
+          <span class="k">Lights</span>
+          <span class="meter" role="meter" aria-label="Light meter" aria-valuemin="0" aria-valuemax="100" aria-valuenow={Math.round(game.meter * 100)}>
+            <span style:width="{game.meter * 100}%"></span>
+          </span>
+          <span class="k">Pin Pot</span>
+          <b>{formatMoney(game.pot)}</b>
+        </div>
       </div>
       <svg class="board" viewBox="0 {-s} {W} {H + s}" role="img" aria-label="Plinko board, {game.rows} rows">
         <defs>
@@ -208,6 +253,11 @@
             <stop offset="0.45" stop-color="#7ad8ff" />
             <stop offset="1" stop-color="#7a3ad0" />
           </radialGradient>
+          <radialGradient id="litg" cx="35%" cy="30%">
+            <stop offset="0" stop-color="#ffffff" />
+            <stop offset="0.5" stop-color="#7affd2" />
+            <stop offset="1" stop-color="#1fb38a" />
+          </radialGradient>
           <radialGradient id="ballg" cx="35%" cy="30%">
             <stop offset="0" stop-color="#fff6c8" />
             <stop offset="0.6" stop-color="#ff9ad9" />
@@ -215,8 +265,27 @@
           </radialGradient>
         </defs>
         {#each pegs as p, i (i)}
-          <circle class="peg" cx={p.x} cy={p.y} r={s * 0.09} fill="url(#peg)" />
+          {@const prize = game.prize}
+          <circle
+            class="peg"
+            class:lit={!prize && game.lit.has(i)}
+            class:prize={!!prize && !prize.taken.has(i)}
+            class:taken={!!prize && prize.taken.has(i)}
+            cx={p.x}
+            cy={p.y}
+            r={s * (prize && !prize.taken.has(i) ? 0.09 + 0.5 * Math.sqrt(game.shares[i]!) : 0.09)}
+            fill={prize ? 'url(#goldg)' : game.lit.has(i) ? 'url(#litg)' : 'url(#peg)'}
+          />
+          {#if prize && named.has(i) && !prize.taken.has(i)}
+            <text class="pinprize" x={p.x} y={p.y - s * 0.32} text-anchor="middle" font-size={Math.min(s * 0.3, 26)}>{formatMoney(prize.pot.mul(game.shares[i]!))}</text>
+          {/if}
         {/each}
+        {#if game.prize}
+          {#each game.prize.pops as pop (pop.key)}
+            {@const p = pegs[pop.pin]!}
+            <text class="pinpop" x={p.x} y={p.y - s * 0.3} text-anchor="middle" font-size={Math.min(s * 0.34, 30)}>+{formatMoney(pop.won)}</text>
+          {/each}
+        {/if}
         {#each game.pays as x, k (k)}
           {@const hit = game.hits[k]}
           <g class="slot" transform="translate({slotX(k, game.rows, s)} {slotY})">
@@ -234,9 +303,15 @@
           </g>
         {/each}
         {#each game.balls as ball (ball.id)}
-          {@const r = (W / (ball.rows + 2)) * (ball.fever ? 0.36 : ball.golden ? 0.27 : 0.22)}
+          {@const r = (W / (ball.rows + 2)) * (ball.fever ? 0.36 : ball.golden ? 0.27 : ball.prize !== undefined ? 0.26 : 0.22)}
           <g use:fall={ball}>
-            <circle {r} fill={ball.fever ? 'url(#feverg)' : ball.golden ? 'url(#goldg)' : 'url(#ballg)'} class="ball" class:golden={ball.golden} class:feverball={ball.fever} />
+            <circle
+              {r}
+              fill={ball.fever ? 'url(#feverg)' : ball.golden || ball.prize !== undefined ? 'url(#goldg)' : 'url(#ballg)'}
+              class="ball"
+              class:golden={ball.golden || ball.prize !== undefined}
+              class:feverball={ball.fever}
+            />
             {#if ball.fever}
               <text class="ballx" text-anchor="middle" dominant-baseline="central" font-size={r * 0.9}>×{ball.boost}</text>
             {/if}
@@ -262,6 +337,21 @@
               {/each}
             </ol>
             <span>{formatMoney(f.bet.mul(game.feverTotal))} so far</span>
+          {/if}
+        </div>
+      {/if}
+
+      {#if game.prize}
+        {@const p = game.prize}
+        <!-- Prize Pins: the free balls collecting the pot, and what they've collected so far. -->
+        <div class="fever-banner prize-banner" class:done={p.done} aria-live="polite">
+          {#if p.done}
+            <span class="k">Prize Pins paid</span>
+            <b class="total">{formatMoney(p.total)}</b>
+            <span>{p.taken.size} pins · the rest stays in the pot</span>
+          {:else}
+            <b>Prize Pins!</b>
+            <span>Ball {Math.min(p.step + 1, p.balls.length)} of {p.balls.length} · {formatMoney(p.total)} of {formatMoney(p.pot)}</span>
           {/if}
         </div>
       {/if}
@@ -320,7 +410,8 @@
           </tbody>
         </table>
         <p class="note">
-          Pays back {(game.payback * 100).toFixed(2)}%, Fever included, exactly. A golden ball's Fever drops {FEVER_BALLS} free balls at
+          Pays back {(game.payback * 100).toFixed(2)}%: the slots and Fever {(game.slotPayback * 100).toFixed(2)}%, and the Pin Pot
+          {(PIN_SHARE * 100).toFixed(0)}%. A golden ball's Fever drops {FEVER_BALLS} free balls at
           {FEVER_LADDER.map((x) => `×${x}`).join(', ')}: about {formatMoney(game.bet.mul(feverAvg))} on average.
         </p>
       </section>
@@ -350,6 +441,89 @@
   }
   .peg {
     filter: drop-shadow(0 0 4px rgb(159 180 255 / 0.8));
+    transition: r 0.3s ease;
+  }
+  .peg.lit {
+    filter: drop-shadow(0 0 6px #7affd2) drop-shadow(0 0 12px rgb(122 255 210 / 0.6));
+    animation: light 0.5s ease-out;
+  }
+  @keyframes light {
+    from {
+      filter: drop-shadow(0 0 16px #fff) drop-shadow(0 0 24px #7affd2);
+    }
+  }
+  .peg.prize {
+    filter: drop-shadow(0 0 8px #ffd75e);
+    animation: gleam 0.7s ease-in-out infinite alternate;
+  }
+  .peg.taken {
+    opacity: 0.25;
+  }
+  .pinprize {
+    font-family: var(--font-display);
+    font-weight: 700;
+    fill: #ffe9a8;
+    paint-order: stroke;
+    stroke: #1a0a2e;
+    stroke-width: 4px;
+    pointer-events: none;
+  }
+  .pinpop {
+    font-family: var(--font-display);
+    font-weight: 700;
+    fill: #7affd2;
+    paint-order: stroke;
+    stroke: #1a0a2e;
+    stroke-width: 4px;
+    pointer-events: none;
+    animation: rise 1.2s ease-out forwards;
+  }
+  @keyframes rise {
+    to {
+      translate: 0 -40px;
+      opacity: 0;
+    }
+  }
+  .lights {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 10px;
+    border-radius: 999px;
+    background: rgb(0 0 0 / 0.35);
+    font: 12px/1 var(--font-ui);
+  }
+  .lights .k {
+    font-weight: 600;
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .lights b {
+    color: #ffe9a8;
+    font: 700 14px/1 var(--font-display);
+  }
+  .meter {
+    position: relative;
+    width: 110px;
+    height: 8px;
+    border-radius: 999px;
+    background: rgb(255 255 255 / 0.08);
+    overflow: hidden;
+  }
+  .meter span {
+    position: absolute;
+    inset: 0 auto 0 0;
+    border-radius: inherit;
+    background: linear-gradient(90deg, #1fb38a, #7affd2);
+    box-shadow: 0 0 10px #7affd2;
+    transition: width 0.3s ease;
+  }
+  .prize-banner {
+    box-shadow:
+      inset 0 0 0 2px #7affd2,
+      0 0 30px rgb(122 255 210 / 0.5);
   }
   .ball {
     filter: drop-shadow(0 0 8px #ff7ad9);
