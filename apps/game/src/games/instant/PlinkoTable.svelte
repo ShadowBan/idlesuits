@@ -19,7 +19,11 @@
   onDestroy(() => game.dispose());
   let rules = $state<RulesFrame>();
 
-  /** The board in its own units: the pegs fan out from the top, a slot under each gap at the bottom. */
+  /**
+   * The board in its own units: the pegs fan out from the top, a slot under
+   * each gap at the bottom. Row r has the r + 1 pegs a ball can reach: after r
+   * bounces it sits over one of them, never past either end.
+   */
   const W = 1000;
   const s = $derived(W / (game.rows + 2));
   const top = $derived(s * 0.9);
@@ -27,7 +31,7 @@
   const slotY = $derived(rowY(game.rows) + s * 0.1);
   const H = $derived(slotY + s * 0.75);
   const pegs = $derived(
-    Array.from({ length: game.rows }, (_, r) => Array.from({ length: r + 3 }, (_, j) => ({ x: W / 2 + (j - (r + 2) / 2) * s, y: rowY(r) }))).flat(),
+    Array.from({ length: game.rows }, (_, r) => Array.from({ length: r + 1 }, (_, j) => ({ x: W / 2 + (j - r / 2) * s, y: rowY(r) }))).flat(),
   );
   const slotX = (k: number, rows: number, size: number) => W / 2 + (k - rows / 2) * size;
 
