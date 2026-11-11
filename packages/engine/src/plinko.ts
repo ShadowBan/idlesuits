@@ -226,7 +226,7 @@ function dropOnce(state: PlayerState, play: PlinkoPlay, ctx: EngineContext): { s
   const sub = golden ? `golden ball + ${FEVER_BALLS} free · ${play.rows} rows` : `${play.rows} rows · ${play.risk} risk`;
   const replay: PlinkoReplay = { run, round, rows: play.rows, risk: play.risk, bet: fit.bet.toString(), x: ball.x + fever.reduce((sum, f) => sum + f.x, 0), golden };
   const next = withProgress(state, 'plinko', { ...progressOf(state, 'plinko'), round: round + 1, boards: { ...boards, [play.rows]: after } });
-  const done = settleInstant(next, { game: 'plinko', round, run, room: fit.room, step: fit.step, bet: fit.bet, x, lines, text, sub, replay }, ctx);
+  const done = settleInstant(next, { game: 'plinko', round, run, room: fit.room, step: fit.step, bet: fit.bet, x, lines, text, sub, replay, extra: { feats: [...(prize ? ['prize'] : []), ...(golden ? ['fever'] : [])] } }, ctx);
   return { state: done.state, round: { ...done.settled, rows: play.rows, risk: play.risk, ball, golden, fever, replay, lit: fresh, pot: potIn.toString(), prize, board: after } };
 }
 

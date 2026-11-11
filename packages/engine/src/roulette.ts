@@ -87,7 +87,7 @@ export function playRoulette(state: PlayerState, req: { layout: unknown; room: n
     const next = withProgress(current, 'roulette', { ...p, round: round + 1 });
     const done = settleInstant(
       next,
-      { game: 'roulette', round, run, room: req.room, step: 0, bet: total, x: 1 + result.net, lines, text: `${pocket}`, sub: `${formatMoney(total)} down`, replay, bets, noBetLine: true },
+      { game: 'roulette', round, run, room: req.room, step: 0, bet: total, x: 1 + result.net, lines, text: `${pocket}`, sub: `${formatMoney(total)} down`, replay, bets, noBetLine: true, extra: { feats: result.bets.some((b) => b.net > 0 && rouletteBet(b.id)?.kind === 'straight') ? ['straight'] : [] } },
       ctx,
     );
     current = done.state;

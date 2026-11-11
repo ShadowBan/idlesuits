@@ -1,5 +1,6 @@
-export type Rarity = 'common' | 'uncommon' | 'rare' | 'epic' | 'legendary' | 'secret';
-export const RARITIES: readonly Rarity[] = ['common', 'uncommon', 'rare', 'epic', 'legendary', 'secret'];
+/** Starbound charms aren't in the machine: they're won on Lucky Stars' season track. */
+export type Rarity = 'common' | 'uncommon' | 'rare' | 'epic' | 'legendary' | 'secret' | 'starbound';
+export const RARITIES: readonly Rarity[] = ['common', 'uncommon', 'rare', 'epic', 'legendary', 'secret', 'starbound'];
 
 /** A value that grows with a charm's level, from level 1 to the top level. */
 export interface Scale {
@@ -126,6 +127,8 @@ export interface RoundReport {
   /** A slot spin: gems it dropped into the pots, and whether it came one symbol short of the bonus. */
   gems?: number;
   nearMiss?: boolean;
+  /** Special moments for Lucky Stars' missions: a slot bonus, Keno's gold ball, a straight-up number… */
+  feats?: readonly string[];
 }
 
 /** Streaks carried from hand to hand, across every table. */

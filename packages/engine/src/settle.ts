@@ -15,6 +15,7 @@ import { MIN_BET, opened, room } from './rooms';
 import type { GameStats, PlayerState, WinRecord } from './state';
 import { WINS_KEPT } from './state';
 import { growJackpots } from './jackpots';
+import { tokenBoost, trackPass, useFreePulls } from './pass';
 import { roomTuningOf, type EngineTuning } from './tuning';
 
 /** What a host gives the engine for one action. */
@@ -101,13 +102,15 @@ export function settleRound(state: PlayerState, report: RoundReport, unit: Decim
   const t = ctx.tuning;
   const out = applyCharms(report, equipped(state), state.meta.run);
   // Higher rooms comp more: their Token bonus multiplies everything earned on the round.
-  const tokens = Math.max(0, out.tokens * room(state.floor.current, roomTuningOf(t)).tokenBonus * t.tokenRate);
+  // A Lucky Stars boost doubles them.
+  const tokens = Math.max(0, out.tokens * room(state.floor.current, roomTuningOf(t)).tokenBonus * t.tokenRate * tokenBoost(state.pass, ctx.now));
   let next: PlayerState = {
     ...state,
     meta: { ...state.meta, run: out.state, hands: state.meta.hands + 1, tokens: state.meta.tokens + tokens, lifetimeTokens: state.meta.lifetimeTokens + tokens },
   };
   next = moveBank(next, unit.mul(net + out.cash), t);
   next = countRound(next, report, unit, net + out.cash, ctx.now);
+  next = trackPass(next, report, net + out.cash, tokens, ctx.now);
   // Every round anywhere feeds the linked progressives: the shared ones, reported back, or the player's own.
   if (ctx.link) ctx.link.rounds++;
   else next = growJackpots(next, ctx, true);
@@ -153,9 +156,15 @@ export interface Capsule {
 }
 
 /** Pulls one or ten capsules from the Charm Machine; null if there aren't the Tokens for it. */
-export function pullCharms(state: PlayerState, count: 1 | 10, ctx: EngineContext): { state: PlayerState; capsules: Capsule[] } | null {
-  const cost = count === 10 ? ctx.tuning.tenPullCost : ctx.tuning.pullCost;
+export function pullCharms(state: PlayerState, count: 1 | 10, ctx: EngineContext, free = false): { state: PlayerState; capsules: Capsule[] } | null {
+  const cost = free ? 0 : count === 10 ? ctx.tuning.tenPullCost : ctx.tuning.pullCost;
   if (state.meta.tokens < cost) return null;
+  // Free pulls from Lucky Stars: one each.
+  if (free) {
+    const paid = useFreePulls(state, count);
+    if (!paid) return null;
+    state = paid;
+  }
   const seed = ctx.seed('charms', 0);
   const collection = { ...state.meta.collection };
   const capsules: Capsule[] = [];

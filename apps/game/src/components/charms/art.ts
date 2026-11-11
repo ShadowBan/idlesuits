@@ -288,6 +288,34 @@ export const CHARM_ART: Record<string, string> = {
     <path d="M10 46h46v4H10z" fill="#24160d" ${T}/>
     ${shine('M17 24l-4 17')}`,
 
+  // The Starbound charms: won on Lucky Stars' season track.
+  'north-star': `
+    <path d="M32 2l5 23 23 7-23 7-5 23-5-23-23-7 23-7z" fill="#bfe8ff" ${O}/>
+    <path d="M32 2l5 23-5 7zM60 32l-23 7-5-7zM32 62l-5-23 5-7zM4 32l23-7 5 7z" fill="#7cc4ef"/>
+    <path d="M32 2l5 23 23 7-23 7-5 23-5-23-23-7 23-7z" fill="none" ${O}/>
+    <circle cx="32" cy="32" r="4" fill="#fff" ${T}/>
+    ${shine('M30 12l-2 10')}`,
+
+  'shooting-star': `
+    <path d="M6 54L30 30M10 46l14-14M16 58l18-18" stroke="#ffd34d" stroke-opacity=".75" stroke-width="3" stroke-linecap="round" fill="none"/>
+    <path d="M44 8l4.6 9.4 10.4 1.5-7.5 7.3 1.8 10.3L44 31.6l-9.3 4.9 1.8-10.3-7.5-7.3 10.4-1.5z" fill="#ffd34d" ${O}/>
+    <circle cx="44" cy="23" r="2.4" fill="#fff6c4"/>
+    ${shine('M39 15l3-5')}`,
+
+  'star-sapphire': `
+    <path d="M32 6l20 10 6 18-26 24L6 34l6-18z" fill="#2d5fc4" ${O}/>
+    <path d="M12 16l20 18 20-18M6 34h52M32 34v24" fill="none" stroke="#1d3f8a" stroke-width="1.4"/>
+    <path d="M32 20v22M22 25l20 12M42 25L22 37" stroke="#e6f2ff" stroke-width="1.8" stroke-linecap="round" stroke-opacity=".9"/>
+    <circle cx="32" cy="31" r="2.4" fill="#fff"/>
+    ${shine('M16 18l8-6')}`,
+
+  'comet-tail': `
+    <path d="M58 6C40 10 22 22 14 38" stroke="#8fd8ff" stroke-opacity=".5" stroke-width="12" stroke-linecap="round" fill="none"/>
+    <path d="M58 6C42 12 28 24 20 38" stroke="#d6f2ff" stroke-opacity=".8" stroke-width="5" stroke-linecap="round" fill="none"/>
+    <circle cx="18" cy="44" r="12" fill="#bfe8ff" ${O}/>
+    <circle cx="18" cy="44" r="6" fill="#fff" ${T}/>
+    ${shine('M11 39a8 8 0 0 1 5-5')}`,
+
   // The slot machine charms.
   'magpie-feather': `
     <path d="M12 56L48 10" fill="none" stroke="#2a1a12" stroke-width="4" stroke-linecap="round"/>
@@ -348,4 +376,5 @@ export const RARITY_COLOR: Record<string, string> = {
   epic: '#c27bff',
   legendary: '#ffbf3c',
   secret: '#ff7ad9',
+  starbound: '#8fd8ff',
 };

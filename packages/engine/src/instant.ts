@@ -112,7 +112,7 @@ export function settleInstant(
     /** What the stake's line is called ("Spin"), if not "Bet". */
     betLabel?: string;
     /** More for the charms to read: a slot spin's gems, a poker hand's rank. */
-    extra?: Partial<Pick<RoundReport, 'gems' | 'nearMiss' | 'tier' | 'flush' | 'blackjack'>>;
+    extra?: Partial<Pick<RoundReport, 'gems' | 'nearMiss' | 'tier' | 'flush' | 'blackjack' | 'feats'>>;
   },
   ctx: EngineContext,
 ): { state: PlayerState; settled: InstantSettled } {

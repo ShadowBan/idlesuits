@@ -230,7 +230,7 @@ function settleMines(state: PlayerState, p: MinesProgress, steps: MinesStep[], c
   const replay: MinesReplay = { run: seed.run, round: live.round, bombs: live.bombs, digs: live.dug.map((d) => d.square), pay: ended.pay, bet: live.bet };
   // The stake went down when the round began: it comes back before the round settles its net.
   const back = moveBank(save(state, { ...p, live: null }), bet, ctx.tuning);
-  const done = settleInstant(back, { game: 'mines', round: live.round, run: seed.run, room: live.room, step: live.step, bet, x: ended.pay + vaultBets, lines, text, sub, replay }, ctx);
+  const done = settleInstant(back, { game: 'mines', round: live.round, run: seed.run, room: live.room, step: live.step, bet, x: ended.pay + vaultBets, lines, text, sub, replay, extra: { feats: live.bonus ? ['vault'] : [] } }, ctx);
   const round: MinesRound = {
     ...done.settled,
     how: ended.how,

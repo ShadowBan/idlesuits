@@ -22,3 +22,4 @@ export * from './games/poker';
 export * from './games/suits';
 export * from './auto';
 export * from './scores';
+export * from './pass';

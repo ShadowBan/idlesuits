@@ -292,6 +292,39 @@ export const CHARMS: readonly CharmDef[] = [
     where: 'Blackjack',
     maxLevel: 3,
   },
+  // Starbound: never in the machine. Two a season are won on Lucky Stars' track, in turn.
+  {
+    id: 'north-star',
+    name: 'North Star',
+    rarity: 'starbound',
+    flavor: 'Every sailor who steered by it came home with a full hold.',
+    effects: [
+      { kind: 'tokenPct', v: s(0.6, 2.5) },
+      { kind: 'tokenPerHand', v: s(0.2, 1.2) },
+    ],
+  },
+  {
+    id: 'shooting-star',
+    name: 'Shooting Star',
+    rarity: 'starbound',
+    flavor: 'Make a wish before it’s gone. This one was granted.',
+    effects: [{ kind: 'doubleWin', v: s(0.006, 0.03) }],
+  },
+  {
+    id: 'star-sapphire',
+    name: 'Star Sapphire',
+    rarity: 'starbound',
+    flavor: 'Turn it in the light and a six-rayed star wakes in the stone.',
+    effects: [{ kind: 'bigHit', minOdds: 0, v: s(0.006, 0.035) }],
+  },
+  {
+    id: 'comet-tail',
+    name: "Comet's Tail",
+    rarity: 'starbound',
+    flavor: 'It comes round again, every time, right on schedule.',
+    effects: [{ kind: 'slotEncore', v: s(0.01, 0.04) }],
+    where: 'Slot machines',
+  },
 ];
 
 export const CHARM_SETS: readonly CharmSet[] = [

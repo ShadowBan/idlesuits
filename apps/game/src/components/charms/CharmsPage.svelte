@@ -57,6 +57,8 @@
             <li style:color={RARITY_COLOR[r]}>
               {#if r === 'secret'}
                 <span>{r}</span><span>{+(Math.max(...Object.values(SECRET_ODDS)) * tuning.values.secretOdds * 100).toPrecision(2)}% each</span>
+              {:else if r === 'starbound'}
+                <span>{r}</span><a href="#/stars">Lucky Stars only</a>
               {:else}
                 <span>{r}</span><span>{+(RARITY_WEIGHTS[r] * 100).toFixed(1)}%</span>
               {/if}

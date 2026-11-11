@@ -5,7 +5,7 @@ import type { Rarity } from './types';
 export const MAX_LEVEL = 10;
 
 /** The odds of each ordinary rarity, per pull. Secret charms are drawn apart, by SECRET_ODDS. */
-export const RARITY_WEIGHTS: Record<Exclude<Rarity, 'secret'>, number> = {
+export const RARITY_WEIGHTS: Record<Exclude<Rarity, 'secret' | 'starbound'>, number> = {
   common: 0.62,
   uncommon: 0.25,
   rare: 0.09,
@@ -72,7 +72,7 @@ export function drawCharm(seed: string, pull: number, secretScale = 1): string {
   const rng = new Rng(seed, 'machine', pull);
   let roll = rng.next();
   let rarity: Rarity = 'common';
-  for (const [r, weight] of Object.entries(RARITY_WEIGHTS) as [Exclude<Rarity, 'secret'>, number][]) {
+  for (const [r, weight] of Object.entries(RARITY_WEIGHTS) as [Exclude<Rarity, 'secret' | 'starbound'>, number][]) {
     if (roll < weight) {
       rarity = r;
       break;

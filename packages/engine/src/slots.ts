@@ -232,6 +232,8 @@ function spinOnce(state: PlayerState, machine: MachineDef, play: SlotPlay, test:
         // For the slot charms: gems into the pots, and a spin one short of the bonus.
         gems: result.gems.length,
         nearMiss: !result.feature && countOf(result.grid, triggerSymbol(machine)) === machine.bonus.trigger - 1,
+        // For Lucky Stars: the bonus, and any progressive.
+        feats: [...(result.feature ? ['bonus'] : []), ...(won.length || mystery ? ['jackpot'] : [])],
       },
       betLabel: 'Spin',
     },

@@ -13,6 +13,7 @@ import {
   type KenoDrawBuff,
 } from '@idlesuits/sim';
 import { amount, Decimal } from './money';
+import { freshPass, readPass, type PassState } from './pass';
 
 /** One game's lifetime record. Money as strings, so any size survives saving. */
 export interface GameStats {
@@ -130,6 +131,8 @@ export interface PlayerState {
   auto: unknown;
   /** The player's leaderboard records, kept by the server (see apps/server). */
   boards: unknown;
+  /** Lucky Stars: this week's constellation and the season's track (see `pass.ts`). */
+  pass: PassState;
 }
 
 export const STARTING_BANK = 500;
@@ -151,6 +154,8 @@ export function freshPlayer(seed: string): PlayerState {
     games: {},
     auto: null,
     boards: null,
+    // Week 0: the first round or look rolls it to the week it is.
+    pass: freshPass(0),
   };
 }
 
@@ -277,6 +282,7 @@ export function readPlayer(raw: unknown, seed: string): PlayerState {
     games: Object.fromEntries(Object.entries(obj(p.games)).filter(([, g]) => g && typeof g === 'object' && !Array.isArray(g))),
     auto: p.auto && typeof p.auto === 'object' ? p.auto : null,
     boards: p.boards && typeof p.boards === 'object' ? p.boards : null,
+    pass: readPass(p.pass, 0),
   };
 }
 

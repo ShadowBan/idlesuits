@@ -148,7 +148,7 @@ function drawOnce(state: PlayerState, ticket: number[], wantRoom: number, wantSt
     buff: head?.kind,
     drawBuff: buff.free !== undefined || buff.goldX || buff.times ? drawBuff : undefined,
   };
-  const done = settleInstant({ ...state, keno: progress }, { game: 'keno', round, run, room: roomIndex, step, bet, x, onHouse, lines, text, sub, replay, listRound: draw }, ctx);
+  const done = settleInstant({ ...state, keno: progress }, { game: 'keno', round, run, room: roomIndex, step, bet, x, onHouse, lines, text, sub, replay, listRound: draw, extra: { feats: [...(result.gold ? ['gold'] : []), ...(stamp.rows.length ? ['row'] : [])] } }, ctx);
   return {
     state: done.state,
     round: {

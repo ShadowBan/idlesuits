@@ -13,6 +13,7 @@ import { amount } from './money';
 import { opened } from './rooms';
 import { buyIn, buySlot, enterRoom, equipCharm, pullCharms, unequipCharm, type Capsule, type EngineContext } from './settle';
 import type { PlayerState } from './state';
+import { choosePass, claimable, claimTiers, finishMissions, rollPass } from './pass';
 import { roomTuningOf } from './tuning';
 
 /** What a player can ask for. Each is checked here, whoever sends it. */
@@ -39,7 +40,9 @@ export type PlayerAction =
   | { type: 'auto.stop' }
   | { type: 'buyIn' }
   | { type: 'room'; index: number }
-  | { type: 'charms.pull'; count: 1 | 10 }
+  | { type: 'charms.pull'; count: 1 | 10; free?: boolean }
+  | { type: 'pass.choose'; id: string }
+  | { type: 'pass.claim'; tiers?: number[] }
   | { type: 'charms.equip'; id: string; slot?: number }
   | { type: 'charms.unequip'; id: string }
   | { type: 'charms.slot' };
@@ -51,7 +54,8 @@ export type AdminAction =
   | { type: 'admin.charm'; id: string; copies: number }
   | { type: 'admin.slots' }
   | { type: 'admin.rooms'; best: number }
-  | { type: 'admin.jackpot'; tier?: 'major' | 'grand'; value?: number; due?: boolean };
+  | { type: 'admin.jackpot'; tier?: 'major' | 'grand'; value?: number; due?: boolean }
+  | { type: 'admin.pass'; dust?: number; finish?: number };
 
 export type Action = PlayerAction | AdminAction;
 
@@ -167,8 +171,16 @@ export function act(state: PlayerState, raw: unknown, ctx: EngineContext, opts: 
       return done(enterRoom(state, a.index), 'That room isn’t open yet.');
     case 'charms.pull': {
       if (a.count !== 1 && a.count !== 10) return fail('Pull one or ten.');
-      const out = pullCharms(state, a.count, ctx);
-      return out ? { ok: true, state: out.state, result: { capsules: out.capsules } } : fail('Not enough Tokens.');
+      const out = pullCharms(state, a.count, ctx, a.free === true);
+      return out ? { ok: true, state: out.state, result: { capsules: out.capsules } } : fail(a.free ? 'Not enough free pulls.' : 'Not enough Tokens.');
+    }
+    case 'pass.choose':
+      return done(typeof a.id === 'string' ? choosePass(state, a.id, ctx.now) : null, 'That constellation isn’t one of this week’s, or one is already chosen.');
+    case 'pass.claim': {
+      const rolled = rollPass(state, ctx.now);
+      const tiers = Array.isArray(a.tiers) ? a.tiers.filter((n) => Number.isInteger(n)) : claimable(rolled.pass);
+      const next = claimTiers(rolled, tiers, ctx.now);
+      return done(next === rolled ? null : next, 'Nothing to claim yet.');
     }
     case 'charms.equip':
       return done(typeof a.id === 'string' ? equipCharm(state, a.id, a.slot) : null, 'That charm can’t go there.');
@@ -206,6 +218,13 @@ export function act(state: PlayerState, raw: unknown, ctx: EngineContext, opts: 
       if ((a.tier !== 'major' && a.tier !== 'grand') || typeof a.value !== 'number' || !Number.isFinite(a.value)) return fail('Not a meter.');
       const value = Math.max(JACKPOT_SEEDS[a.tier], a.tier === 'major' ? Math.min(a.value, MAJOR_CAP) : a.value);
       return done(withJackpots(state, { ...j, [a.tier]: value }), '');
+    }
+    case 'admin.pass': {
+      let next = rollPass(state, ctx.now);
+      if (typeof a.dust === 'number' && Number.isFinite(a.dust)) next = { ...next, pass: { ...next.pass, dust: Math.max(0, Math.floor(next.pass.dust + a.dust)) } };
+      // Finishes the first `finish` missions of the chosen constellation (or of all three, before one is chosen).
+      if (Number.isInteger(a.finish) && a.finish! > 0) next = finishMissions(next, a.finish!, ctx.now);
+      return done(next, '');
     }
     default:
       return fail('Unknown action.');
