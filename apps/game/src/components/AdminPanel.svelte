@@ -11,6 +11,9 @@
   import { route } from '../lib/route.svelte';
   import { KNOBS, tuning, TUNING_DEFAULTS } from '../lib/tuning.svelte';
   import { ui } from '../lib/ui.svelte';
+  import { player } from '../lib/player.svelte';
+  import { stars } from '../lib/stars.svelte';
+  import type { Action } from '@idlesuits/engine';
 
   type Tab = 'player' | 'tuning' | 'rules' | 'save';
   const TABS: { id: Tab; label: string }[] = [
@@ -169,6 +172,14 @@
         <div class="row">
           <input type="number" min="0" max="40" step="1" bind:value={rooms} />
           <button type="button" onclick={() => floor.openTo(rooms)}>Open to room {rooms}</button>
+        </div>
+      </section>
+      <section>
+        <h3>Lucky Stars <span>✦ {stars.pass.dust} · {stars.pass.lit.length} of 6 lit</span></h3>
+        <div class="row">
+          <button type="button" onclick={() => player.act({ type: 'admin.pass', dust: 5 } as Action)}>+5 stardust</button>
+          <button type="button" onclick={() => player.act({ type: 'admin.pass', finish: stars.pass.lit.length + 1 } as Action)}>Finish a mission</button>
+          <button type="button" onclick={() => player.act({ type: 'admin.pass', finish: 6 } as Action)}>Finish all</button>
         </div>
       </section>
     {:else if tab === 'tuning'}

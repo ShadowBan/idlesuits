@@ -92,29 +92,31 @@
    * from the edge, and a medallion in the middle.
    */
   .back {
+    /* A back won on Lucky Stars' track, if one is picked (set on <html> in app.css), else the table's. */
+    --cb: var(--back-color, var(--card-back));
     transform: rotateY(180deg);
     background:
       radial-gradient(circle at 50% 50%, rgb(255 255 255 / 0.9) 0 calc(var(--card-w) * 0.12), transparent calc(var(--card-w) * 0.125)),
-      radial-gradient(circle at 50% 50%, var(--card-back) 0 calc(var(--card-w) * 0.17), rgb(255 255 255 / 0.85) calc(var(--card-w) * 0.175) calc(var(--card-w) * 0.19), transparent calc(var(--card-w) * 0.195)),
+      radial-gradient(circle at 50% 50%, var(--cb) 0 calc(var(--card-w) * 0.17), rgb(255 255 255 / 0.85) calc(var(--card-w) * 0.175) calc(var(--card-w) * 0.19), transparent calc(var(--card-w) * 0.195)),
       repeating-linear-gradient(45deg, transparent 0 5px, rgb(255 255 255 / 0.1) 5px 6px),
       repeating-linear-gradient(-45deg, transparent 0 5px, rgb(255 255 255 / 0.1) 5px 6px),
-      linear-gradient(160deg, color-mix(in srgb, var(--card-back) 80%, #fff), var(--card-back) 40%, color-mix(in srgb, var(--card-back) 70%, #000));
+      linear-gradient(160deg, color-mix(in srgb, var(--cb) 80%, #fff), var(--cb) 40%, color-mix(in srgb, var(--cb) 70%, #000));
     border: calc(var(--card-w) * 0.05) solid var(--card-face);
     box-shadow:
-      inset 0 0 0 calc(var(--card-w) * 0.025) color-mix(in srgb, var(--card-back) 60%, #000),
+      inset 0 0 0 calc(var(--card-w) * 0.025) color-mix(in srgb, var(--cb) 60%, #000),
       inset 0 0 0 calc(var(--card-w) * 0.045) rgb(255 255 255 / 0.55),
       0 1px 2px rgb(0 0 0 / 0.4),
       0 6px 14px rgb(0 0 0 / 0.35);
   }
   .back::after {
-    content: '♠';
+    content: var(--back-glyph, '♠');
     position: absolute;
     left: 50%;
     top: 50%;
     translate: -50% -52%;
     font-size: calc(var(--card-w) * 0.2);
     line-height: 1;
-    color: var(--card-back);
+    color: var(--cb);
   }
   .front {
     background: var(--card-face);

@@ -251,3 +251,21 @@ button.primary:hover {
     transition-duration: 1ms !important;
   }
 }
+
+/* Card backs won on Lucky Stars' track: a colour and the medallion's glyph (lib/cardStyle). */
+:root[data-back='midnight'] {
+  --back-color: #1f2f6b;
+  --back-glyph: '★';
+}
+:root[data-back='aurora'] {
+  --back-color: #0f6b5c;
+  --back-glyph: '✦';
+}
+:root[data-back='nebula'] {
+  --back-color: #5a2a86;
+  --back-glyph: '✧';
+}
+:root[data-back='eclipse'] {
+  --back-color: #2b2420;
+  --back-glyph: '☾';
+}

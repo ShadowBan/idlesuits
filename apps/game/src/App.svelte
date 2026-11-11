@@ -3,6 +3,8 @@
   import CharmsPage from './components/charms/CharmsPage.svelte';
   import ClubPage from './components/ClubPage.svelte';
   import LeadersPage from './components/LeadersPage.svelte';
+  import StarsPage from './components/StarsPage.svelte';
+  import { watchStars } from './lib/stars.svelte';
   import Lobby from './components/Lobby.svelte';
   import AdminPanel from './components/AdminPanel.svelte';
   import SettingsDialog from './components/SettingsDialog.svelte';
@@ -32,6 +34,12 @@
     const on = () => document.visibilityState === 'visible' && catchUp();
     document.addEventListener('visibilitychange', on);
     return () => document.removeEventListener('visibilitychange', on);
+  });
+
+  // A star lit, anywhere in the casino: told at once.
+  $effect(() => {
+    void player.shown.pass;
+    untrack(watchStars);
   });
 
   /** The table being played, if the route names one that exists and is built. */
@@ -93,6 +101,8 @@
   <ClubPage onExit={exit} />
 {:else if route.current === 'leaders'}
   <LeadersPage onExit={exit} />
+{:else if route.current === 'stars'}
+  <StarsPage onExit={exit} />
 {:else if !openGame}
   <Lobby onPlay={play} />
 {:else if loaded?.id === openGame.id}

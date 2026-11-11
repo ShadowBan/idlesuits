@@ -57,6 +57,11 @@ class Meta {
     return player.shown.meta.loadout;
   }
 
+  /** Free pulls won on Lucky Stars' track. */
+  get freePulls(): number {
+    return player.shown.pass.freePulls;
+  }
+
   get pulls(): number {
     return player.shown.meta.pulls;
   }
@@ -138,8 +143,8 @@ class Meta {
   }
 
   /** Pulls from the machine; null if it couldn't (not the Tokens for it, or no answer from the server). */
-  async pull(count: 1 | 10): Promise<Capsule[] | null> {
-    const out = await player.act({ type: 'charms.pull', count });
+  async pull(count: 1 | 10, free = false): Promise<Capsule[] | null> {
+    const out = await player.act({ type: 'charms.pull', count, free });
     return out.ok && out.result && 'capsules' in out.result ? out.result.capsules : null;
   }
 

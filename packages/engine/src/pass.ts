@@ -16,8 +16,8 @@ import { Rng, type RoundReport } from '@idlesuits/sim';
 
 const DAY_MS = 86_400_000;
 const WEEK_MS = 7 * DAY_MS;
-/** A Monday (UTC): week 0 of season 0. */
-const EPOCH = Date.UTC(2026, 0, 5);
+/** A Monday (UTC): week 0 of season 0, the week Lucky Stars opened. */
+const EPOCH = Date.UTC(2026, 10, 9);
 export const SEASON_WEEKS = 4;
 
 /** The week `now` falls in, counted from EPOCH. */

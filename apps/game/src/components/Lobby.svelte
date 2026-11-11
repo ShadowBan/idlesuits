@@ -10,6 +10,7 @@
   import { CHARMS } from '@idlesuits/sim';
   import { tuning } from '../lib/tuning.svelte';
   import { meta } from '../lib/meta.svelte';
+  import { stars } from '../lib/stars.svelte';
   import CharmArt from './charms/CharmArt.svelte';
   import { recent } from '../lib/recent.svelte';
   import { load, save } from '../lib/save';
@@ -55,6 +56,9 @@
       <p class="sub">Pick a table. Your money follows you from game to game.</p>
     </div>
     <div class="corner">
+      <a class="club stars" href="#/stars" title="This week's constellation and the season track"
+        ><span class="mark" aria-hidden="true">✦</span>Lucky Stars{#if stars.waiting}<span class="dot" aria-label="{stars.waiting} waiting">{stars.waiting}</span>{/if}</a
+      >
       <a class="club leaders" href="#/leaders" title="This week's and all-time leaderboards"><span class="mark" aria-hidden="true">★</span>Leaderboards</a>
       <a class="club" href="#/club" title="Your Players Club profile">
         <span class="mark" aria-hidden="true">♠</span>{account.user ? account.user.name : 'Players Club'}
@@ -632,5 +636,19 @@
   }
   .club .mark {
     color: var(--gold);
+  }
+  .club.stars .mark {
+    color: #8fd8ff;
+  }
+  .dot {
+    display: inline-grid;
+    place-items: center;
+    min-width: 18px;
+    height: 18px;
+    padding: 0 5px;
+    border-radius: 999px;
+    background: var(--gold);
+    color: #1a1208;
+    font: 700 11px/1 var(--font-ui);
   }
 </style>

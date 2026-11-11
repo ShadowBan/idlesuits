@@ -31,14 +31,14 @@
     }),
   );
 
-  async function pull(count: 1 | 10) {
+  async function pull(count: 1 | 10, free = false) {
     if (phase === 'crank') return;
     unlockAudio();
     const was = phase;
     // The crank turns while the machine (on the server, for a member) decides what's inside.
     phase = 'crank';
     const started = performance.now();
-    const result = await meta.pull(count);
+    const result = await meta.pull(count, free);
     if (!result) {
       phase = was;
       return;
@@ -122,7 +122,16 @@
       Pull ×10 <span class="cost">◉ {formatTokens(tuning.values.tenPullCost)}</span>
     </button>
   </div>
-  {#if meta.tokens < tuning.values.pullCost && phase === 'idle'}
+  {#if meta.freePulls > 0}
+    <!-- Won on Lucky Stars' track. -->
+    <div class="buttons free">
+      <button type="button" class="primary" disabled={phase === 'crank'} onclick={() => pull(1, true)}>Free pull <span class="cost">{meta.freePulls} left</span></button>
+      {#if meta.freePulls >= 10}
+        <button type="button" disabled={phase === 'crank'} onclick={() => pull(10, true)}>Free ×10</button>
+      {/if}
+    </div>
+  {/if}
+  {#if meta.tokens < tuning.values.pullCost && phase === 'idle' && !meta.freePulls}
     <p class="hint">Win hands at any table to earn Tokens: {formatTokens(tuning.values.pullCost - meta.tokens)} more for a pull.</p>
   {/if}
 </div>
