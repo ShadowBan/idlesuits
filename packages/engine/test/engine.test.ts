@@ -35,6 +35,8 @@ import {
   type KenoRound,
   type PlayerState,
   type TablePlay,
+  type JackpotLink,
+  type SlotRound,
   type AutoReply,
   autoSession,
   tableAdapter,
@@ -695,5 +697,31 @@ describe('auto play on the host’s clock', () => {
   it('refuses an action that is not the game’s own', () => {
     expect(act(freshPlayer('s'), { type: 'auto.start', game: 'keno', action: { type: 'admin.bank', set: '1e30' } }, at(T0)).ok).toBe(false);
     expect(act(freshPlayer('s'), { type: 'auto.start', game: 'vault', action: { type: 'slot.spin', machine: 'forge', step: 0, room: 0 } }, at(T0)).ok).toBe(false);
+  });
+});
+
+describe('the shared jackpot link', () => {
+  it('pays the shared meters, reports a hit and every round, and leaves the player’s own jackpot alone', () => {
+    const link: JackpotLink = { meters: { major: 300, grand: 2500 }, due: true, rounds: 0, claims: [] };
+    const out = act({ ...freshPlayer('s'), bank: '1e9' }, { type: 'slot.spin', machine: 'vault', step: 0, room: 0, rounds: 5 }, { ...ctx(), link });
+    if (!out.ok) throw new Error(out.error);
+    const rounds = (out.result as { rounds: SlotRound[] }).rounds;
+    expect(rounds[0]!.mystery || jackpotsWon(rounds[0]!.result).includes('major')).toBe(true);
+    expect(rounds[0]!.meters.major).toBe(300);
+    expect(link.claims[0]?.tier).toBe('major');
+    expect(link.due).toBe(false);
+    expect(link.meters.major).toBe(JACKPOT_SEEDS.major);
+    expect(link.rounds).toBe(5);
+    // The player's own meters didn't move: the shared ones are the server's.
+    expect(jackpotState(out.state).major).toBe(JACKPOT_SEEDS.major);
+    expect(jackpotState(out.state).history).toEqual([]);
+  });
+
+  it('counts every game’s rounds toward the shared meters', () => {
+    const link: JackpotLink = { meters: { major: 250, grand: 2000 }, due: false, rounds: 0, claims: [] };
+    const out = act({ ...freshPlayer('s'), bank: '1e9' }, { type: 'keno.play', ticket: [1, 2, 3], step: 0, room: 0, rounds: 7 }, { ...ctx(), link });
+    expect(out.ok).toBe(true);
+    expect(link.rounds).toBe(7);
+    expect(link.claims).toEqual([]);
   });
 });

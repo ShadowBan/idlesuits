@@ -22,6 +22,8 @@ export interface EngineContext {
   /** Date.now(), for the stats and wins. */
   now: number;
   tuning: EngineTuning;
+  /** The shared progressive jackpot, for a member: rounds feed it and slot spins play against it. */
+  link?: import('./jackpots').JackpotLink;
   /**
    * The seed for one round of a game. On the server it's an HMAC of the
    * player's secret key, so it can't be known before the round; in a guest's
@@ -106,8 +108,9 @@ export function settleRound(state: PlayerState, report: RoundReport, unit: Decim
   };
   next = moveBank(next, unit.mul(net + out.cash), t);
   next = countRound(next, report, unit, net + out.cash, ctx.now);
-  // Every round anywhere feeds the linked progressives.
-  next = growJackpots(next, ctx, true);
+  // Every round anywhere feeds the linked progressives: the shared ones, reported back, or the player's own.
+  if (ctx.link) ctx.link.rounds++;
+  else next = growJackpots(next, ctx, true);
   return {
     state: next,
     extra: out.cash,

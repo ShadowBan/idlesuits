@@ -14,6 +14,7 @@ import {
   type PlayerState,
 } from '@idlesuits/engine';
 import { api, ApiError } from './api';
+import { live, LinkError } from './live.svelte';
 import type { Decimal } from './money';
 import { load, saveSoon, storedEntries, unstore } from './save';
 import { tuning } from './tuning.svelte';
@@ -206,7 +207,7 @@ class Player {
       if (guess.ok) this.truth = guess.state;
     }
     try {
-      const { state, result } = await api<{ state: unknown; result: unknown }>('/act', { method: 'POST', body: { action } });
+      const { state, result } = await this.send(action);
       const out = { ok: true as const, state: readPlayer(state, 'server'), result } as Extract<ActOutcome, { ok: true }>;
       // Replies can cross on the way back: only a newer state replaces the one shown.
       if (out.state.rev >= this.truth.rev) this.truth = out.state;
@@ -217,9 +218,29 @@ class Player {
       const error = e instanceof Error ? e.message : 'Something went wrong.';
       // A guess the server turned down comes back off the screen.
       if (PREDICTED.has(action.type)) void this.refresh();
-      if (e instanceof ApiError && e.status === 401) this.error = 'Your session ended. Sign in again to keep playing.';
+      const status = e instanceof ApiError || e instanceof LinkError ? e.status : 0;
+      if (status === 401) this.error = 'Your session ended. Sign in again to keep playing.';
+      // Sent on the link but not answered: it may or may not have played, so the state comes fresh from the server.
+      if (e instanceof LinkError && status === 0) void this.refresh();
       return { ok: false, error };
     }
+  }
+
+  /**
+   * Sends a member's action: on the live link when it's open (a fraction of a
+   * request's cost), or by a plain request. An action is only ever sent once:
+   * if the link drops after sending, it isn't sent again by request.
+   */
+  private async send(action: Action): Promise<{ state: unknown; result: unknown }> {
+    if (live.open) {
+      try {
+        return await live.send(action);
+      } catch (e) {
+        // Not sent at all (the link closed just now): by request instead. Sent but unanswered: not again.
+        if (!(e instanceof LinkError && e.message === 'No live link.')) throw e;
+      }
+    }
+    return api<{ state: unknown; result: unknown }>('/act', { method: 'POST', body: { action } });
   }
 
   /**
@@ -260,6 +281,7 @@ class Player {
   /** Signed in: from now on the server's state is the one shown and played. */
   async join() {
     this.member = true;
+    live.start();
     this.ready = false;
     this.clearHolds();
     await this.refresh();
@@ -269,6 +291,7 @@ class Player {
   /** Signed out: back to this browser's own state, as a guest. */
   leave() {
     this.member = false;
+    live.stop();
     this.clearHolds();
     this.error = null;
     tuning.useServer(null);

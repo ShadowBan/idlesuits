@@ -18,13 +18,17 @@ import {
   type SessionUser,
 } from './auth';
 import { cleanTuning, ENGINE_GAMES, type EngineTuning, type PlayerState } from '@idlesuits/engine';
+import type { JackpotDO } from './jackpot';
+import { readTuning, rememberTuning } from './tuning';
 import type { ActReply, PlayerDO } from './player';
 
+export { JackpotDO } from './jackpot';
 export { PlayerDO } from './player';
 
 export interface Env {
   DB: D1Database;
   PLAYER: DurableObjectNamespace<PlayerDO>;
+  JACKPOT: DurableObjectNamespace<JackpotDO>;
   ASSETS: Fetcher;
   /** Other sites allowed to write, comma-separated: only the game's dev server, in .dev.vars. */
   ALLOWED_ORIGINS?: string;
@@ -88,6 +92,10 @@ async function requireAdmin(req: Request, env: Env) {
   const me = await requireUser(req, env);
   if (me.user.role !== 'admin') throw new HttpError(403, 'Pit bosses only.');
   return me;
+}
+
+function jackpot(env: Env) {
+  return env.JACKPOT.get(env.JACKPOT.idFromName('global'));
 }
 
 function player(env: Env, userId: string) {
@@ -163,33 +171,15 @@ async function signOut(req: Request, env: Env): Promise<Response> {
   return json({ ok: true }, 200, { 'set-cookie': clearCookie(secure(req)) });
 }
 
-/** The pit boss's tuning, read from the database at most this often per Worker. */
-const TUNING_TTL_MS = 10_000;
-let tuningCache: { at: number; tuning: EngineTuning } | null = null;
-
-async function readTuning(env: Env): Promise<EngineTuning> {
-  if (tuningCache && Date.now() - tuningCache.at < TUNING_TTL_MS) return tuningCache.tuning;
-  const row = await env.DB.prepare('SELECT data FROM tuning WHERE id = 1').first<{ data: string }>();
-  let raw: unknown = {};
-  try {
-    raw = row ? JSON.parse(row.data) : {};
-  } catch {
-    // A bad row reads as the defaults.
-  }
-  const tuning = cleanTuning(raw);
-  tuningCache = { at: Date.now(), tuning };
-  return tuning;
-}
-
 /** What a player's game needs from the server: their state, the tuning it's decided under, and which games the server plays. */
 async function stateReply(env: Env, userId: string) {
   return { state: (await player(env, userId).getState()) as unknown as PlayerState, tuning: await readTuning(env), games: ENGINE_GAMES };
 }
 
-async function actReply(req: Request, env: Env, userId: string, opts: { admin: boolean; limited?: boolean }): Promise<Response> {
+async function actReply(req: Request, env: Env, user: { id: string; name: string }, opts: { admin: boolean; limited?: boolean }): Promise<Response> {
   const input = await body<{ action?: unknown }>(req, env);
   // The RPC stub's types can't follow `unknown` (a win's replay data) through, so the reply is typed here.
-  const out = (await player(env, userId).act(input.action, await readTuning(env), opts)) as unknown as ActReply;
+  const out = (await player(env, user.id).act(input.action, await readTuning(env), { ...opts, id: user.id, name: user.name })) as unknown as ActReply;
   if (!out.ok) throw new HttpError(out.status, out.error);
   return json({ state: out.state, result: out.result });
 }
@@ -234,7 +224,7 @@ async function route(req: Request, env: Env): Promise<Response> {
   if (path === '/api/act' && method === 'POST') {
     const me = await requireUser(req, env);
     // The pit boss's tools send a burst of actions at once (every charm to its top level): not limited.
-    return actReply(req, env, me.user.id, { admin: me.user.role === 'admin', limited: me.user.role !== 'admin' });
+    return actReply(req, env, me.user, { admin: me.user.role === 'admin', limited: me.user.role !== 'admin' });
   }
 
   // A line played by hand: answered when it snaps (or at once if it's already been reeled in).
@@ -246,6 +236,38 @@ async function route(req: Request, env: Env): Promise<Response> {
     return json({ state: out.state, result: out.result });
   }
 
+  // A member's live link: a hibernating WebSocket to their own server, carrying their actions (each a
+  // fraction of a request's cost) while the casino is shown.
+  if (path === '/api/live' && method === 'GET') {
+    const me = await requireUser(req, env);
+    const origin = req.headers.get('origin');
+    const allowed = (env.ALLOWED_ORIGINS ?? '').split(',').map((o) => o.trim());
+    if (!origin || (origin !== url.origin && !allowed.includes(origin))) throw new HttpError(403, 'Wrong origin.');
+    if (req.headers.get('upgrade') !== 'websocket') throw new HttpError(426, 'Expected a WebSocket.');
+    // Who's on the line, as this Worker checked them: never as the browser says.
+    const headers = new Headers(req.headers);
+    headers.set('x-idlesuits-user', JSON.stringify({ id: me.user.id, name: me.user.name, role: me.user.role }));
+    return player(env, me.user.id).fetch(new Request(req, { headers }));
+  }
+
+  // The shared progressive jackpot: its meters for anyone, live over a hibernating WebSocket, and the pit boss's tools.
+  if (path === '/api/jackpot' && method === 'GET') {
+    const tuning = await readTuning(env);
+    return json(await jackpot(env).snapshot(tuning.jackpotGrowth));
+  }
+  if (path === '/api/jackpot/live' && method === 'GET') {
+    const tuning = await readTuning(env);
+    const url = new URL(req.url);
+    url.searchParams.set('rate', String(tuning.jackpotGrowth));
+    return jackpot(env).fetch(new Request(url, req));
+  }
+  if (path === '/api/admin/jackpot' && method === 'PUT') {
+    await requireAdmin(req, env);
+    const input = await body<{ tier?: 'major' | 'grand'; value?: number; due?: boolean }>(req, env);
+    const tuning = await readTuning(env);
+    return json(await jackpot(env).admin(input, tuning.jackpotGrowth));
+  }
+
   // The pit boss's tuning, which the server decides rounds under.
   if (path === '/api/admin/tuning') {
     await requireAdmin(req, env);
@@ -254,7 +276,7 @@ async function route(req: Request, env: Env): Promise<Response> {
       const input = await body<{ tuning?: unknown }>(req, env);
       const tuning = cleanTuning(input.tuning);
       await env.DB.prepare('INSERT OR REPLACE INTO tuning (id, data, updated_at) VALUES (1, ?, ?)').bind(JSON.stringify(tuning), Date.now()).run();
-      tuningCache = { at: Date.now(), tuning };
+      rememberTuning(tuning);
       return json({ tuning });
     }
   }
@@ -271,7 +293,10 @@ async function route(req: Request, env: Env): Promise<Response> {
     const [, id, what] = adminUser as unknown as [string, string, string];
     if (what === 'save' && method === 'GET') return json({ save: await player(env, id).getSave() });
     if (what === 'state' && method === 'GET') return json(await stateReply(env, id));
-    if (what === 'act' && method === 'POST') return actReply(req, env, id, { admin: true, limited: false });
+    if (what === 'act' && method === 'POST') {
+      const row = await env.DB.prepare('SELECT name FROM users WHERE id = ?').bind(id).first<{ name: string }>();
+      return actReply(req, env, { id, name: row?.name ?? 'A player' }, { admin: true, limited: false });
+    }
     if (what === 'role' && method === 'PUT') {
       const input = await body<{ role?: string }>(req, env);
       if (input.role !== 'admin' && input.role !== 'player') throw new HttpError(400, 'Role is admin or player.');

@@ -144,14 +144,18 @@
   {#if tab === 'slots'}
     <!-- The slot floor: its machines share the linked progressives, which every hand in the casino feeds. -->
     <div class="meters" aria-label="Linked progressive jackpots">
-      {#each [['Grand', jackpots.grand], ['Major', jackpots.major]] as const as [name, x] (name)}
+      {#each [['Grand', jackpots.sharedMeters.grand], ['Major', jackpots.sharedMeters.major]] as const as [name, x] (name)}
         <span class="meter-box {name.toLowerCase()}">
           <span class="k">{name}</span>
           <b>{formatMoney(floor.room.min.mul(x))}</b>
           {#if name === 'Major'}<small>must hit by {formatLimit(floor.room.min.mul(MAJOR_CAP))}</small>{/if}
         </span>
       {/each}
-      <span class="at">at a {formatLimit(floor.room.min)} spin · grows with every hand, and every second</span>
+      <span class="at">
+        at a {formatLimit(floor.room.min)} spin · shared by every Players Club member, growing with every hand they play{jackpots.linked
+          ? ''
+          : ' · join the Players Club to play for it'}
+      </span>
     </div>
   {:else if tab === 'instant'}
     <p class="at">Quick press-your-luck rounds: you choose the risk, and each pays back exactly what the floor sets.</p>

@@ -12,7 +12,7 @@ import {
   type SlotSpinResult,
 } from '@idlesuits/sim';
 import { autoStops, badBet, batchSize, counter, fitBet, progressOf, settleInstant, withProgress, type AutoStop, type InstantSettled } from './instant';
-import { growJackpots, hitJackpot, jackpotState, majorAt } from './jackpots';
+import { growJackpots, hitJackpot, JACKPOT_SEEDS, jackpotState, majorAt } from './jackpots';
 import { bankOf, equipped, type BreakdownLine, type EngineContext } from './settle';
 import type { PlayerState } from './state';
 
@@ -191,10 +191,11 @@ function spinOnce(state: PlayerState, machine: MachineDef, play: SlotPlay, test:
   if (!fit) return null;
   const round = slotRound(state, machine.id);
   const run = ctx.seed(machine.id, round);
-  // The meters as the reels start: this spin pays what they showed.
-  let next = growJackpots(state, ctx, false);
+  // The meters as the reels start: this spin pays what they showed. The shared ones for a member, or the player's own.
+  const link = ctx.link;
+  let next = link ? state : growJackpots(state, ctx, false);
   const j = jackpotState(next);
-  const meters = { major: j.major, grand: j.grand };
+  const meters = link ? { ...link.meters } : { major: j.major, grand: j.grand };
   const pots = test.fillPots && machine.pots ? machine.pots.map((p) => p.size) : potsOf(next, machine);
   const charms = test.allCharms ? ALL_CHARMS : slotCharms(equipped(next));
   const result = spinSlot({
@@ -208,7 +209,7 @@ function spinOnce(state: PlayerState, machine: MachineDef, play: SlotPlay, test:
   });
   // The Major past its hidden point goes to this spin, unless the spin wins it anyway.
   const won = jackpotsWon(result);
-  const mystery = j.major >= majorAt(j, ctx) && !won.includes('major');
+  const mystery = (link ? link.due : j.major >= majorAt(j, ctx)) && !won.includes('major');
   const x = result.pay + (mystery ? meters.major : 0);
   const { text, sub } = describe(machine, result, mystery);
   next = withProgress(next, machine.id, { ...progressOf(next, machine.id), round: round + 1, pots: result.pots });
@@ -241,9 +242,15 @@ function spinOnce(state: PlayerState, machine: MachineDef, play: SlotPlay, test:
   for (const tier of [...won, ...(mystery ? ['major' as const] : [])]) {
     if (tier !== 'major' && tier !== 'grand') continue;
     const at = meters[tier];
-    settled = hitJackpot(settled, { tier, x: at, paid: fit.bet.mul(at).toString(), machine: machine.name, mystery: mystery && tier === 'major' }, ctx);
+    const claim = { tier, x: at, paid: fit.bet.mul(at).toString(), machine: machine.name, mystery: mystery && tier === 'major' };
+    if (link) {
+      // Reported to the shared jackpot, which starts it over for everyone; this action plays on from its seed.
+      link.claims.push(claim);
+      link.meters = { ...link.meters, [tier]: JACKPOT_SEEDS[tier] };
+      if (tier === 'major') link.due = false;
+    } else settled = hitJackpot(settled, claim, ctx);
   }
-  const after = jackpotState(settled);
+  const after = link ? link.meters : jackpotState(settled);
   return {
     state: settled,
     round: {

@@ -151,12 +151,36 @@ The patterns, from simplest to most involved:
   stats, wins, Keno, the Gem Vault, slot pots and the progressive meters. New members
   start fresh.
 
+## Auto play on the server's clock (2026-11-10)
+
+Turning auto play on stores the game's batch action, its stop rules and the table's speed
+(`state.auto`); rounds come due at each game's pace by the server's clock. Any request settles
+what's due (up to 5,000 a request). A watched table checks in about once a minute and shows those
+rounds a minute behind; a hidden tab or closed browser sends nothing, and coming back settles up to
+72 hours away and says what it came to. Stopping plays nothing unseen; a round played by hand stops
+it. Seeds are worked out on demand by a synchronous HMAC (`seedFn`, the same seeds as before).
+
+## Step 3: the shared progressive jackpot (2026-11-11)
+
+- `JackpotDO` (one, global): the Grand and Major meters, the Major's must-hit point (from a secret
+  seed per Major), and the last hits with the winner's card name. Every open casino holds a
+  hibernating WebSocket (`/api/jackpot/live`, closed while the page is hidden) and gets the meters
+  and hits as they change (at most every 3 s, a hit at once).
+- A member's `PlayerDO` checks in before slot spins (meters, and whether the Major is due: it's
+  held for one player at a time, so two can't both win it), reports its rounds (at most every 5
+  minutes otherwise), and reports a hit at once. The engine plays against `ctx.link`.
+- Guests see the shared meters in the lobby but play a private jackpot of their own.
+- A member's actions go over a hibernating WebSocket to their own `PlayerDO` (`/api/live`) while
+  the casino is shown: each a twentieth of a request, and no Worker request. Plain requests are
+  the fallback; an action sent on the link is never re-sent by request.
+- Pending round counts live in the PlayerDO's memory: if it's evicted between reports, a few
+  minutes of contributions to the meters are lost (never a hit).
+
 Known follow-ups:
 
 - Stopping auto play partway through a batch still shows the rounds already decided
   (up to four more), at the table's pace.
 - The practice bankroll has no games left to serve; it stays for games added later.
-- The progressives are per player until the shared jackpot (step 3).
 
 ## Open questions
 

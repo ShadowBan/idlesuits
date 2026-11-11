@@ -17,8 +17,16 @@
   },
   // Accounts, sessions and (later) leaderboards.
   "d1_databases": [{ "binding": "DB", "database_name": "idlesuits", "database_id": "36d3374c-3662-4064-8027-543efe312839", "migrations_dir": "migrations" }],
-  // One per player: their save now, their wallet and rounds later.
-  "durable_objects": { "bindings": [{ "name": "PLAYER", "class_name": "PlayerDO" }] },
-  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["PlayerDO"] }]
+  // One per player (their state, their rounds), and one shared progressive jackpot for everyone.
+  "durable_objects": {
+    "bindings": [
+      { "name": "PLAYER", "class_name": "PlayerDO" },
+      { "name": "JACKPOT", "class_name": "JackpotDO" }
+    ]
+  },
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["PlayerDO"] },
+    { "tag": "v2", "new_sqlite_classes": ["JackpotDO"] }
+  ]
   // Pit bosses (admins) are made by hand: `npm run admin -w @idlesuits/server -- grant you@example.com`.
 }

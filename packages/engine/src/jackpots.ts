@@ -91,3 +91,27 @@ export function hitJackpot(state: PlayerState, hit: Omit<JackpotHit, 'at'>, ctx:
     history: [{ ...hit, at }, ...j.history].slice(0, 10),
   });
 }
+
+/** A jackpot hit, as reported to the shared jackpot. */
+export interface JackpotClaim {
+  tier: 'major' | 'grand';
+  /** The meter it paid, in bets, and what that came to in dollars. */
+  x: number;
+  paid: string;
+  machine: string;
+  mystery: boolean;
+}
+
+/**
+ * The shared progressive jackpot as an action plays against it: the meters
+ * as the action started (kept up to date as it hits them), whether the Major
+ * is due and held for this player, and what the action did to it, to report
+ * back. Without one, a player plays their own jackpot (a guest's).
+ */
+export interface JackpotLink {
+  meters: JackpotMeters;
+  due: boolean;
+  /** Rounds settled: every round anywhere feeds the meters. */
+  rounds: number;
+  claims: JackpotClaim[];
+}

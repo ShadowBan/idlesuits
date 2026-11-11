@@ -9,9 +9,23 @@ import {
   type EngineTuning,
   type PlayerState,
 } from '@idlesuits/engine';
+import { autoSession, JACKPOT_SEEDS, type JackpotLink } from '@idlesuits/engine';
 import { DurableObject } from 'cloudflare:workers';
 import type { Env } from './index';
+import type { JackpotDO } from './jackpot';
 import { newSeedKey, seedFn } from './seeds';
+import { readTuning } from './tuning';
+
+/** A live link stays trusted this long before the browser must open a fresh one (and so sign in again). */
+const LINK_TRUST_MS = 12 * 3_600_000;
+
+/** Who a live link belongs to, as the Worker checked them when it opened. */
+interface LinkUser {
+  id: string;
+  name: string;
+  role: 'player' | 'admin';
+  until: number;
+}
 
 /** The largest save a player can store, in bytes of JSON. */
 export const MAX_SAVE_BYTES = 1_000_000;
@@ -65,6 +79,8 @@ export class PlayerDO extends DurableObject<Env> {
       data TEXT NOT NULL,
       updated_at INTEGER NOT NULL
     )`);
+    // Keep-alives on a live link are answered without waking the object.
+    ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair('ping', 'pong'));
     this.sql.exec(`CREATE TABLE IF NOT EXISTS state (
       id INTEGER PRIMARY KEY CHECK (id = 1),
       data TEXT NOT NULL,
@@ -158,14 +174,131 @@ export class PlayerDO extends DurableObject<Env> {
    * the pit boss's tools through; `limited` is false for the pit boss acting
    * on someone else's account.
    */
-  async act(action: unknown, tuning: EngineTuning, opts: { admin: boolean; limited?: boolean }): Promise<ActReply> {
+  /** Rounds played since the shared jackpot last heard of them: reported on the next check-in. */
+  private pending: number | null = null;
+  /** When the shared jackpot last heard from this player, and the meters it gave. */
+  private reported = 0;
+  private meters: { major: number; grand: number } | null = null;
+
+  private jackpot(): DurableObjectStub<JackpotDO> {
+    return this.env.JACKPOT.get(this.env.JACKPOT.idFromName('global'));
+  }
+
+  /** Whether an action spins slots, which play against the shared meters (and may win the Major due). */
+  private spinsSlots(action: unknown): boolean {
+    const a = action as { type?: string; action?: { type?: string } } | null;
+    if (!a?.type) return false;
+    if (a.type === 'slot.spin') return true;
+    if (a.type === 'auto.start') return a.action?.type === 'slot.spin';
+    if (a.type === 'auto.sync') return autoSession(this.load().state)?.action.type === 'slot.spin';
+    return false;
+  }
+
+  /**
+   * Reports to the shared jackpot: the rounds since the last report (taken
+   * off the count first, so two requests can't report them twice) and any
+   * hits. Gives back the meters, and whether the Major is due for this player.
+   */
+  private async report(id: string, name: string, claims: JackpotLink['claims'], slots: boolean, rate: number) {
+    const rounds = this.pending ?? 0;
+    this.pending = 0;
+    try {
+      const out = await this.jackpot().exchange({ player: id, name, rounds, claims, slots, rate });
+      this.reported = Date.now();
+      this.meters = out.meters;
+      return out;
+    } catch (e) {
+      // Not heard: the rounds wait for the next report. A hit's reset is lost only if the jackpot is down.
+      this.pending = (this.pending ?? 0) + rounds;
+      console.error('jackpot report failed', e);
+      return null;
+    }
+  }
+
+  /**
+   * Runs one action through the engine and keeps the result. `admin` lets
+   * the pit boss's tools through; `limited` is false for the pit boss acting
+   * on someone else's account. A member plays the shared progressive jackpot:
+   * slot spins check in with it first for the meters (and whether the Major
+   * is due), every round feeds it, and a hit is reported at once.
+   */
+  async act(action: unknown, tuning: EngineTuning, opts: { admin: boolean; limited?: boolean; id?: string; name?: string }): Promise<ActReply> {
     if (opts.limited !== false && !this.spend()) return { ok: false, error: 'Slow down a little.', status: 429 };
-    // One action at a time, start to finish, with nothing awaited in between: two requests can't both play
-    // from the same state. Seeds are worked out as the engine asks for them.
+    const id = opts.id ?? this.ctx.id.toString();
+    const name = opts.name ?? 'A player';
+    const slots = this.spinsSlots(action);
+    const stale = Date.now() - this.reported > 5 * 60_000;
+    let due = false;
+    if (slots || (stale && (this.pending ?? 0) > 0) || !this.meters) {
+      const ex = await this.report(id, name, [], slots, tuning.jackpotGrowth);
+      due = !!ex?.due;
+    }
+    // From here to the store, nothing is awaited: two requests can't both play from the same state.
     const { state, key } = this.load();
-    const out = act(state, action, { now: Date.now(), tuning, seed: seedFn(key) }, { admin: opts.admin });
+    const link: JackpotLink = { meters: this.meters ?? { ...JACKPOT_SEEDS }, due, rounds: 0, claims: [] };
+    const out = act(state, action, { now: Date.now(), tuning, seed: seedFn(key), link }, { admin: opts.admin });
     if (!out.ok) return { ok: false, error: out.error, status: 400 };
     this.store(out.state, key);
+    this.pending = (this.pending ?? 0) + link.rounds;
+    this.meters = link.meters;
+    // A hit resets the meter for everyone at once.
+    if (link.claims.length) await this.report(id, name, link.claims, false, tuning.jackpotGrowth);
     return out;
+  }
+
+  /**
+   * The member's live link opening: a hibernating WebSocket, sent their
+   * actions while the casino is shown. The Worker has checked who they are
+   * and says so in a header the browser can't set.
+   */
+  async fetch(request: Request): Promise<Response> {
+    if (request.headers.get('upgrade') !== 'websocket') return new Response('Expected a WebSocket.', { status: 426 });
+    let user: LinkUser;
+    try {
+      const u = JSON.parse(request.headers.get('x-idlesuits-user') ?? '') as Omit<LinkUser, 'until'>;
+      if (typeof u.id !== 'string') throw new Error('no user');
+      user = { id: u.id, name: String(u.name ?? 'A player'), role: u.role === 'admin' ? 'admin' : 'player', until: Date.now() + LINK_TRUST_MS };
+    } catch {
+      return new Response('Not signed in.', { status: 401 });
+    }
+    const pair = new WebSocketPair();
+    const [client, server] = Object.values(pair) as [WebSocket, WebSocket];
+    this.ctx.acceptWebSocket(server);
+    server.serializeAttachment(user);
+    return new Response(null, { status: 101, webSocket: client });
+  }
+
+  /** An action on the live link: `{ n, action }` in, `{ n, state, result }` or `{ n, error, status }` back. */
+  async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer) {
+    if (typeof message !== 'string' || message.length > 100_000) return;
+    let n: unknown = null;
+    try {
+      const msg = JSON.parse(message) as { n?: unknown; action?: unknown };
+      n = msg.n;
+      const user = ws.deserializeAttachment() as LinkUser | null;
+      if (!user || user.until < Date.now()) {
+        ws.send(JSON.stringify({ n, error: 'Your live link has expired.', status: 401 }));
+        ws.close(4001, 'expired');
+        return;
+      }
+      const admin = user.role === 'admin';
+      const out = await this.act(msg.action, await readTuning(this.env), { admin, limited: !admin, id: user.id, name: user.name });
+      ws.send(JSON.stringify(out.ok ? { n, state: out.state, result: out.result } : { n, error: out.error, status: out.status }));
+    } catch (e) {
+      console.error('live link message failed', e);
+      try {
+        ws.send(JSON.stringify({ n, error: 'Something went wrong on our side.', status: 500 }));
+      } catch {
+        // The link is gone.
+      }
+    }
+  }
+
+  async webSocketClose(ws: WebSocket, code: number) {
+    try {
+      ws.close(code, 'closing');
+    } catch {
+      // Already closed.
+    }
   }
 }
