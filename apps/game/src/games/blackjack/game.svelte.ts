@@ -12,6 +12,7 @@ import {
   type StrategyTables,
 } from '@idlesuits/sim';
 import { bankroll } from '../../lib/casino.svelte';
+import { autoFeed, SPEED } from '../../lib/autofeed.svelte';
 import { Decimal } from '../../lib/money';
 import { autoplay } from '../../lib/autoplay.svelte';
 import { floor } from '../../lib/floor.svelte';
@@ -155,6 +156,8 @@ export class BjGame {
   start() {
     if (this.started || this.seq.disposed) return;
     this.started = true;
+    // Auto play still running here on the engine's clock (left on, or away): the table picks it back up.
+    if (autoFeed.isOn('blackjack')) queueMicrotask(() => this.setAutoPlay(true));
     // Sitting down with too little to bet goes straight to the buy-back.
     if (this.broke) {
       // Losing it all is the penalty for running unattended: auto play stops until it's pressed again.
@@ -247,7 +250,7 @@ export class BjGame {
       const s = autoplay.settings;
       const rounds = Math.min(AUTO_BATCH, s.stopAfter ? Math.max(1, s.stopRounds - autoplay.rounds) : AUTO_BATCH);
       const stop = { winX: s.stopOnWin ? s.stopWinX : undefined, below: s.stopBelow ? s.stopBelowAmount : undefined, above: s.stopAbove ? s.stopAboveAmount : undefined };
-      const reply = await tableAct({ type: 'table.auto', ...req, rounds, stop });
+      const reply = await tableAct({ type: 'table.auto', ...req, rounds, stop }, SPEED[this.seq.speed] ?? 1);
       if (!reply.ok) return this.failed(reply.error);
       for (let i = 0; i < reply.plays.length; i++) {
         const play = reply.plays[i]!;

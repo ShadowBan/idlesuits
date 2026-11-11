@@ -16,6 +16,7 @@ import {
 } from '@idlesuits/sim';
 import { tableProgress, type SuitsDecision, type TablePlay } from '@idlesuits/engine';
 import { autoplay } from '../../lib/autoplay.svelte';
+import { autoFeed, SPEED } from '../../lib/autofeed.svelte';
 import { floor } from '../../lib/floor.svelte';
 import { player } from '../../lib/player.svelte';
 import { landSettled, sidesInDollars, tableAct, type TableReply } from '../../lib/table.svelte';
@@ -163,6 +164,8 @@ export class Game {
   start() {
     if (this.started || this.disposed) return;
     this.started = true;
+    // Auto play still running here on the engine's clock (left on, or away): the table picks it back up.
+    if (autoFeed.isOn('suits')) queueMicrotask(() => this.setAutoPlay(true));
     // Sitting down with too little to bet goes straight to the buy-back.
     if (this.broke) {
       // Losing it all is the penalty for running unattended: auto play stops until it's pressed again.
@@ -373,7 +376,7 @@ export class Game {
         ...req,
         rounds: Math.min(5, s.stopAfter ? Math.max(1, s.stopRounds - autoplay.rounds) : 5),
         stop: { winX: s.stopOnWin ? s.stopWinX : undefined, below: s.stopBelow ? s.stopBelowAmount : undefined, above: s.stopAbove ? s.stopAboveAmount : undefined },
-      });
+      }, SPEED[this.speed] ?? 1);
       if (!reply.ok) return this.failed(reply.error);
       let drama: Drama = 'routine';
       for (let i = 0; i < reply.plays.length; i++) {

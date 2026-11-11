@@ -20,3 +20,4 @@ export * from './games/blackjack';
 export * from './games/baccarat';
 export * from './games/poker';
 export * from './games/suits';
+export * from './auto';

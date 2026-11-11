@@ -1,12 +1,14 @@
 import type { RouletteReplay, RouletteRound } from '@idlesuits/engine';
 import { rouletteBet, rouletteSettle, rouletteSpin, ROULETTE_POCKETS } from '@idlesuits/sim';
 import { autoplay } from '../../lib/autoplay.svelte';
+import { autoFeed } from '../../lib/autofeed.svelte';
 import type { BreakdownLine } from '../../lib/breakdown';
 import { bankroll } from '../../lib/casino.svelte';
 import { floor } from '../../lib/floor.svelte';
 import { ROULETTE_TOKENS } from '../../lib/gameRules';
 import { meta } from '../../lib/meta.svelte';
 import { Decimal, formatMoney } from '../../lib/money';
+import { playOrAuto, SPEED } from '../../lib/autofeed.svelte';
 import { player } from '../../lib/player.svelte';
 import { room } from '../../lib/rooms';
 import { load, saveSoon } from '../../lib/save';
@@ -323,6 +325,8 @@ export class RouletteGame {
   start() {
     if (this.started || this.seq.disposed) return;
     this.started = true;
+    // Auto play still running here on the engine's clock (left on, or away): the table picks it back up.
+    if (autoFeed.isOn('roulette')) queueMicrotask(() => this.setAutoPlay(true));
     if (this.broke) {
       this.gameOver = true;
       this.autoPlay = false;
@@ -399,7 +403,7 @@ export class RouletteGame {
     let rounds: RouletteRound[] = [];
     let holds: number[] = [];
     this.spinning = true;
-    const out = await player.act({ type: 'roulette.spin', layout: toSaved(layout), room: floor.current, rounds: count, stop }, (landed) => {
+    const out = await playOrAuto(this.autoPlay, 'roulette', { type: 'roulette.spin', layout: toSaved(layout), room: floor.current, rounds: count, stop }, SPEED[this.seq.speed] ?? 1, (landed) => {
       rounds = landed.result && 'rounds' in landed.result ? (landed.result.rounds as RouletteRound[]) : [];
       holds = player.holdBack(rounds, before);
     });

@@ -26,11 +26,13 @@ import {
   type WheelWedge,
 } from '@idlesuits/sim';
 import type { BreakdownLine } from '../../lib/breakdown';
+import { autoFeed } from '../../lib/autofeed.svelte';
 import { bankroll } from '../../lib/casino.svelte';
 import { floor } from '../../lib/floor.svelte';
 import { jackpots, slotTest } from '../../lib/jackpot.svelte';
 import { autoplay } from '../../lib/autoplay.svelte';
 import { meta } from '../../lib/meta.svelte';
+import { playOrAuto, SPEED } from '../../lib/autofeed.svelte';
 import { player } from '../../lib/player.svelte';
 import { Decimal, formatMoney } from '../../lib/money';
 import { room } from '../../lib/rooms';
@@ -455,6 +457,8 @@ export class SlotGame {
   start() {
     if (this.started || this.seq.disposed) return;
     this.started = true;
+    // Auto play still running here on the engine's clock (left on, or away): the table picks it back up.
+    if (autoFeed.isOn(this.machine.id)) queueMicrotask(() => this.setAutoPlay(true));
     if (this.broke) {
       this.gameOver = true;
       this.autoPlay = false;
@@ -560,7 +564,7 @@ export class SlotGame {
     const before = { best: player.shown.floor.best, jackpots: jackpotState(player.shown) };
     let rounds: SlotRound[] = [];
     let holds: number[] = [];
-    const out = await player.act({ type: 'slot.spin', machine: this.machine.id, step: this.step, room: floor.current, rounds: count, stop, test }, (landed) => {
+    const out = await playOrAuto(this.autoPlay, this.machine.id, { type: 'slot.spin', machine: this.machine.id, step: this.step, room: floor.current, rounds: count, stop, test }, SPEED[this.seq.speed] ?? 1, (landed) => {
       rounds = landed.result && 'rounds' in landed.result ? (landed.result.rounds as SlotRound[]) : [];
       holds = player.holdBack(rounds, before.best);
       // The meters stay as the reels started until each spin is shown.

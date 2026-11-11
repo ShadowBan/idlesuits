@@ -27,7 +27,10 @@ export function load<T>(key: string, fallback: T): T {
 
 export function save(key: string, data: unknown) {
   try {
-    localStorage.setItem(PREFIX + key, JSON.stringify({ v: SAVE_VERSION, data }));
+    const text = JSON.stringify({ v: SAVE_VERSION, data });
+    // Nothing changed (a table refitting the same bets after a round): nothing to write, nothing to send.
+    if (localStorage.getItem(PREFIX + key) === text) return;
+    localStorage.setItem(PREFIX + key, text);
   } catch {
     // Not remembered this time; nothing else depends on it.
   }
@@ -54,7 +57,14 @@ const LOCAL_ONLY = new Set([
  * creep up every second): they go up with the rest of the save, but never send
  * it on their own, so an idle tab stays quiet.
  */
-const AMBIENT = new Set(['jackpots']);
+const AMBIENT = new Set([
+  'jackpots',
+  // What each round leaves for the table to show: the last snap points, numbers and coups, and the tables lately played.
+  'deepdrop.recent',
+  'roulette.numbers',
+  'baccarat.road',
+  'recent',
+]);
 
 /** A write the player made happen: one that should send the save up. */
 export function playerChange(key: string): boolean {

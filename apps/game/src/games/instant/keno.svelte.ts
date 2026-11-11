@@ -23,6 +23,7 @@ import { autoplay } from '../../lib/autoplay.svelte';
 import { floor } from '../../lib/floor.svelte';
 import { meta } from '../../lib/meta.svelte';
 import { Decimal } from '../../lib/money';
+import { playOrAuto, SPEED } from '../../lib/autofeed.svelte';
 import { player } from '../../lib/player.svelte';
 import { room } from '../../lib/rooms';
 import { load, save } from '../../lib/save';
@@ -293,7 +294,7 @@ export class KenoGame extends InstantGame {
     let ids: number[] = [];
     this.batching = true;
     this.error = null;
-    const out = await player.act({ type: 'keno.play', ticket: [...this.picks], step: this.step, room: floor.current, rounds: count, stop }, (landed) => {
+    const out = await playOrAuto(this.autoPlay, 'keno', { type: 'keno.play', ticket: [...this.picks], step: this.step, room: floor.current, rounds: count, stop }, SPEED[this.seq.speed] ?? 1, (landed) => {
       rounds = landed.result && 'rounds' in landed.result ? (landed.result.rounds as KenoRound[]) : [];
       // The decided draws stay off the screen until they're shown.
       ids = player.holdBack(rounds, before.best);

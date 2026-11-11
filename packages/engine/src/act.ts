@@ -1,5 +1,6 @@
 import { findCharm, MAX_SLOTS } from '@idlesuits/sim';
 import type { AutoStop } from './instant';
+import { autoSession, autoStart, autoStop, autoSync, playsRound, type AutoReply } from './auto';
 import { KENO_BATCH_MAX, playKeno, type KenoPlay, type KenoRound } from './keno';
 import { deepdropDrop, deepdropExpire, deepdropReel, deepdropRounds, DEEPDROP_BATCH_MAX, type DeepDropLive, type DeepDropRound } from './deepdrop';
 import { jackpotState, withJackpots, JACKPOT_SEEDS, MAJOR_CAP } from './jackpots';
@@ -33,6 +34,9 @@ export type PlayerAction =
   | { type: 'table.move'; game: string; choice: unknown }
   | { type: 'table.resume'; game: string }
   | ({ type: 'table.auto'; game: string; rounds?: number; stop?: AutoStop } & TableDealRequest)
+  | { type: 'auto.start'; game: string; action: unknown; stop?: AutoStop; limit?: number; speed?: number }
+  | { type: 'auto.sync' }
+  | { type: 'auto.stop' }
   | { type: 'buyIn' }
   | { type: 'room'; index: number }
   | { type: 'charms.pull'; count: 1 | 10 }
@@ -53,6 +57,13 @@ export type Action = PlayerAction | AdminAction;
 
 /** What an action returned besides the new state: Keno's draws, or the capsules a pull opened. */
 export type ActResult =
+  | (AutoReply &
+      (
+        | { rounds: KenoRound[] | PlinkoRound[] | RouletteRound[] | SlotRound[] }
+        | { steps: MinesStep[]; rounds: MinesRound[] }
+        | { live: null; rounds: DeepDropRound[] }
+        | { plays: TablePlay[] }
+      ))
   | { rounds: KenoRound[] | PlinkoRound[] | RouletteRound[] | SlotRound[] }
   | { steps: MinesStep[]; rounds: MinesRound[] }
   | { live: DeepDropLive | null; rounds: DeepDropRound[] }
@@ -69,7 +80,7 @@ const fail = (error: string) => ({ ok: false as const, error });
  * same code runs on the server, for members, and in a guest's browser.
  * Admin actions are refused unless `admin` is set.
  */
-export function act(state: PlayerState, raw: unknown, ctx: EngineContext, opts: { admin?: boolean } = {}): ActOutcome {
+export function act(state: PlayerState, raw: unknown, ctx: EngineContext, opts: { admin?: boolean; auto?: boolean } = {}): ActOutcome {
   if (!raw || typeof raw !== 'object') return fail('No action.');
   const a = raw as Action;
   const t = ctx.tuning;
@@ -77,7 +88,22 @@ export function act(state: PlayerState, raw: unknown, ctx: EngineContext, opts: 
 
   if (typeof a.type !== 'string') return fail('No action.');
   if (a.type.startsWith('admin.') && !opts.admin) return fail('Only the pit boss can do that.');
+  // A round played by hand while auto play runs: auto play settles what's due and stops first.
+  if (!opts.auto && playsRound(a.type) && autoSession(state)?.on) {
+    const stopped = autoStop(state, ctx);
+    if (!stopped.ok) return fail(stopped.error);
+    return act(stopped.state, raw, ctx, opts);
+  }
   switch (a.type) {
+    case 'auto.start': {
+      const out = autoStart(state, a, ctx, opts);
+      return out.ok ? { ok: true, state: out.state, result: out.result as unknown as ActResult } : fail(out.error);
+    }
+    case 'auto.sync':
+    case 'auto.stop': {
+      const out = a.type === 'auto.sync' ? autoSync(state, ctx, opts) : autoStop(state, ctx);
+      return out.ok ? { ok: true, state: out.state, result: out.result as unknown as ActResult } : fail(out.error);
+    }
     case 'keno.play': {
       const out = playKeno(state, a, ctx);
       return out.ok ? { ok: true, state: out.state, result: { rounds: out.rounds } } : fail(out.error);

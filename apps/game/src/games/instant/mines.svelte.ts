@@ -4,6 +4,7 @@ import { autoplay } from '../../lib/autoplay.svelte';
 import { floor } from '../../lib/floor.svelte';
 import { meta } from '../../lib/meta.svelte';
 import { Decimal, formatMoney } from '../../lib/money';
+import { playOrAuto, SPEED } from '../../lib/autofeed.svelte';
 import { player } from '../../lib/player.svelte';
 import { load, save } from '../../lib/save';
 import { sfx } from '../../lib/sound';
@@ -504,7 +505,7 @@ export class MinesGame extends InstantGame {
     let decided: { steps: MinesStep[]; rounds: MinesRound[] } = { steps: [], rounds: [] };
     let holds: number[] = [];
     this.asking = true;
-    const out = await player.act({ type: 'mines.auto', bombs: this.bombs, digs: this.autoDigs, step: this.step, room: floor.current, rounds, stop }, (landed) => {
+    const out = await playOrAuto(true, 'mines', { type: 'mines.auto', bombs: this.bombs, digs: this.autoDigs, step: this.step, room: floor.current, rounds, stop }, SPEED[this.seq.speed] ?? 1, (landed) => {
       decided = landed.result && 'steps' in landed.result ? landed.result : decided;
       holds = player.holdBack(decided.rounds, before);
       player.view('mines', { ...minesProgress(player.truth), vault: vaultBefore, live: null });

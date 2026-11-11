@@ -13,6 +13,7 @@ import { autoplay } from '../../lib/autoplay.svelte';
 import { floor } from '../../lib/floor.svelte';
 import { meta } from '../../lib/meta.svelte';
 import { Decimal } from '../../lib/money';
+import { playOrAuto, SPEED } from '../../lib/autofeed.svelte';
 import { player } from '../../lib/player.svelte';
 import { load, save } from '../../lib/save';
 import { sfx } from '../../lib/sound';
@@ -225,7 +226,7 @@ export class PlinkoGame extends InstantGame {
     let decided: { r: PlinkoRound; hold: number }[] = [];
     this.asking = true;
     this.out += count;
-    const out = await player.act({ type: 'plinko.play', rows: this.rows, risk: this.risk, step: this.step, room: floor.current, rounds: count, stop }, (landed) => {
+    const out = await playOrAuto(this.autoPlay, 'plinko', { type: 'plinko.play', rows: this.rows, risk: this.risk, step: this.step, room: floor.current, rounds: count, stop }, SPEED[this.seq.speed] ?? 1, (landed) => {
       const rounds = landed.result && 'rounds' in landed.result ? (landed.result.rounds as PlinkoRound[]) : [];
       const ids = player.holdBack(rounds, before);
       decided = rounds.map((r, i) => ({ r, hold: ids[i]! }));

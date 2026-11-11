@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { newSeedKey, seedsFor } from '../src/seeds';
+import { newSeedKey, seedFn, seedsFor } from '../src/seeds';
 
 describe('round seeds', () => {
   it('are the same for the same key, game and round, and differ otherwise', async () => {
@@ -17,5 +17,17 @@ describe('round seeds', () => {
     const seed = await seedsFor(newSeedKey(), [{ game: 'keno', from: 0, count: 1 }]);
     expect(() => seed('keno', 1)).toThrow();
     expect(() => seed('charms', 0)).toThrow();
+  });
+});
+
+describe('the synchronous seed', () => {
+  it('matches the Web Crypto seed exactly', async () => {
+    for (let k = 0; k < 5; k++) {
+      const key = newSeedKey();
+      const slow = await seedsFor(key, [{ game: 'keno', from: 0, count: 20 }, { game: 'blackjack.shoe', from: 3, count: 2 }]);
+      const fast = seedFn(key);
+      for (let r = 0; r < 20; r++) expect(fast('keno', r)).toBe(slow('keno', r));
+      expect(fast('blackjack.shoe', 4)).toBe(slow('blackjack.shoe', 4));
+    }
   });
 });

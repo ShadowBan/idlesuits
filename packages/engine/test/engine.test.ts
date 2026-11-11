@@ -35,6 +35,8 @@ import {
   type KenoRound,
   type PlayerState,
   type TablePlay,
+  type AutoReply,
+  autoSession,
   tableAdapter,
   tableProgress,
 } from '../src';
@@ -621,5 +623,77 @@ describe('poker tables on the engine', () => {
       expect(p.blind).toHaveLength(2);
       expect(p.settled!.blind).toHaveLength(2);
     }
+  });
+});
+
+describe('auto play on the host’s clock', () => {
+  const at = (now: number): EngineContext => ({ ...ctx('auto'), now });
+  const T0 = 1_800_000_000_000;
+  const keno = { type: 'keno.play', ticket: [3, 17, 22, 41, 58], step: 0, room: 0 };
+
+  it('starts a minute ahead, then settles rounds as they come due', () => {
+    const start = act({ ...freshPlayer('s'), bank: '1e9' }, { type: 'auto.start', game: 'keno', action: keno }, at(T0));
+    if (!start.ok) throw new Error(start.error);
+    const first = start.result as unknown as AutoReply & { rounds: unknown[] };
+    expect(first.summary?.rounds).toBe(12);
+    expect(first.rounds).toHaveLength(12);
+    // Ten minutes on: 125 more draws, and the summary is the bank's change.
+    const before = bankOf(start.state);
+    const later = act(start.state, { type: 'auto.sync' }, at(T0 + 600_000));
+    if (!later.ok) throw new Error(later.error);
+    const r = later.result as unknown as AutoReply & { rounds: unknown[] };
+    expect(r.summary?.rounds).toBe(125);
+    expect(Number(r.summary?.net)).toBeCloseTo(bankOf(later.state).sub(before).toNumber(), 6);
+    // Only about a minute's worth come back to show.
+    expect(r.rounds.length).toBeLessThanOrEqual(15);
+    expect(later.state.keno.round).toBe(137);
+  });
+
+  it('counts at most 72 hours away, a few requests at a time, then stops', () => {
+    let out = act({ ...freshPlayer('s'), bank: '1e15' }, { type: 'auto.start', game: 'keno', action: keno }, at(T0));
+    if (!out.ok) throw new Error(out.error);
+    let total = 12;
+    let requests = 0;
+    for (;;) {
+      out = act(out.state, { type: 'auto.sync' }, at(T0 + 100 * 3_600_000));
+      if (!out.ok) throw new Error(out.error);
+      requests++;
+      const r = out.result as unknown as AutoReply;
+      total += r.summary?.rounds ?? 0;
+      if (!r.more) break;
+    }
+    expect(requests).toBeGreaterThan(5);
+    expect(total).toBe(Math.floor((72 * 3_600_000 + 60_000) / 4_800));
+    expect(autoSession(out.state)?.on).toBe(false);
+    expect(autoSession(out.state)?.reason).toMatch(/72 hours/);
+  });
+
+  it('stops on a stop rule, and when a round is played by hand', () => {
+    const ruled = act({ ...freshPlayer('s'), bank: '1e9' }, { type: 'auto.start', game: 'keno', action: keno, stop: { above: '1' } }, at(T0));
+    expect(ruled.ok && autoSession(ruled.state)?.on).toBe(false);
+    const on = act({ ...freshPlayer('s'), bank: '1e9' }, { type: 'auto.start', game: 'roulette', action: { type: 'roulette.spin', layout: { red: '10' }, room: 0 } }, at(T0));
+    if (!on.ok) throw new Error(on.error);
+    const byHand = act(on.state, { type: 'keno.play', ticket: [1, 2, 3], step: 0, room: 0 }, at(T0 + 30_000));
+    expect(byHand.ok && autoSession(byHand.state)?.on).toBe(false);
+  });
+
+  it('plays tables, mines and slots on its own', () => {
+    for (const [game, action] of [
+      ['blackjack', { type: 'table.auto', game: 'blackjack', room: 0, bet: '10' }],
+      ['mines', { type: 'mines.auto', bombs: 3, digs: 3, step: 0, room: 0 }],
+      ['vault', { type: 'slot.spin', machine: 'vault', step: 0, room: 0 }],
+      ['deepdrop', { type: 'deepdrop.drop', step: 0, room: 0, pace: 1, target: 2 }],
+    ] as const) {
+      const out = act({ ...freshPlayer('s'), bank: '1e9' }, { type: 'auto.start', game, action }, at(T0));
+      if (!out.ok) throw new Error(`${game}: ${out.error}`);
+      const r = out.result as unknown as AutoReply;
+      expect(r.summary!.rounds).toBeGreaterThan(5);
+      expect(autoSession(out.state)?.on).toBe(true);
+    }
+  });
+
+  it('refuses an action that is not the game’s own', () => {
+    expect(act(freshPlayer('s'), { type: 'auto.start', game: 'keno', action: { type: 'admin.bank', set: '1e30' } }, at(T0)).ok).toBe(false);
+    expect(act(freshPlayer('s'), { type: 'auto.start', game: 'vault', action: { type: 'slot.spin', machine: 'forge', step: 0, room: 0 } }, at(T0)).ok).toBe(false);
   });
 });

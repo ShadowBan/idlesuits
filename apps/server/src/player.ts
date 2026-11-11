@@ -5,14 +5,13 @@ import {
   isOldStateKey,
   playerFromSave,
   readPlayer,
-  seedsWanted,
   type ActResult,
   type EngineTuning,
   type PlayerState,
 } from '@idlesuits/engine';
 import { DurableObject } from 'cloudflare:workers';
 import type { Env } from './index';
-import { newSeedKey, seedsFor } from './seeds';
+import { newSeedKey, seedFn } from './seeds';
 
 /** The largest save a player can store, in bytes of JSON. */
 export const MAX_SAVE_BYTES = 1_000_000;
@@ -144,8 +143,7 @@ export class PlayerDO extends DurableObject<Env> {
   async watch(tuning: EngineTuning): Promise<ActReply> {
     for (let tries = 0; tries < 3; tries++) {
       const { state, key } = this.load();
-      const seed = await seedsFor(key, seedsWanted(state, { type: 'deepdrop.expire' }));
-      const at = deepdropSnapsAt(state, { now: Date.now(), tuning, seed });
+      const at = deepdropSnapsAt(state, { now: Date.now(), tuning, seed: seedFn(key) });
       if (at === null) return { ok: true, state, result: { live: null, rounds: [] } };
       const wait = Math.min(at - Date.now(), 120_000);
       if (wait > 0) await new Promise((r) => setTimeout(r, wait + 20));
@@ -162,16 +160,12 @@ export class PlayerDO extends DurableObject<Env> {
    */
   async act(action: unknown, tuning: EngineTuning, opts: { admin: boolean; limited?: boolean }): Promise<ActReply> {
     if (opts.limited !== false && !this.spend()) return { ok: false, error: 'Slow down a little.', status: 429 };
-    // One action at a time, start to finish: nothing else runs while the seeds are worked out, so two
-    // requests can't both play from the same state.
-    return this.ctx.blockConcurrencyWhile(async (): Promise<ActReply> => {
-      const { state, key } = this.load();
-      // Every seed this action could need, worked out before it runs.
-      const seed = await seedsFor(key, seedsWanted(state, action));
-      const out = act(state, action, { now: Date.now(), tuning, seed }, { admin: opts.admin });
-      if (!out.ok) return { ok: false, error: out.error, status: 400 };
-      this.store(out.state, key);
-      return out;
-    });
+    // One action at a time, start to finish, with nothing awaited in between: two requests can't both play
+    // from the same state. Seeds are worked out as the engine asks for them.
+    const { state, key } = this.load();
+    const out = act(state, action, { now: Date.now(), tuning, seed: seedFn(key) }, { admin: opts.admin });
+    if (!out.ok) return { ok: false, error: out.error, status: 400 };
+    this.store(out.state, key);
+    return out;
   }
 }

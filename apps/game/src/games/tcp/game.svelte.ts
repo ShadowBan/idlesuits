@@ -17,6 +17,7 @@ import {
 } from '@idlesuits/sim';
 import type { TableSettled } from '@idlesuits/engine';
 import { BlindHands } from '../../lib/blind.svelte';
+import { autoFeed, SPEED } from '../../lib/autofeed.svelte';
 import { player } from '../../lib/player.svelte';
 import { landSettled, playTable, sidesInDollars } from '../../lib/table.svelte';
 import type { BreakdownLine } from '../../lib/breakdown';
@@ -137,6 +138,8 @@ export class TcpGame {
   start() {
     if (this.started || this.seq.disposed) return;
     this.started = true;
+    // Auto play still running here on the engine's clock (left on, or away): the table picks it back up.
+    if (autoFeed.isOn('tcp')) queueMicrotask(() => this.setAutoPlay(true));
     // Sitting down with too little to bet goes straight to the buy-back.
     if (this.broke) {
       // Losing it all is the penalty for running unattended: auto play stops until it's pressed again.
@@ -220,6 +223,7 @@ export class TcpGame {
       autoPlay: () => this.autoPlay,
       wait: (ms) => this.seq.wait(ms),
       between: RESULT_HOLD_MS,
+      speed: SPEED[this.seq.speed] ?? 1,
       start: (play, unit) => {
         this.roundAnte = unit;
         this.blind.fromDeal(play.blind, Number(play.info.holeCards) || 0);

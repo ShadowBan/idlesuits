@@ -1,11 +1,21 @@
 <script lang="ts">
   import { account } from '../lib/account.svelte';
 
-  /** Why the save changed under the player, after a reload: shown a few seconds. */
-  let toast = $state(account.notice);
+  /**
+   * Something to tell the player, shown a few seconds (or until tapped): why
+   * the save changed under them after a reload, or what auto play did while
+   * they were away. Each new message takes the place of the last.
+   */
+  let toast = $state<string | null>(null);
+  $effect(() => {
+    const notice = account.notice;
+    if (!notice) return;
+    toast = notice;
+    account.notice = null;
+  });
   $effect(() => {
     if (!toast) return;
-    const t = setTimeout(() => (toast = null), 5000);
+    const t = setTimeout(() => (toast = null), 9000);
     return () => clearTimeout(t);
   });
 
@@ -20,7 +30,7 @@
   is overwritten until the player picks which progress to keep.
 -->
 {#if toast && account.status !== 'conflict'}
-  <div class="toast" role="status">{toast}</div>
+  <div class="toast-wrap" role="status"><button type="button" class="toast" onclick={() => (toast = null)}>{toast}</button></div>
 {/if}
 
 {#if account.status === 'conflict' && account.conflict}
@@ -60,15 +70,20 @@
     top: 12px;
     left: 50%;
     translate: -50% 0;
+    max-width: min(92vw, 640px);
+    min-height: 0;
     padding: 10px 16px;
-    border-radius: 999px;
+    border: 0;
+    border-radius: 14px;
     background: #10202e;
+    text-align: center;
+    cursor: pointer;
     box-shadow:
       inset 0 0 0 1px rgb(95 208 255 / 0.7),
       0 8px 24px rgb(0 0 0 / 0.5);
     font: 600 13px/1.2 var(--font-ui);
     color: #bfe8ff;
-    animation: toast 5s ease forwards;
+    animation: toast 9s ease forwards;
     pointer-events: none;
   }
   @keyframes toast {

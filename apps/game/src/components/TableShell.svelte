@@ -8,6 +8,7 @@
   import { route } from '../lib/route.svelte';
   import { SPEEDS, type SpeedControl } from '../lib/sequencer.svelte';
   import { autoplay } from '../lib/autoplay.svelte';
+  import { autoFeed } from '../lib/autofeed.svelte';
   import { ui } from '../lib/ui.svelte';
   import BankCounter from './BankCounter.svelte';
   import TokenCounter from './charms/TokenCounter.svelte';
@@ -97,12 +98,18 @@
     if (stops === lastStop) return;
     lastStop = stops;
     untrack(() => {
-      if (autoPlay) onAuto(false);
+      if (autoPlay) toggleAuto(false);
       stopped = autoplay.reason;
     });
     clearTimeout(stoppedTimer);
     stoppedTimer = setTimeout(() => (stopped = null), 6000);
   });
+
+  /** The player turns auto play on or off: off stops it on the engine's clock too (leaving the table doesn't). */
+  function toggleAuto(on: boolean) {
+    if (!on) autoFeed.stop();
+    onAuto(on);
+  }
 
   function tap(e: MouseEvent) {
     if ((e.target as HTMLElement).closest('button, a, input, dialog')) return;
@@ -195,7 +202,7 @@
   <!-- Auto play and the pace sit right over the action, a thumb away; ⚙ opens the game's auto play settings. -->
   <div class="quick">
     <div class="auto-group">
-      <button type="button" class="auto-switch" role="switch" aria-checked={autoPlay} onclick={() => onAuto(!autoPlay)}>
+      <button type="button" class="auto-switch" role="switch" aria-checked={autoPlay} onclick={() => toggleAuto(!autoPlay)}>
         <i aria-hidden="true"></i>
         Auto <b>{autoPlay ? 'On' : 'Off'}</b>
       </button>

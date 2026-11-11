@@ -1,6 +1,7 @@
 import { BET_STEPS } from '@idlesuits/engine';
 import type { RoundReport } from '@idlesuits/sim';
 import type { BreakdownLine } from '../../lib/breakdown';
+import { autoFeed } from '../../lib/autofeed.svelte';
 import { bankroll } from '../../lib/casino.svelte';
 import { floor } from '../../lib/floor.svelte';
 import { meta } from '../../lib/meta.svelte';
@@ -79,6 +80,10 @@ export class InstantGame {
     return this.started && !this.gameOver && this.bet.lte(this.bank);
   }
 
+  setAutoPlay(on: boolean) {
+    this.autoPlay = on;
+  }
+
   setStep(step: number) {
     if (step < 0 || step >= BET_STEPS.length) return;
     this.step = step;
@@ -96,6 +101,8 @@ export class InstantGame {
   start() {
     if (this.started) return;
     this.started = true;
+    // Auto play still running here on the engine's clock (left on, or away): the table picks it back up.
+    if (autoFeed.isOn(this.id)) queueMicrotask(() => this.setAutoPlay(true));
     this.checkBroke();
   }
 

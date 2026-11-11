@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { Component } from 'svelte';
+  import { untrack, type Component } from 'svelte';
   import CharmsPage from './components/charms/CharmsPage.svelte';
   import ClubPage from './components/ClubPage.svelte';
   import Lobby from './components/Lobby.svelte';
@@ -10,6 +10,28 @@
   import { findGame, type GameProps } from './lib/games';
   import { route } from './lib/route.svelte';
   import { recent } from './lib/recent.svelte';
+  import { autoFeed } from './lib/autofeed.svelte';
+  import { player } from './lib/player.svelte';
+
+  /*
+   * Auto play runs on the engine's clock, table shown or not. Once the player
+   * is known (and again whenever the page comes back into view), whatever came
+   * due while they were away settles, and what it came to is told. At the
+   * table that's playing, the table itself does this as it shows the rounds.
+   */
+  const catchUp = () => {
+    const s = autoFeed.session;
+    if (player.ready && s?.on && route.current !== s.game) void autoFeed.catchUp();
+  };
+  // Only when the player becomes known: catching up changes the state, which mustn't set this off again.
+  $effect(() => {
+    if (player.ready) untrack(catchUp);
+  });
+  $effect(() => {
+    const on = () => document.visibilityState === 'visible' && catchUp();
+    document.addEventListener('visibilitychange', on);
+    return () => document.removeEventListener('visibilitychange', on);
+  });
 
   /** The table being played, if the route names one that exists and is built. */
   const openGame = $derived.by(() => {

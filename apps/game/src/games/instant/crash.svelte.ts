@@ -4,6 +4,7 @@ import { autoplay } from '../../lib/autoplay.svelte';
 import { floor } from '../../lib/floor.svelte';
 import { meta } from '../../lib/meta.svelte';
 import { Decimal } from '../../lib/money';
+import { playOrAuto, SPEED } from '../../lib/autofeed.svelte';
 import { player } from '../../lib/player.svelte';
 import { load, save } from '../../lib/save';
 import { sfx } from '../../lib/sound';
@@ -286,8 +287,11 @@ export class CrashGame extends InstantGame {
       const before = player.shown.floor.best;
       let rounds: DeepDropRound[] = [];
       let holds: number[] = [];
-      const out = await player.act(
+      const out = await playOrAuto(
+        true,
+        'deepdrop',
         { type: 'deepdrop.drop', step: this.step, room: floor.current, pace: PACE[this.seq.speed] ?? 1, target: this.marker, rounds: Math.min(AUTO_BATCH, left), stop },
+        SPEED[this.seq.speed] ?? 1,
         (landed) => {
           rounds = landed.result && 'live' in landed.result ? landed.result.rounds : [];
           holds = player.holdBack(rounds, before);

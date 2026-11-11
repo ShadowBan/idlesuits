@@ -3,6 +3,7 @@ import { autoplay } from './autoplay.svelte';
 import { floor } from './floor.svelte';
 import { meta } from './meta.svelte';
 import { Decimal } from './money';
+import { playOrAuto } from './autofeed.svelte';
 import { player } from './player.svelte';
 
 /** What a table action brought back: the plays to show, each settled one's money held back until it's shown. */
@@ -21,12 +22,14 @@ export interface TableReply {
  * settles has its money held off the screen until the table has shown it:
  * call `landSettled` then.
  */
-export async function tableAct(action: Action): Promise<TableReply> {
+export async function tableAct(action: Action, speed = 1): Promise<TableReply> {
   const before = player.shown.floor.best;
   let holds: (number | null)[] = [];
   const held = (p: TablePlay) =>
     p.settled ? { game: p.settled.game, bet: p.settled.unit, net: 0, onHouse: true, tokens: p.settled.tokens, money: p.settled.money, staked: p.settled.staked, after: p.settled.after } : null;
-  const out = await player.act(action, (landed) => {
+  const send = (landed: Parameters<typeof player.act>[1]) =>
+    action.type === 'table.auto' ? playOrAuto(true, action.game, action as unknown as Record<string, unknown>, speed, landed!) : player.act(action, landed);
+  const out = await send((landed) => {
     const plays = landed.result && 'plays' in landed.result ? landed.result.plays : [];
     // The first play's stake is already down (it was dealt by this action, or before); later ones' show as they start.
     holds = plays.map((p, i) => {
@@ -86,6 +89,8 @@ export interface TableRound<D, C> {
   settled: (play: TablePlay, hold: number | null, unit: Decimal) => void;
   /** The engine turned the round down. */
   failed: (error: string) => void;
+  /** Auto play's pace multiplier: the table's deal speed. */
+  speed?: number;
 }
 
 /**
@@ -107,7 +112,7 @@ export async function playTable<D, C>(t: TableRound<D, C>): Promise<boolean> {
       ...req,
       rounds: Math.min(AUTO_BATCH, s.stopAfter ? Math.max(1, s.stopRounds - autoplay.rounds) : AUTO_BATCH),
       stop: { winX: s.stopOnWin ? s.stopWinX : undefined, below: s.stopBelow ? s.stopBelowAmount : undefined, above: s.stopAbove ? s.stopAboveAmount : undefined },
-    });
+    }, t.speed ?? 1);
   } else reply = await tableAct(live ? { type: 'table.resume', game: t.game } : { type: 'table.deal', game: t.game, ...req });
   if (!reply.ok) {
     t.failed(reply.error ?? 'The hand couldn’t be dealt.');

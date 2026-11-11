@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { autoFeed } from '../lib/autofeed.svelte';
   import type { Snippet } from 'svelte';
   import { autoplay, type AutoSettings } from '../lib/autoplay.svelte';
   import { findGame } from '../lib/games';
@@ -53,7 +54,10 @@
       <button type="button" class="close" onclick={() => dialog?.close()} aria-label="Close">✕</button>
     </header>
 
-    <button type="button" class="master" role="switch" aria-checked={autoPlay} onclick={() => onAuto(!autoPlay)}>
+    <button type="button" class="master" role="switch" aria-checked={autoPlay} onclick={() => {
+        if (autoPlay) autoFeed.stop();
+        onAuto(!autoPlay);
+      }}>
       <i aria-hidden="true"></i>
       <span>Auto play is <b>{autoPlay ? 'on' : 'off'}</b></span>
       <small>{autoPlay && autoplay.rounds ? `${autoplay.rounds} rounds so far` : 'stops if you bust'}</small>

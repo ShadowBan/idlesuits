@@ -14,8 +14,13 @@ export interface AccountUser {
 /** How the account's cloud save stands. `local` is a guest, or a build with no server. */
 export type SyncStatus = 'checking' | 'local' | 'syncing' | 'synced' | 'error' | 'conflict';
 
-/** Pushes wait for a quiet moment, and go at most this often: an idle game saves after every hand. */
-const PUSH_EVERY_MS = 15_000;
+/**
+ * Pushes wait for a quiet moment, and go at most this often: an idle game
+ * saves after every hand. The cloud save holds only preferences and the bets
+ * on the felt (the server keeps everything that decides a result), so a couple
+ * of minutes late costs nothing; leaving the page sends it at once.
+ */
+const PUSH_EVERY_MS = 120_000;
 /**
  * Writes this soon after the page loads are the game setting itself up (a
  * table's bets, the room), not the player playing: they don't send the save,

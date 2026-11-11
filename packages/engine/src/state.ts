@@ -126,6 +126,8 @@ export interface PlayerState {
   keno: KenoProgress;
   /** Every other engine game's progress between rounds, by game: each game reads its own. */
   games: Record<string, unknown>;
+  /** Auto play running on the host's clock, if any (see `auto.ts`). */
+  auto: unknown;
 }
 
 export const STARTING_BANK = 500;
@@ -145,6 +147,7 @@ export function freshPlayer(seed: string): PlayerState {
     wins: {},
     keno: freshKeno(),
     games: {},
+    auto: null,
   };
 }
 
@@ -269,6 +272,7 @@ export function readPlayer(raw: unknown, seed: string): PlayerState {
     wins,
     keno: readKeno(p.keno),
     games: Object.fromEntries(Object.entries(obj(p.games)).filter(([, g]) => g && typeof g === 'object' && !Array.isArray(g))),
+    auto: p.auto && typeof p.auto === 'object' ? p.auto : null,
   };
 }
 

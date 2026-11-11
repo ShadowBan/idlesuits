@@ -10,6 +10,7 @@ import {
   type Card,
 } from '@idlesuits/sim';
 import type { BreakdownLine } from '../../lib/breakdown';
+import { autoFeed, SPEED } from '../../lib/autofeed.svelte';
 import type { TableSettled } from '@idlesuits/engine';
 import { autoplay } from '../../lib/autoplay.svelte';
 import { bankroll } from '../../lib/casino.svelte';
@@ -153,6 +154,8 @@ export class BaccaratGame {
   start() {
     if (this.started || this.seq.disposed) return;
     this.started = true;
+    // Auto play still running here on the engine's clock (left on, or away): the table picks it back up.
+    if (autoFeed.isOn('baccarat')) queueMicrotask(() => this.setAutoPlay(true));
     if (this.broke) {
       // Losing it all is the penalty for running unattended: auto play stops until it's pressed again.
       this.gameOver = true;
@@ -243,7 +246,7 @@ export class BaccaratGame {
           ...req,
           rounds: Math.min(AUTO_BATCH, s.stopAfter ? Math.max(1, s.stopRounds - autoplay.rounds) : AUTO_BATCH),
           stop: { winX: s.stopOnWin ? s.stopWinX : undefined, below: s.stopBelow ? s.stopBelowAmount : undefined, above: s.stopAbove ? s.stopAboveAmount : undefined },
-        })
+        }, SPEED[this.seq.speed] ?? 1)
       : await tableAct({ type: 'table.deal', ...req });
     if (!reply.ok) {
       this.error = reply.error ?? 'The coup couldn’t be dealt.';
