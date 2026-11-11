@@ -55,6 +55,7 @@
       <p class="sub">Pick a table. Your money follows you from game to game.</p>
     </div>
     <div class="corner">
+      <a class="club leaders" href="#/leaders" title="This week's and all-time leaderboards"><span class="mark" aria-hidden="true">★</span>Leaderboards</a>
       <a class="club" href="#/club" title="Your Players Club profile">
         <span class="mark" aria-hidden="true">♠</span>{account.user ? account.user.name : 'Players Club'}
       </a>

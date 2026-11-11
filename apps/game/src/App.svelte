@@ -2,6 +2,7 @@
   import { untrack, type Component } from 'svelte';
   import CharmsPage from './components/charms/CharmsPage.svelte';
   import ClubPage from './components/ClubPage.svelte';
+  import LeadersPage from './components/LeadersPage.svelte';
   import Lobby from './components/Lobby.svelte';
   import AdminPanel from './components/AdminPanel.svelte';
   import SettingsDialog from './components/SettingsDialog.svelte';
@@ -90,6 +91,8 @@
   <CharmsPage onExit={exit} />
 {:else if route.current === 'club'}
   <ClubPage onExit={exit} />
+{:else if route.current === 'leaders'}
+  <LeadersPage onExit={exit} />
 {:else if !openGame}
   <Lobby onPlay={play} />
 {:else if loaded?.id === openGame.id}

@@ -128,6 +128,8 @@ export interface PlayerState {
   games: Record<string, unknown>;
   /** Auto play running on the host's clock, if any (see `auto.ts`). */
   auto: unknown;
+  /** The player's leaderboard records, kept by the server (see apps/server). */
+  boards: unknown;
 }
 
 export const STARTING_BANK = 500;
@@ -148,6 +150,7 @@ export function freshPlayer(seed: string): PlayerState {
     keno: freshKeno(),
     games: {},
     auto: null,
+    boards: null,
   };
 }
 
@@ -273,6 +276,7 @@ export function readPlayer(raw: unknown, seed: string): PlayerState {
     keno: readKeno(p.keno),
     games: Object.fromEntries(Object.entries(obj(p.games)).filter(([, g]) => g && typeof g === 'object' && !Array.isArray(g))),
     auto: p.auto && typeof p.auto === 'object' ? p.auto : null,
+    boards: p.boards && typeof p.boards === 'object' ? p.boards : null,
   };
 }
 

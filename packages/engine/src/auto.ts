@@ -94,6 +94,8 @@ export interface AutoSummary {
   net: string;
   /** The biggest single win, in dollars, and what it was. */
   biggest: { money: string; text: string } | null;
+  /** The best win as a multiple of its bet, and what it was. */
+  bestX: { x: number; text: string } | null;
   tokens: number;
   /** The stretch of time it covers. */
   from: number;
@@ -137,14 +139,15 @@ function cleanAction(game: string, raw: unknown): (Record<string, unknown> & { t
 }
 
 /** What one round came to, in dollars, and what it's called: from any game's round. */
-function roundMoney(r: Record<string, unknown>): { money: Decimal; text: string; tokens: number } {
+export function roundMoney(r: Record<string, unknown>): { money: Decimal; x: number; text: string; tokens: number; game: string } {
   const settled = r.settled as Record<string, unknown> | null | undefined;
   if (settled) {
     const unit = amount(settled.unit);
     const blind = ((settled.blind as { money: string }[]) ?? []).reduce((sum, b) => sum.add(new Decimal(b.money)), new Decimal(0));
-    return { money: unit.mul(Number(settled.units)).add(blind), text: String(settled.text ?? ''), tokens: Number(settled.tokens) || 0 };
+    const money = unit.mul(Number(settled.units)).add(blind);
+    return { money, x: unit.gt(0) ? money.div(unit).toNumber() : 0, text: String(settled.text ?? ''), tokens: Number(settled.tokens) || 0, game: String(settled.game ?? '') };
   }
-  return { money: amount(r.bet).mul(Number(r.net)), text: String(r.text ?? ''), tokens: Number(r.tokens) || 0 };
+  return { money: amount(r.bet).mul(Number(r.net)), x: Number(r.net) || 0, text: String(r.text ?? ''), tokens: Number(r.tokens) || 0, game: String(r.game ?? r.machine ?? '') };
 }
 
 /** The rounds in an action's result, whatever its game, and a way to rebuild a result from some of them. */
@@ -193,6 +196,7 @@ export function autoSync(state: PlayerState, ctx: EngineContext, opts: { admin?:
   let reason: string | undefined;
   const results: unknown[] = [];
   let biggest: { money: Decimal; text: string } | null = null;
+  let bestX: { x: number; text: string } | null = null;
   let tokens = 0;
   const bankBefore = amount(state.bank);
   const ask = (n: number): ActOutcome => act(current, { ...session.action, rounds: n, stop: session.stop } as unknown as Action, ctx, { ...opts, auto: true });
@@ -210,6 +214,7 @@ export function autoSync(state: PlayerState, ctx: EngineContext, opts: { admin?:
       const m = roundMoney(r);
       tokens += m.tokens;
       if (m.money.gt(0) && (!biggest || m.money.gt(biggest.money))) biggest = { money: m.money, text: m.text };
+      if (m.x > 0 && (!bestX || m.x > bestX.x)) bestX = { x: m.x, text: m.text };
     }
     settledCount += rounds.length;
     // Fewer rounds than asked: a stop rule, or the bank, ended it.
@@ -241,6 +246,7 @@ export function autoSync(state: PlayerState, ctx: EngineContext, opts: { admin?:
         rounds: settledCount,
         net: amount(current.bank).sub(bankBefore).toString(),
         biggest: biggest ? { money: biggest.money.toString(), text: biggest.text } : null,
+        bestX,
         tokens,
         from: session.last,
         to: next.last,

@@ -9,7 +9,8 @@ import {
   type EngineTuning,
   type PlayerState,
 } from '@idlesuits/engine';
-import { autoSession, JACKPOT_SEEDS, type JackpotLink } from '@idlesuits/engine';
+import { autoSession, JACKPOT_SEEDS, playsRound, scoreOf, type JackpotLink } from '@idlesuits/engine';
+import { record, rows } from './boards';
 import { DurableObject } from 'cloudflare:workers';
 import type { Env } from './index';
 import type { JackpotDO } from './jackpot';
@@ -174,6 +175,29 @@ export class PlayerDO extends DurableObject<Env> {
    * the pit boss's tools through; `limited` is false for the pit boss acting
    * on someone else's account.
    */
+  /** Leaderboard rows the database didn't take: sent again with the next ones. */
+  private boardRetry: ReturnType<typeof rows>['rows'] = [];
+
+  /** Puts a player's changed records on the leaderboards. */
+  private async pushBoards(list: ReturnType<typeof rows>['rows']) {
+    this.boardRetry = [];
+    // Only the latest of each board and period.
+    const latest = new Map(list.map((r) => [`${r.board}|${r.period}`, r]));
+    try {
+      await this.env.DB.batch(
+        [...latest.values()].map((r) =>
+          this.env.DB.prepare(
+            `INSERT INTO scores (board, period, user_id, name, value, sort, detail, at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+             ON CONFLICT (board, period, user_id) DO UPDATE SET name = excluded.name, value = excluded.value, sort = excluded.sort, detail = excluded.detail, at = excluded.at`,
+          ).bind(r.board, r.period, r.user, r.name, r.value, r.sort, r.detail, r.at),
+        ),
+      );
+    } catch (e) {
+      this.boardRetry = [...latest.values()];
+      console.error('leaderboard write failed', e);
+    }
+  }
+
   /** Rounds played since the shared jackpot last heard of them: reported on the next check-in. */
   private pending: number | null = null;
   /** When the shared jackpot last heard from this player, and the meters it gave. */
@@ -236,9 +260,24 @@ export class PlayerDO extends DurableObject<Env> {
     // From here to the store, nothing is awaited: two requests can't both play from the same state.
     const { state, key } = this.load();
     const link: JackpotLink = { meters: this.meters ?? { ...JACKPOT_SEEDS }, due, rounds: 0, claims: [] };
-    const out = act(state, action, { now: Date.now(), tuning, seed: seedFn(key), link }, { admin: opts.admin });
+    const now = Date.now();
+    const out = act(state, action, { now, tuning, seed: seedFn(key), link }, { admin: opts.admin });
     if (!out.ok) return { ok: false, error: out.error, status: 400 };
+    // The leaderboards: every round played counts, the pit boss's excepted (they can mint money).
+    const type = (action as { type?: string } | null)?.type ?? '';
+    let boardRows: ReturnType<typeof rows>['rows'] = [];
+    if (!opts.admin && (playsRound(type) || type.startsWith('auto.'))) {
+      const scores = scoreOf(out.result) ?? { rounds: 0, biggest: null, bestX: null, tokens: 0 };
+      const r = record(state, out.state, scores, now);
+      out.state.boards = r.boards;
+      if (r.push) {
+        const pushed = rows(r.boards, { id, name }, now);
+        boardRows = pushed.rows;
+        out.state.boards = pushed.clean;
+      }
+    }
     this.store(out.state, key);
+    if (boardRows.length || this.boardRetry.length) await this.pushBoards([...this.boardRetry, ...boardRows]);
     this.pending = (this.pending ?? 0) + link.rounds;
     this.meters = link.meters;
     // A hit resets the meter for everyone at once.

@@ -176,6 +176,15 @@ it. Seeds are worked out on demand by a synchronous HMAC (`seedFn`, the same see
 - Pending round counts live in the PlayerDO's memory: if it's evicted between reports, a few
   minutes of contributions to the meters are lost (never a hit).
 
+## Step 4: leaderboards (2026-11-11)
+
+Four boards, each this week (from Monday, UTC) and all-time: biggest single win (dollars), best
+multiplier (a win as a multiple of its bet), net winnings and Tokens earned. Every member's round
+counts, except the pit boss's (they can mint money). Each `PlayerDO` keeps the player's records in
+their state (`state.boards`) and writes changed rows to D1 (`scores`, migration 0003): a new best
+at once, running totals at most every five minutes. `GET /api/leaderboard?board=&period=week|all`
+gives the top 50 (cached 30 s per Worker) and the signed-in member's own place. The page is `#/leaders`.
+
 Known follow-ups:
 
 - Stopping auto play partway through a batch still shows the rounds already decided

@@ -21,3 +21,4 @@ export * from './games/baccarat';
 export * from './games/poker';
 export * from './games/suits';
 export * from './auto';
+export * from './scores';

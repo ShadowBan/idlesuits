@@ -19,6 +19,7 @@ import {
 } from './auth';
 import { cleanTuning, ENGINE_GAMES, type EngineTuning, type PlayerState } from '@idlesuits/engine';
 import type { JackpotDO } from './jackpot';
+import { BOARDS, weekOf } from './boards';
 import { readTuning, rememberTuning } from './tuning';
 import type { ActReply, PlayerDO } from './player';
 
@@ -92,6 +93,38 @@ async function requireAdmin(req: Request, env: Env) {
   const me = await requireUser(req, env);
   if (me.user.role !== 'admin') throw new HttpError(403, 'Pit bosses only.');
   return me;
+}
+
+const boardCache = new Map<string, { at: number; rows: unknown[] }>();
+
+/** One board, this week's or all-time: the top 50, and the signed-in member's own place. */
+async function leaderboard(req: Request, env: Env, url: URL): Promise<Response> {
+  const board = url.searchParams.get('board') ?? 'win';
+  if (!(BOARDS as readonly string[]).includes(board)) throw new HttpError(400, 'No such board.');
+  const period = url.searchParams.get('period') === 'all' ? 'all' : weekOf(Date.now());
+  const key = `${board}|${period}`;
+  let hit = boardCache.get(key);
+  if (!hit || Date.now() - hit.at > 30_000) {
+    const { results } = await env.DB.prepare('SELECT user_id, name, value, detail FROM scores WHERE board = ? AND period = ? ORDER BY sort DESC LIMIT 50').bind(board, period).all();
+    hit = { at: Date.now(), rows: results };
+    boardCache.set(key, hit);
+  }
+  const top = (hit.rows as { user_id: string; name: string; value: string; detail: string | null }[]).map((r, i) => ({ rank: i + 1, name: r.name, value: r.value, detail: r.detail, me: false, id: r.user_id }));
+  const me = await currentUser(req, env);
+  let mine: { rank: number; value: string; detail: string | null } | null = null;
+  if (me) {
+    const row = await env.DB.prepare('SELECT value, sort, detail FROM scores WHERE board = ? AND period = ? AND user_id = ?').bind(board, period, me.user.id).first<{ value: string; sort: number; detail: string | null }>();
+    if (row) {
+      const above = await env.DB.prepare('SELECT COUNT(*) AS n FROM scores WHERE board = ? AND period = ? AND sort > ?').bind(board, period, row.sort).first<{ n: number }>();
+      mine = { rank: (above?.n ?? 0) + 1, value: row.value, detail: row.detail };
+    }
+  }
+  return json({
+    board,
+    period,
+    rows: top.map(({ id, ...r }) => ({ ...r, me: id === me?.user.id })),
+    mine,
+  });
 }
 
 function jackpot(env: Env) {
@@ -235,6 +268,9 @@ async function route(req: Request, env: Env): Promise<Response> {
     if (!out.ok) throw new HttpError(out.status, out.error);
     return json({ state: out.state, result: out.result });
   }
+
+  // The leaderboards: anyone can look; a member sees where they stand.
+  if (path === '/api/leaderboard' && method === 'GET') return leaderboard(req, env, url);
 
   // A member's live link: a hibernating WebSocket to their own server, carrying their actions (each a
   // fraction of a request's cost) while the casino is shown.
